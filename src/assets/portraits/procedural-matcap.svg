@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" role="img" aria-label="Procedural Matcap shader preview">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#071d28"/><stop offset="1" stop-color="#102c36"/></linearGradient>
+    <radialGradient id="matcap" cx="31%" cy="23%"><stop stop-color="#fff9d8"/><stop offset=".14" stop-color="#f8d86b"/><stop offset=".36" stop-color="#e67c57"/><stop offset=".63" stop-color="#753b94"/><stop offset=".84" stop-color="#183e62"/><stop offset="1" stop-color="#0b1727"/></radialGradient>
+    <pattern id="dots" width="15" height="15" patternUnits="userSpaceOnUse"><circle cx="3" cy="3" r="1.5" fill="#a7fbef" opacity=".35"/></pattern>
+  </defs>
+  <rect width="320" height="200" fill="url(#bg)"/><rect width="320" height="200" fill="url(#dots)"/>
+  <circle cx="160" cy="100" r="77" fill="url(#matcap)"/>
+  <path d="M92 102c17-42 43-65 80-73M108 147c38 21 80 13 111-14" fill="none" stroke="#8affea" stroke-width="3" opacity=".55"/>
+  <circle cx="137" cy="72" r="18" fill="#fff" opacity=".35"/>
+</svg>
