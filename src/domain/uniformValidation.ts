@@ -261,7 +261,7 @@ export function validateParameterDefinitions(
     if (definition.type === 'float' || definition.type === 'integer') {
       errors.push(...validateNumericParameter(definition))
     }
-    if (definition.type === 'color' && !/^#[0-9a-fA-F]{6}$/.test(definition.defaultValue)) {
+    if (definition.type === 'color' && !/^#[0-9a-f]{6}$/.test(definition.defaultValue)) {
       errors.push(error(definition.id, 'defaultValue', 'color', 'Color must be a six-digit hex value'))
     }
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { FloatParameter } from './parameters'
+import type { ColorParameter, FloatParameter } from './parameters'
 import { validateParameterDefinitions, validateUniformName } from './uniformValidation'
 
 const floatParam = (uniformName: string, overrides: Partial<FloatParameter> = {}): FloatParameter => ({
@@ -12,6 +12,14 @@ const floatParam = (uniformName: string, overrides: Partial<FloatParameter> = {}
   step: 0.1,
   defaultValue: 0.5,
   ...overrides,
+})
+
+const colorParam = (defaultValue: string): ColorParameter => ({
+  id: 'parameter-uTint',
+  uniformName: 'uTint',
+  label: 'Tint',
+  type: 'color',
+  defaultValue,
 })
 
 describe('validateUniformName', () => {
@@ -61,6 +69,12 @@ describe('validateParameterDefinitions', () => {
         expect.objectContaining({ parameterId: 'parameter-uDefault', field: 'defaultValue', code: 'range' }),
         expect.objectContaining({ parameterId: 'parameter-uStep', field: 'step', code: 'step' }),
       ]),
+    )
+  })
+
+  it('rejects uppercase color defaults that are not canonical domain values', () => {
+    expect(validateParameterDefinitions([colorParam('#AABBCC')])).toContainEqual(
+      expect.objectContaining({ parameterId: 'parameter-uTint', field: 'defaultValue', code: 'color' }),
     )
   })
 })
