@@ -1,0 +1,100 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--color-neutral-0);
+  color: var(--color-neutral-900);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+.workspace-shell {
+  display: grid;
+  grid-template-columns: minmax(12rem, 16.25rem) minmax(0, 1fr) minmax(18rem, 26.25rem);
+  min-height: 100vh;
+}
+
+.workspace-panel {
+  background: var(--color-neutral-50);
+  padding: var(--space-5);
+}
+
+.workspace-library {
+  border-right: 1px solid var(--color-neutral-200);
+}
+
+.workspace-editor {
+  border-left: 1px solid var(--color-neutral-200);
+}
+
+.workspace-panel h1,
+.workspace-panel h2,
+.viewer-empty-state h2 {
+  font-size: var(--font-size-lg);
+  margin: 0 0 var(--space-2);
+}
+
+.workspace-panel p {
+  color: var(--color-neutral-500);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.workspace-viewer {
+  align-items: center;
+  background: radial-gradient(circle at center, var(--color-neutral-100), var(--color-neutral-0) 72%);
+  display: grid;
+  min-width: 0;
+  padding: var(--space-5);
+  place-items: center;
+}
+
+.viewer-empty-state {
+  border: 1px dashed var(--color-neutral-300);
+  border-radius: var(--space-2);
+  color: var(--color-neutral-700);
+  max-width: 32rem;
+  padding: var(--space-6);
+  text-align: center;
+}
+
+.viewer-empty-state p {
+  margin: 0;
+}
+
+@media (max-width: 56rem) {
+  .workspace-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workspace-library,
+  .workspace-editor {
+    border: 0;
+    border-bottom: 1px solid var(--color-neutral-200);
+  }
+
+  .workspace-viewer {
+    min-height: 50vh;
+  }
+}

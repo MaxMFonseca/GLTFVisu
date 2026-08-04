@@ -1,0 +1,32 @@
+:root {
+  color-scheme: dark;
+
+  --color-neutral-0: #0d0f12;
+  --color-neutral-50: #15191f;
+  --color-neutral-100: #1d232b;
+  --color-neutral-200: #29313b;
+  --color-neutral-300: #3b4653;
+  --color-neutral-500: #8b98a7;
+  --color-neutral-700: #c4ccd6;
+  --color-neutral-900: #f3f6f9;
+  --color-accent: #5ea6ff;
+  --color-focus-ring: #89c3ff;
+  --color-success: #55c28a;
+  --color-warning: #e5b45e;
+  --color-error: #e87878;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+
+  --font-family-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-family-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-md: 1rem;
+  --font-size-lg: 1.25rem;
+  --line-height-normal: 1.5;
+}

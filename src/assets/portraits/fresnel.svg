@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" role="img" aria-label="Fresnel shader preview">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="40%"><stop stop-color="#243b79"/><stop offset=".62" stop-color="#10172e"/><stop offset="1" stop-color="#080b17"/></radialGradient>
+    <radialGradient id="sphere" cx="36%" cy="29%"><stop stop-color="#273254"/><stop offset=".6" stop-color="#131b36"/><stop offset=".78" stop-color="#ff56ba"/><stop offset=".9" stop-color="#62f2ff"/><stop offset="1" stop-color="#fff5ab"/></radialGradient>
+  </defs>
+  <rect width="320" height="200" fill="url(#bg)"/>
+  <ellipse cx="160" cy="176" rx="94" ry="12" fill="#02030a" opacity=".65"/>
+  <circle cx="160" cy="100" r="72" fill="url(#sphere)"/>
+  <circle cx="136" cy="74" r="19" fill="#7899c4" opacity=".21"/>
+  <path d="M54 160c52 23 157 21 213-7" fill="none" stroke="#8bf7ff" stroke-width="2" opacity=".5"/>
+</svg>
