@@ -6,6 +6,7 @@ import {
   openShaderDatabase,
   requestResult,
   SHADER_STORE_NAME,
+  StorageError,
   transactionComplete,
 } from './database'
 
@@ -83,8 +84,14 @@ export class IndexedDbShaderRepository implements ShaderRepository {
     createRequest: (store: IDBObjectStore) => IDBRequest<T>,
   ): Promise<T> {
     const database = await this.getDatabase()
-    const transaction = database.transaction(SHADER_STORE_NAME, mode)
-    const request = createRequest(transaction.objectStore(SHADER_STORE_NAME))
+    let transaction: IDBTransaction
+    let request: IDBRequest<T>
+    try {
+      transaction = database.transaction(SHADER_STORE_NAME, mode)
+      request = createRequest(transaction.objectStore(SHADER_STORE_NAME))
+    } catch (error) {
+      throw new StorageError(`${operation}: IndexedDB transaction setup failed`, error)
+    }
     const [result] = await Promise.all([
       requestResult(request, operation),
       transactionComplete(transaction, operation),

@@ -30,12 +30,18 @@ export function transactionComplete(transaction: IDBTransaction, context: string
 
 export function openShaderDatabase(name = DEFAULT_DATABASE_NAME): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(name, DATABASE_VERSION)
     let settled = false
     const fail = (message: string, cause: unknown) => {
       if (settled) return
       settled = true
       reject(new StorageError(message, cause))
+    }
+    let request: IDBOpenDBRequest
+    try {
+      request = indexedDB.open(name, DATABASE_VERSION)
+    } catch (error) {
+      fail('Unable to open shader storage: IndexedDB open setup failed', error)
+      return
     }
 
     request.onupgradeneeded = () => {

@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IndexedDbShaderRepository } from './IndexedDbShaderRepository'
+import { openShaderDatabase, StorageError } from './database'
 import type { ShaderDefinition } from '../domain/shader'
 
 let databaseNumber = 0
@@ -62,6 +63,7 @@ function writeRawV1Record(name: string, value: unknown): Promise<void> {
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   repositories.splice(0).forEach((repository) => repository.close())
   await Promise.all(databaseNames.splice(0).map(deleteDatabase))
 })
@@ -72,6 +74,17 @@ describe('IndexedDbShaderRepository', () => {
 
     await expect(repository.list()).resolves.toEqual([])
     repository.close()
+  })
+
+  it('wraps a synchronous database open exception in StorageError', async () => {
+    const error = new DOMException('Open failed', 'InvalidStateError')
+    vi.spyOn(indexedDB, 'open').mockImplementation(() => { throw error })
+
+    await expect(openShaderDatabase('failing-database')).rejects.toMatchObject({
+      name: 'StorageError',
+      message: 'Unable to open shader storage: IndexedDB open setup failed',
+      cause: error,
+    } satisfies Partial<StorageError>)
   })
 
   it('saves and gets an independent shader snapshot', async () => {
@@ -119,6 +132,17 @@ describe('IndexedDbShaderRepository', () => {
     await expect(repository.get('shader-id')).resolves.toBeUndefined()
     await expect(repository.list()).resolves.toEqual([])
     repository.close()
+  })
+
+  it('wraps a synchronous transaction setup exception in StorageError', async () => {
+    const repository = createRepository()
+    await repository.save(createShader())
+    repository.close()
+
+    await expect(repository.save(createShader())).rejects.toMatchObject({
+      name: 'StorageError',
+      message: 'save shader: IndexedDB transaction setup failed',
+    } satisfies Partial<StorageError>)
   })
 
   it('preserves a captured Blob portrait', async () => {
