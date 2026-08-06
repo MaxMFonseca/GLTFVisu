@@ -45,7 +45,7 @@ export class GltfAssetLoader {
       const data = rootPath.toLowerCase().endsWith('.glb') ? await rootFile.arrayBuffer() : await rootFile.text()
       if (signal?.aborted) throw new ModelLoadError('aborted', 'Model loading was aborted')
 
-      const gltf = await parseGltf(loader, data, basePath)
+      const gltf = await parseGltf(loader, data, basePath, signal)
       if (signal?.aborted) throw new ModelLoadError('aborted', 'Model loading was aborted')
       return gltf
     } catch (error) {
@@ -58,9 +58,34 @@ export class GltfAssetLoader {
   }
 }
 
-function parseGltf(loader: GLTFLoader, data: string | ArrayBuffer, basePath: string): Promise<GLTF> {
+function parseGltf(loader: GLTFLoader, data: string | ArrayBuffer, basePath: string, signal?: AbortSignal): Promise<GLTF> {
   return new Promise((resolve, reject) => {
-    loader.parse(data, basePath, resolve, reject)
+    let settled = false
+    const removeAbortListener = () => signal?.removeEventListener('abort', abort)
+    const resolveOnce = (gltf: GLTF) => {
+      if (settled) return
+      settled = true
+      removeAbortListener()
+      resolve(gltf)
+    }
+    const rejectOnce = (error: unknown) => {
+      if (settled) return
+      settled = true
+      removeAbortListener()
+      reject(error)
+    }
+    const abort = () => rejectOnce(new ModelLoadError('aborted', 'Model loading was aborted'))
+
+    if (signal?.aborted) {
+      abort()
+      return
+    }
+    signal?.addEventListener('abort', abort, { once: true })
+    try {
+      loader.parse(data, basePath, resolveOnce, rejectOnce)
+    } catch (error) {
+      rejectOnce(error)
+    }
   })
 }
 
@@ -76,7 +101,7 @@ function translateLoadError(error: unknown, signal?: AbortSignal, failedRequest?
   if (failedRequest || /Failed to fetch|NetworkError|404|not found|Unable to load/i.test(message)) {
     return new ModelLoadError('missing-resource', `Missing local resource: ${failedRequest ?? message}`, error)
   }
-  if (/DRACOLoader|KTX2Loader|MeshoptDecoder|KHR_draco_mesh_compression|KHR_texture_basisu|EXT_meshopt_compression/i.test(message)) {
+  if (/DRACOLoader|KTX2Loader|MeshoptDecoder|KHR_draco_mesh_compression|KHR_texture_basisu|EXT_meshopt_compression|Unsupported (?:glTF )?(?:extension|asset|resource)/i.test(message)) {
     return new ModelLoadError('unsupported-resource', `Unsupported local model resource: ${message}`, error)
   }
   return new ModelLoadError('malformed', `Unable to parse local model: ${message}`, error)
