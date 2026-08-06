@@ -61,4 +61,12 @@ describe('calculateCameraFit', () => {
     expect(hugeFit.near).toBeGreaterThan(0)
     expect(hugeFit.far).toBeGreaterThan(hugeFit.near)
   })
+
+  it('keeps radial box extremes strictly inside the clipping planes', () => {
+    const bounds = new Box3(new Vector3(0, 0, -8), new Vector3(0, 0, 8))
+    const fit = calculateCameraFit(bounds, 60, 1, new Vector3(0, 0, 1))
+
+    expect(fit.position.distanceTo(new Vector3(0, 0, 8))).toBeGreaterThan(fit.near)
+    expect(fit.position.distanceTo(new Vector3(0, 0, -8))).toBeLessThan(fit.far)
+  })
 })

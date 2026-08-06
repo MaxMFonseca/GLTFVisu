@@ -34,8 +34,9 @@ export function calculateCameraFit(
   const paddingRadius = cappedProduct(radius, Math.max(0, finiteOr(padding, 0)))
   const distance = cappedAdd(cappedProduct(radius, 1 / Math.sin(limitingHalfFov)), paddingRadius)
   const coverageRadius = cappedAdd(radius, paddingRadius)
-  const near = Math.max(minimumRadius * 1e-3, distance - coverageRadius)
-  const unclampedFar = cappedAdd(distance, coverageRadius)
+  const clearance = clipClearance(distance, coverageRadius, minimumRadius)
+  const near = Math.max(minimumRadius * 1e-3, distance - coverageRadius - clearance)
+  const unclampedFar = cappedAdd(cappedAdd(distance, coverageRadius), clearance)
   const far = unclampedFar > near ? unclampedFar : cappedAdd(near, minimumRadius)
 
   return {
@@ -112,6 +113,11 @@ function cappedSignedAdd(left: number, right: number): number {
   const sum = left + right
   if (Number.isFinite(sum)) return sum
   return Math.sign(left || right) * MAX_FINITE
+}
+
+function clipClearance(distance: number, coverageRadius: number, minimumRadius: number): number {
+  const scale = Math.max(distance, coverageRadius, minimumRadius, 1)
+  return Math.max(minimumRadius * 1e-3, scale * Number.EPSILON * 64)
 }
 
 function finiteOr(value: number, fallback: number): number {
