@@ -47,6 +47,26 @@ describe('validateUniformName', () => {
       reason: 'Reserved application uniform',
     })
   })
+
+  it.each(['vUv', 'vWorldPosition', 'vWorldNormal', 'outColor'])(
+    'rejects stable shader contract identifier %s',
+    (uniformName) => {
+      expect(validateUniformName(uniformName, [])).toEqual({
+        valid: false,
+        reason: 'Reserved shader contract identifier',
+      })
+    },
+  )
+
+  it.each(['gl_custom', 'u__value', '__proto__'])(
+    'rejects GLSL-reserved identifier pattern %s',
+    (uniformName) => {
+      expect(validateUniformName(uniformName, [])).toEqual({
+        valid: false,
+        reason: 'Reserved GLSL identifier',
+      })
+    },
+  )
 })
 
 describe('validateParameterDefinitions', () => {
