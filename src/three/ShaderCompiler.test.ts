@@ -115,6 +115,25 @@ describe('ShaderCompiler', () => {
     expect(uniform?.value).toBe(1.75)
   })
 
+  it('applies a parameter update to a candidate that is still compiling', async () => {
+    const validation = deferred<CompileDiagnostic[]>()
+    let candidate: ShaderMaterial | undefined
+    const compiler = new ShaderCompiler(unusedRenderer, {
+      validate: (material) => {
+        candidate = material
+        return validation.promise
+      },
+    })
+
+    const compiling = compiler.compile(draft('pending'))
+    compiler.updateParameter(gain, 1.75)
+
+    expect(candidate?.uniforms.uGain.value).toBe(1.75)
+    validation.resolve([])
+    await expect(compiling).resolves.toEqual({ status: 'valid', generation: 1 })
+    expect(compiler.material?.uniforms.uGain.value).toBe(1.75)
+  })
+
   it('captures renderer shader errors and maps user-source lines', async () => {
     const previousErrorHandler = vi.fn()
     const renderer: ShaderValidationRenderer = {
@@ -125,7 +144,7 @@ describe('ShaderCompiler', () => {
           getProgramInfoLog: () => 'link failed',
           getShaderInfoLog: (shader: WebGLShader) => shader === fragment ? 'ERROR: 1:7: syntax error' : '',
         } as unknown as WebGLRenderingContext
-        renderer.debug.onShaderError?.(gl, {} as WebGLProgram, {} as WebGLShader, fragment)
+        renderer.debug.onShaderError?.(gl, {} as never, {} as WebGLShader, fragment)
       }),
     }
     const compiler = new ShaderCompiler(renderer)
