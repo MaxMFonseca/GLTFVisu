@@ -1,4 +1,4 @@
-import type { ShaderLineMapping } from './contract'
+import { USER_SOURCE_LINE_MAPPING, type ShaderLineMapping } from './contract'
 
 export type ShaderDiagnosticSeverity = 'error' | 'warning'
 
@@ -73,9 +73,14 @@ export function parseShaderDiagnostics(
     diagnostics.push({
       severity: parsed.severity,
       message: parsed.message,
-      editorLine: legacyMapping || parsed.sourceId === mapping.sourceId
-        ? Math.max(1, parsed.shaderLine - lineOffset)
-        : 1,
+      editorLine: legacyMapping
+        ? Math.max(
+            1,
+            parsed.shaderLine - (parsed.sourceId === USER_SOURCE_LINE_MAPPING.sourceId ? 0 : lineOffset),
+          )
+        : parsed.sourceId === mapping.sourceId
+          ? Math.max(1, parsed.shaderLine - lineOffset)
+          : 1,
       rawLine,
     })
   }

@@ -62,6 +62,23 @@ describe('buildFragmentShader', () => {
     ])
   })
 
+  it('maps remapped user diagnostics through the numeric compatibility API', () => {
+    const built = buildFragmentShader(`void main() {
+  missingFunction();
+}`, [])
+    const rawLine = "ERROR: 1:2: 'missingFunction' : no matching overloaded function"
+
+    expect(built.injectedLineCount).toBeGreaterThan(2)
+    expect(parseShaderDiagnostics(rawLine, built.injectedLineCount)).toEqual([
+      {
+        severity: 'error',
+        message: "'missingFunction' : no matching overloaded function",
+        editorLine: 2,
+        rawLine,
+      },
+    ])
+  })
+
   it('declares custom uniforms in schema order with their GLSL types', () => {
     const { source } = buildFragmentShader('void main() {}', definitions)
 
