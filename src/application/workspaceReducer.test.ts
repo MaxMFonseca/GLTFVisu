@@ -104,12 +104,18 @@ describe('workspaceReducer', () => {
     const dirty = workspaceReducer(selected, { type: 'editSchema', parameters: [], parameterValues: {} })
     const invalid = workspaceReducer(dirty, {
       type: 'schemaInvalid',
+      generation: 2,
       errors: [{ parameterId: 'gain', field: 'uniformName', code: 'identifier', message: 'Invalid GLSL identifier' }],
+    })
+    const stale = workspaceReducer(invalid, {
+      type: 'compileFinished', generation: 1, result: { status: 'valid', generation: 1 },
     })
 
     expect(invalid.compile.status).toBe('schema-invalid')
+    expect(invalid.compile.generation).toBe(2)
     expect(invalid.schemaErrors).toHaveLength(1)
     expect(invalid.dirty.schema).toBe(true)
+    expect(stale).toBe(invalid)
   })
 
   it('replaces saved and draft snapshots only after save succeeds', () => {

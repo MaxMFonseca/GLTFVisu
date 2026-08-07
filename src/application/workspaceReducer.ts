@@ -22,9 +22,10 @@ export type WorkspaceAction =
   | { type: 'editSchema'; parameters: ShaderParameterDefinition[]; parameterValues: Record<string, ShaderParameterValue> }
   | { type: 'editValue'; parameterId: string; value: ShaderParameterValue }
   | { type: 'portraitCaptured'; portrait: ShaderPortrait }
+  | { type: 'compileInvalidated'; generation: number }
   | { type: 'compileStarted'; generation: number }
   | { type: 'compileFinished'; generation: number; result: CompileResult }
-  | { type: 'schemaInvalid'; errors: readonly ParameterDefinitionValidationError[] }
+  | { type: 'schemaInvalid'; generation: number; errors: readonly ParameterDefinitionValidationError[] }
   | { type: 'saveStarted' }
   | { type: 'saveSucceeded'; shader: ShaderDefinition }
   | { type: 'deleteSucceeded'; id: string; fallback: ShaderDefinition }
@@ -131,6 +132,8 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
     case 'portraitCaptured':
       if (state.draft.origin === 'builtin') return state
       return { ...state, draft: { ...state.draft, portrait: action.portrait }, dirty: { ...state.dirty, portrait: true } }
+    case 'compileInvalidated':
+      return { ...state, compile: { generation: action.generation, status: 'idle', diagnostics: [] } }
     case 'compileStarted':
       return {
         ...state,
@@ -149,7 +152,7 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
       return {
         ...state,
         schemaErrors: action.errors,
-        compile: { ...state.compile, status: 'schema-invalid', diagnostics: [] },
+        compile: { generation: action.generation, status: 'schema-invalid', diagnostics: [] },
       }
     case 'saveStarted':
       return { ...state, persistence: 'saving' }
