@@ -133,10 +133,14 @@ describe('WorkspaceProvider', () => {
     vi.mocked(viewer.compileShader).mockClear()
 
     act(() => workspace.current().commands.editSource('first edit'))
+    act(() => workspace.current().commands.updateValue('gain', 1.8))
     act(() => vi.advanceTimersByTime(399))
     expect(viewer.compileShader).not.toHaveBeenCalled()
     act(() => vi.advanceTimersByTime(1))
     expect(viewer.compileShader).toHaveBeenCalledTimes(1)
+    expect(viewer.compileShader).toHaveBeenLastCalledWith(expect.objectContaining({
+      fragmentSource: 'first edit', parameterValues: { gain: 1.8 },
+    }))
 
     act(() => workspace.current().commands.editSource('cancelled by select'))
     act(() => workspace.current().commands.selectShader(BUILTIN_SHADERS[1].id))
@@ -233,6 +237,39 @@ describe('WorkspaceProvider', () => {
     expect(workspace.current().state.notices.at(-1)).toMatchObject({ scope: 'save', message: 'Quota exceeded' })
   })
 
+  it('preserves newer edits when an earlier Save completes', async () => {
+    const local = localShader()
+    const repository = createRepository([local])
+    const saveGate = deferred<void>()
+    vi.mocked(repository.save).mockImplementationOnce(() => saveGate.promise)
+    const workspace = renderWorkspace({ repository, now: () => 50 })
+    await ready(workspace)
+    await act(async () => workspace.current().commands.selectShader(local.id))
+    act(() => workspace.current().commands.editName('  Saved name  '))
+
+    let savePromise!: Promise<void>
+    act(() => { savePromise = workspace.current().commands.save() })
+    act(() => workspace.current().commands.editSource('newer source'))
+    await act(async () => { saveGate.resolve(); await savePromise })
+
+    expect(workspace.current().state.savedSnapshot).toMatchObject({ name: 'Saved name', updatedAt: 50 })
+    expect(workspace.current().state.draft).toMatchObject({ name: '  Saved name  ', fragmentSource: 'newer source' })
+    expect(workspace.current().state.dirty).toMatchObject({ name: true, source: true })
+  })
+
+  it('merges shaders created while repository hydration is pending', async () => {
+    const hydration = deferred<ShaderDefinition[]>()
+    const repository = createRepository()
+    vi.mocked(repository.list).mockReturnValueOnce(hydration.promise)
+    const workspace = renderWorkspace({ repository, idFactory: () => 'created' })
+
+    await act(async () => workspace.current().commands.createShader())
+    await act(async () => hydration.resolve([localShader({ id: 'stored' })]))
+
+    expect(workspace.current().state.hydration).toBe('ready')
+    expect(workspace.current().state.locals.map((shader) => shader.id)).toEqual(['created', 'stored'])
+  })
+
   it('keeps built-ins read-only and gives duplicates fresh persisted identity and timestamps', async () => {
     const repository = createRepository()
     const workspace = renderWorkspace({ repository, idFactory: () => 'fresh-id', now: () => 100 })
@@ -324,5 +361,24 @@ describe('WorkspaceProvider', () => {
 
     expect(repository.delete).toHaveBeenCalledWith('first')
     expect(workspace.current().state.selectedId).toBe('second')
+  })
+
+  it('deletes a non-selected local without replacing or compiling the active dirty draft', async () => {
+    const first = localShader({ id: 'first' })
+    const second = localShader({ id: 'second' })
+    const repository = createRepository([first, second])
+    const viewer = createViewer()
+    const workspace = renderWorkspace({ repository, viewer })
+    await ready(workspace)
+    await act(async () => workspace.current().commands.selectShader(first.id))
+    act(() => workspace.current().commands.editSource('unsaved source'))
+    vi.mocked(viewer.compileShader).mockClear()
+
+    await act(async () => workspace.current().commands.deleteShader(second.id))
+
+    expect(workspace.current().state.selectedId).toBe('first')
+    expect(workspace.current().state.draft.fragmentSource).toBe('unsaved source')
+    expect(workspace.current().state.dirty.source).toBe(true)
+    expect(viewer.compileShader).not.toHaveBeenCalled()
   })
 })

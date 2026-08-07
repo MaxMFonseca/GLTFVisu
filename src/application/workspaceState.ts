@@ -40,6 +40,7 @@ export interface WorkspaceState {
   selectedId: string
   savedSnapshot: ShaderDefinition
   draft: ShaderDraft
+  draftRevision: number
   dirty: WorkspaceDirtyFields
   hydration: 'loading' | 'ready' | 'error'
   persistence: 'idle' | 'saving'

@@ -49,6 +49,18 @@ describe('workspaceReducer', () => {
     expect(state.selectedId).toBe(BUILTIN_SHADERS[0].id)
   })
 
+  it('merges late hydration behind local records created after the request started', () => {
+    const initial = createInitialWorkspaceState(BUILTIN_SHADERS)
+    const created = localShader({ id: 'created', name: 'Created', updatedAt: 30 })
+    const withCreated = workspaceReducer(initial, { type: 'installLocal', shader: created })
+    const stored = localShader({ id: 'stored', name: 'Stored', updatedAt: 20 })
+
+    const hydrated = workspaceReducer(withCreated, { type: 'hydrateSucceeded', locals: [stored] })
+
+    expect(hydrated.locals.map((shader) => shader.id)).toEqual(['created', 'stored'])
+    expect(hydrated.selectedId).toBe('created')
+  })
+
   it('keeps built-ins immutable and tracks each local draft field independently', () => {
     const initial = createInitialWorkspaceState(BUILTIN_SHADERS)
     const blocked = workspaceReducer(initial, { type: 'editName', name: 'Cannot edit' })
@@ -126,7 +138,7 @@ describe('workspaceReducer', () => {
     const saving = workspaceReducer(dirty, { type: 'saveStarted' })
     const failed = workspaceReducer(saving, { type: 'operationFailed', scope: 'save', message: 'Disk unavailable' })
     const normalized = localShader({ name: 'Normalized', updatedAt: 30 })
-    const saved = workspaceReducer(failed, { type: 'saveSucceeded', shader: normalized })
+    const saved = workspaceReducer(failed, { type: 'saveSucceeded', shader: normalized, draftRevision: dirty.draftRevision })
 
     expect(failed.draft.name).toBe('  Normalized  ')
     expect(failed.dirty.name).toBe(true)
@@ -135,6 +147,25 @@ describe('workspaceReducer', () => {
     expect(saved.draft).toEqual(normalized)
     expect(saved.draft).not.toBe(saved.savedSnapshot)
     expect(hasDirtyFields(saved.dirty)).toBe(false)
+  })
+
+  it('updates the saved snapshot without overwriting edits made while save is pending', () => {
+    const selected = workspaceReducer(createInitialWorkspaceState(BUILTIN_SHADERS), {
+      type: 'select', shader: localShader(),
+    })
+    const renamed = workspaceReducer(selected, { type: 'editName', name: 'Saved name' })
+    const saving = workspaceReducer(renamed, { type: 'saveStarted' })
+    const editedAgain = workspaceReducer(saving, { type: 'editSource', source: 'newer source' })
+    const persisted = localShader({ name: 'Saved name', updatedAt: 30 })
+
+    const state = workspaceReducer(editedAgain, {
+      type: 'saveSucceeded', shader: persisted, draftRevision: renamed.draftRevision,
+    })
+
+    expect(state.savedSnapshot).toEqual(persisted)
+    expect(state.draft.name).toBe('Saved name')
+    expect(state.draft.fragmentSource).toBe('newer source')
+    expect(state.dirty).toMatchObject({ name: false, source: true })
   })
 
   it('uses the supplied deterministic fallback after deleting a local shader', () => {
@@ -153,5 +184,22 @@ describe('workspaceReducer', () => {
     expect(state.selectedId).toBe('first')
     expect(state.savedSnapshot).toEqual(first)
     expect(hasDirtyFields(state.dirty)).toBe(false)
+  })
+
+  it('filters a non-selected deletion without replacing the active dirty draft', () => {
+    const first = localShader({ id: 'first', name: 'First' })
+    const second = localShader({ id: 'second', name: 'Second' })
+    const hydrated = workspaceReducer(createInitialWorkspaceState(BUILTIN_SHADERS), {
+      type: 'hydrateSucceeded', locals: [first, second],
+    })
+    const selected = workspaceReducer(hydrated, { type: 'select', shader: first })
+    const dirty = workspaceReducer(selected, { type: 'editSource', source: 'unsaved source' })
+
+    const state = workspaceReducer(dirty, { type: 'deleteSucceeded', id: second.id })
+
+    expect(state.locals.map((shader) => shader.id)).toEqual(['first'])
+    expect(state.selectedId).toBe('first')
+    expect(state.draft.fragmentSource).toBe('unsaved source')
+    expect(state.dirty.source).toBe(true)
   })
 })
