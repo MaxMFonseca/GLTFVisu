@@ -24,7 +24,18 @@ const STABLE_CONTRACT = [
 export interface BuiltFragmentShader {
   source: string
   injectedLineCount: number
+  lineMapping: ShaderLineMapping
 }
+
+export interface ShaderLineMapping {
+  sourceId: number
+  lineOffset: number
+}
+
+export const USER_SOURCE_LINE_MAPPING: Readonly<ShaderLineMapping> = Object.freeze({
+  sourceId: 1,
+  lineOffset: 0,
+})
 
 /** Composes the app-owned GLSL contract around an editable fragment program body. */
 export function buildFragmentShader(
@@ -42,10 +53,12 @@ export function buildFragmentShader(
     '',
     'out vec4 outColor;',
     '',
+    `#line ${USER_SOURCE_LINE_MAPPING.lineOffset + 1} ${USER_SOURCE_LINE_MAPPING.sourceId}`,
   ]
 
   return {
     source: `${injectedLines.join('\n')}\n${source}`,
     injectedLineCount: injectedLines.length,
+    lineMapping: USER_SOURCE_LINE_MAPPING,
   }
 }

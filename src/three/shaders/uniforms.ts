@@ -29,11 +29,10 @@ export function createUniforms(
 ): ShaderUniforms {
   assertValidDefinitions(definitions)
 
-  const uniforms: ShaderUniforms = {
-    uTime: { value: 0 },
-    uResolution: { value: new Vector2() },
-    uCameraPosition: { value: new Vector3() },
-  }
+  const uniforms = Object.create(null) as ShaderUniforms
+  uniforms.uTime = { value: 0 }
+  uniforms.uResolution = { value: new Vector2() }
+  uniforms.uCameraPosition = { value: new Vector3() }
 
   for (const definition of definitions) {
     const value = values[definition.id] ?? createDefaultValue(definition)

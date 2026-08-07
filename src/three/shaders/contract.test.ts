@@ -2,6 +2,7 @@ import { Color, GLSL3, Vector2, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
 import type { ShaderParameterDefinition } from '../../domain/parameters'
 import { buildFragmentShader } from './contract'
+import { parseShaderDiagnostics } from './diagnostics'
 import { createShaderMaterial } from './materialFactory'
 import { VERTEX_SHADER } from './vertexShader'
 
@@ -34,7 +35,31 @@ describe('buildFragmentShader', () => {
     }
     expect(result.source).not.toContain('#version')
     expect(result.source.endsWith(body)).toBe(true)
+    expect(result.source.split('\n')[result.injectedLineCount - 1]).toBe('#line 1 1')
     expect(result.source.split('\n')[result.injectedLineCount]).toBe('void main() {')
+    expect(result.lineMapping).toEqual({ sourceId: 1, lineOffset: 0 })
+  })
+
+  it('keeps editor diagnostics stable when Three prepends a dynamic renderer prefix', () => {
+    const body = `void main() {
+  missingFunction();
+}`
+    const built = buildFragmentShader(body, [])
+    const rendererPrefix = ['#version 300 es', ...Array.from({ length: 80 }, (_, index) => `#define P${index}`)]
+    const rendererSource = [...rendererPrefix, ...built.source.split('\n')]
+
+    expect(rendererSource.indexOf('  missingFunction();') + 1).toBeGreaterThan(80)
+    expect(parseShaderDiagnostics(
+      "ERROR: 1:2: 'missingFunction' : no matching overloaded function",
+      built.lineMapping,
+    )).toEqual([
+      {
+        severity: 'error',
+        message: "'missingFunction' : no matching overloaded function",
+        editorLine: 2,
+        rawLine: "ERROR: 1:2: 'missingFunction' : no matching overloaded function",
+      },
+    ])
   })
 
   it('declares custom uniforms in schema order with their GLSL types', () => {
@@ -94,10 +119,12 @@ describe('VERTEX_SHADER', () => {
 
 describe('createShaderMaterial', () => {
   it('creates a GLSL 3 ShaderMaterial wired to the centralized shaders and uniforms', () => {
-    const material = createShaderMaterial('void main() { outColor = vec4(uTint, 1.0); }', definitions, {
+    const runtime = createShaderMaterial('void main() { outColor = vec4(uTint, 1.0); }', definitions, {
       tint: '#abcdef',
     })
+    const { material } = runtime
 
+    expect(runtime.lineMapping).toEqual({ sourceId: 1, lineOffset: 0 })
     expect(material.glslVersion).toBe(GLSL3)
     expect(material.vertexShader).toBe(VERTEX_SHADER)
     expect(material.fragmentShader.endsWith('void main() { outColor = vec4(uTint, 1.0); }')).toBe(true)

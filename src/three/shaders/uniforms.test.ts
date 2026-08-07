@@ -36,6 +36,23 @@ describe('createUniforms', () => {
     expect(uniforms.uTint.value).toEqual(new Color('#123456'))
     expect(uniforms.uEnabled.value).toBe(true)
   })
+
+  it('uses a null-prototype map and rejects prototype-sensitive uniform names', () => {
+    const uniforms = createUniforms(definitions, {})
+    const prototypeDefinition: ShaderParameterDefinition = {
+      id: 'prototype',
+      type: 'float',
+      uniformName: '__proto__',
+      label: 'Prototype',
+      min: 0,
+      max: 1,
+      step: 0.1,
+      defaultValue: 0,
+    }
+
+    expect(Object.getPrototypeOf(uniforms)).toBeNull()
+    expect(() => createUniforms([prototypeDefinition], {})).toThrow('Invalid shader parameter definitions')
+  })
 })
 
 describe('updateUniformValue', () => {

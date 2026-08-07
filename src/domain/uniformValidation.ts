@@ -1,8 +1,16 @@
 import type { ShaderParameterDefinition } from './parameters'
 
 export const APP_UNIFORMS = ['uTime', 'uResolution', 'uCameraPosition'] as const
+export const SHADER_CONTRACT_IDENTIFIERS = [
+  ...APP_UNIFORMS,
+  'vUv',
+  'vWorldPosition',
+  'vWorldNormal',
+  'outColor',
+] as const
 
 export const GLSL_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
+const GLSL_RESERVED_IDENTIFIER = /^gl_|__/
 
 /** GLSL ES 3.00 keywords plus reserved words inherited from earlier GLSL profiles. */
 export const GLSL_ES_KEYWORDS = new Set([
@@ -174,7 +182,17 @@ export type UniformNameValidation = { valid: true } | { valid: false; reason: st
 export interface ParameterDefinitionValidationError {
   parameterId: string
   field: 'uniformName' | 'min' | 'max' | 'step' | 'defaultValue'
-  code: 'identifier' | 'glsl-keyword' | 'application-uniform' | 'duplicate' | 'range' | 'step' | 'integer' | 'color'
+  code:
+    | 'identifier'
+    | 'reserved-identifier'
+    | 'glsl-keyword'
+    | 'application-uniform'
+    | 'shader-contract'
+    | 'duplicate'
+    | 'range'
+    | 'step'
+    | 'integer'
+    | 'color'
   message: string
 }
 
@@ -185,11 +203,17 @@ export function validateUniformName(
   if (!GLSL_IDENTIFIER.test(uniformName)) {
     return { valid: false, reason: 'Invalid GLSL identifier' }
   }
+  if (GLSL_RESERVED_IDENTIFIER.test(uniformName)) {
+    return { valid: false, reason: 'Reserved GLSL identifier' }
+  }
   if (GLSL_ES_KEYWORDS.has(uniformName)) {
     return { valid: false, reason: 'Reserved GLSL keyword' }
   }
   if (APP_UNIFORMS.includes(uniformName as (typeof APP_UNIFORMS)[number])) {
     return { valid: false, reason: 'Reserved application uniform' }
+  }
+  if (SHADER_CONTRACT_IDENTIFIERS.includes(uniformName as (typeof SHADER_CONTRACT_IDENTIFIERS)[number])) {
+    return { valid: false, reason: 'Reserved shader contract identifier' }
   }
   if (existingUniformNames.includes(uniformName)) {
     return { valid: false, reason: 'Duplicate uniform name' }
@@ -249,9 +273,13 @@ export function validateParameterDefinitions(
     if (!nameResult.valid) {
       const code = nameResult.reason === 'Invalid GLSL identifier'
         ? 'identifier'
+        : nameResult.reason === 'Reserved GLSL identifier'
+          ? 'reserved-identifier'
         : nameResult.reason === 'Reserved GLSL keyword'
           ? 'glsl-keyword'
-          : 'application-uniform'
+          : nameResult.reason === 'Reserved application uniform'
+            ? 'application-uniform'
+            : 'shader-contract'
       errors.push(error(definition.id, 'uniformName', code, nameResult.reason))
     }
     if ((uniformCounts.get(definition.uniformName) ?? 0) > 1) {
