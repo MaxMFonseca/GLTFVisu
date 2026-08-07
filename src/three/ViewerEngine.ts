@@ -24,6 +24,7 @@ import { GltfAssetLoader, ModelLoadError } from './GltfAssetLoader'
 import { MaterialOverride } from './MaterialOverride'
 import {
   ShaderCompiler,
+  type CompileDiagnostic,
   type CompileResult,
   type PreparedRuntimeMaterial,
   type RuntimeMaterialPreparer,
@@ -97,6 +98,7 @@ export interface ClockPort {
 export interface CompilerPort {
   readonly material: ShaderMaterial | undefined
   compile(draft: ShaderDraft, prepareRuntime?: RuntimeMaterialPreparer): Promise<CompileResult>
+  validateRuntime?(prepareRuntime: RuntimeMaterialPreparer): CompileDiagnostic[]
   updateParameter(definition: ShaderParameterDefinition, value: ShaderParameterValue): void
   dispose(): void
 }
@@ -133,6 +135,13 @@ export class ViewerInitializationError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'ViewerInitializationError'
+  }
+}
+
+export class ShaderRuntimeValidationError extends Error {
+  constructor(readonly diagnostics: readonly CompileDiagnostic[]) {
+    super(`Shader runtime validation failed: ${diagnostics.map((diagnostic) => diagnostic.message).join(', ')}`)
+    this.name = 'ShaderRuntimeValidationError'
   }
 }
 
@@ -312,7 +321,18 @@ export class ViewerEngine implements ViewerPort {
     let nextAnimation: AnimationPort | undefined
     let fit: CameraFit
     try {
-      if (this.compiler.material !== undefined) nextOverride.apply(this.compiler.material)
+      if (this.compiler.material !== undefined) {
+        if (this.compiler.validateRuntime === undefined) {
+          nextOverride.apply(this.compiler.material)
+        } else {
+          const diagnostics = this.compiler.validateRuntime(
+            createRuntimePreparer(nextOverride, () => this.renderCandidateModel(loaded.scene)),
+          )
+          if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
+            throw new ShaderRuntimeValidationError(diagnostics)
+          }
+        }
+      }
       nextAnimation = this.createAnimation(loaded.scene, loaded.animations)
       fit = fitFor(loaded.scene, this.camera, this.controls.target)
     } catch (error) {
@@ -325,14 +345,32 @@ export class ViewerEngine implements ViewerPort {
     const previousRoot = this.modelRoot
     const previousOverride = this.materialOverride
     const previousAnimation = this.animation
-    this.scene.add(loaded.scene)
+    const cameraState = snapshotCamera(this.camera, this.controls)
+
+    try {
+      applyCameraFit(this.camera, this.controls, fit)
+    } catch (error) {
+      restoreCamera(this.camera, this.controls, cameraState)
+      disposePreparedModel(loaded.scene, nextOverride, nextAnimation)
+      throw error
+    }
+
+    try {
+      this.scene.add(loaded.scene)
+      if (previousRoot !== undefined) this.scene.remove(previousRoot)
+    } catch (error) {
+      if (loaded.scene.parent === this.scene) this.scene.remove(loaded.scene)
+      if (previousRoot !== undefined && previousRoot.parent !== this.scene) this.scene.add(previousRoot)
+      restoreCamera(this.camera, this.controls, cameraState)
+      disposePreparedModel(loaded.scene, nextOverride, nextAnimation)
+      throw error
+    }
+
     this.modelRoot = loaded.scene
     this.materialOverride = nextOverride
     this.animation = nextAnimation
-    applyCameraFit(this.camera, this.controls, fit)
 
     if (previousRoot !== undefined) {
-      this.scene.remove(previousRoot)
       previousAnimation?.dispose()
       previousOverride?.dispose()
       disposeObjectTree(previousRoot)
@@ -343,18 +381,27 @@ export class ViewerEngine implements ViewerPort {
       meshCount: countMeshes(loaded.scene),
       animationClips: [...nextAnimation.clipNames],
     }
-    this.events.onModelInfo?.(info)
+    notify(this.events.onModelInfo, info)
     this.emitAnimationState()
     return info
   }
 
   private emitAnimationState(): void {
     if (this.animation === undefined) return
-    this.events.onAnimationState?.({
+    notify(this.events.onAnimationState, {
       clipNames: [...this.animation.clipNames],
       selectedClip: this.animation.selectedClip,
       playing: this.animation.playing,
     })
+  }
+
+  private renderCandidateModel(root: Object3D): void {
+    try {
+      this.scene.add(root)
+      this.renderer.render(this.scene, this.camera)
+    } finally {
+      if (root.parent === this.scene) this.scene.remove(root)
+    }
   }
 
   private disposeModel(): void {
@@ -412,6 +459,62 @@ function applyCameraFit(camera: PerspectiveCamera, controls: ViewerControls, fit
   controls.target.copy(fit.target)
   controls.update(0)
   controls.saveState()
+}
+
+interface CameraState {
+  position: Vector3
+  quaternion: PerspectiveCamera['quaternion']
+  target: Vector3
+  near: number
+  far: number
+}
+
+function snapshotCamera(camera: PerspectiveCamera, controls: ViewerControls): CameraState {
+  return {
+    position: camera.position.clone(),
+    quaternion: camera.quaternion.clone(),
+    target: controls.target.clone(),
+    near: camera.near,
+    far: camera.far,
+  }
+}
+
+function restoreCamera(camera: PerspectiveCamera, controls: ViewerControls, state: CameraState): void {
+  camera.position.copy(state.position)
+  camera.quaternion.copy(state.quaternion)
+  camera.near = state.near
+  camera.far = state.far
+  camera.updateProjectionMatrix()
+  controls.target.copy(state.target)
+}
+
+function disposePreparedModel(
+  root: Object3D,
+  override: MaterialOverride,
+  animation: AnimationPort,
+): void {
+  animation.dispose()
+  override.dispose()
+  disposeObjectTree(root)
+}
+
+function notify<T>(callback: ((value: T) => void) | undefined, value: T): void {
+  try {
+    callback?.(value)
+  } catch {
+    // Notifications cannot participate in renderer/model ownership transactions.
+  }
+}
+
+function createRuntimePreparer(override: MaterialOverride, render: () => void): RuntimeMaterialPreparer {
+  return (material) => {
+    const prepared = override.prepare(material)
+    return {
+      validate: (validateRender) => prepared.run(() => validateRender(render)),
+      commit: () => prepared.commit(),
+      dispose: () => prepared.dispose(),
+    }
+  }
 }
 
 function countMeshes(root: Object3D): number {
