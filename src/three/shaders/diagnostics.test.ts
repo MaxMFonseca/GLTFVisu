@@ -65,6 +65,19 @@ describe('parseShaderDiagnostics', () => {
     ])
   })
 
+  it('preserves numeric injected-line offset compatibility', () => {
+    const rawLine = "ERROR: 0:14: 'tone' : undeclared identifier"
+
+    expect(parseShaderDiagnostics(rawLine, 10)).toEqual([
+      {
+        severity: 'error',
+        message: "'tone' : undeclared identifier",
+        editorLine: 4,
+        rawLine,
+      },
+    ])
+  })
+
   it('ignores blank and unrelated compiler output', () => {
     expect(parseShaderDiagnostics('WebGL program link failed\n\nNo errors.', lineMapping)).toEqual([])
   })

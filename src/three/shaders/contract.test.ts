@@ -1,9 +1,9 @@
-import { Color, GLSL3, Vector2, Vector3 } from 'three'
+import { Color, GLSL3, ShaderMaterial, Vector2, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
 import type { ShaderParameterDefinition } from '../../domain/parameters'
 import { buildFragmentShader } from './contract'
 import { parseShaderDiagnostics } from './diagnostics'
-import { createShaderMaterial } from './materialFactory'
+import * as materialFactory from './materialFactory'
 import { VERTEX_SHADER } from './vertexShader'
 
 const definitions: ShaderParameterDefinition[] = [
@@ -118,13 +118,16 @@ describe('VERTEX_SHADER', () => {
 })
 
 describe('createShaderMaterial', () => {
-  it('creates a GLSL 3 ShaderMaterial wired to the centralized shaders and uniforms', () => {
-    const runtime = createShaderMaterial('void main() { outColor = vec4(uTint, 1.0); }', definitions, {
-      tint: '#abcdef',
-    })
-    const { material } = runtime
+  it('returns a GLSL 3 ShaderMaterial wired to the centralized shaders and uniforms', () => {
+    const material = materialFactory.createShaderMaterial(
+      'void main() { outColor = vec4(uTint, 1.0); }',
+      definitions,
+      {
+        tint: '#abcdef',
+      },
+    )
 
-    expect(runtime.lineMapping).toEqual({ sourceId: 1, lineOffset: 0 })
+    expect(material).toBeInstanceOf(ShaderMaterial)
     expect(material.glslVersion).toBe(GLSL3)
     expect(material.vertexShader).toBe(VERTEX_SHADER)
     expect(material.fragmentShader.endsWith('void main() { outColor = vec4(uTint, 1.0); }')).toBe(true)
@@ -132,5 +135,12 @@ describe('createShaderMaterial', () => {
     expect(material.uniforms.uResolution.value).toEqual(new Vector2())
     expect(material.uniforms.uCameraPosition.value).toEqual(new Vector3())
     expect(material.uniforms.uTint.value).toEqual(new Color('#abcdef'))
+  })
+
+  it('retrieves robust line mapping without exposing it through material userData', () => {
+    const material = materialFactory.createShaderMaterial('void main() {}', [], {})
+
+    expect(materialFactory.getShaderLineMapping(material)).toEqual({ sourceId: 1, lineOffset: 0 })
+    expect(material.userData).not.toHaveProperty('shaderLineMapping')
   })
 })

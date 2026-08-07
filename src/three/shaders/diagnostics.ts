@@ -55,8 +55,16 @@ function parseLogLine(rawLine: string): ParsedLogLine | undefined {
 }
 
 /** Parses common WebGL compiler formats and maps generated lines to the editor body. */
-export function parseShaderDiagnostics(log: string, lineMapping: ShaderLineMapping): ShaderDiagnostic[] {
-  const lineOffset = Number.isFinite(lineMapping.lineOffset) ? Math.floor(lineMapping.lineOffset) : 0
+export function parseShaderDiagnostics(log: string, injectedLineCount: number): ShaderDiagnostic[]
+export function parseShaderDiagnostics(log: string, lineMapping: ShaderLineMapping): ShaderDiagnostic[]
+export function parseShaderDiagnostics(
+  log: string,
+  mapping: number | ShaderLineMapping,
+): ShaderDiagnostic[] {
+  const legacyMapping = typeof mapping === 'number'
+  const lineOffset = legacyMapping
+    ? Number.isFinite(mapping) ? Math.max(0, Math.floor(mapping)) : 0
+    : Number.isFinite(mapping.lineOffset) ? Math.floor(mapping.lineOffset) : 0
   const diagnostics: ShaderDiagnostic[] = []
 
   for (const rawLine of log.split(/\r?\n/)) {
@@ -65,7 +73,7 @@ export function parseShaderDiagnostics(log: string, lineMapping: ShaderLineMappi
     diagnostics.push({
       severity: parsed.severity,
       message: parsed.message,
-      editorLine: parsed.sourceId === lineMapping.sourceId
+      editorLine: legacyMapping || parsed.sourceId === mapping.sourceId
         ? Math.max(1, parsed.shaderLine - lineOffset)
         : 1,
       rawLine,
