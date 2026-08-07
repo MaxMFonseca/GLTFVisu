@@ -69,4 +69,14 @@ describe('calculateCameraFit', () => {
     expect(fit.position.distanceTo(new Vector3(0, 0, 8))).toBeGreaterThan(fit.near)
     expect(fit.position.distanceTo(new Vector3(0, 0, -8))).toBeLessThan(fit.far)
   })
+
+  it('keeps radial extremes inside clips after large-coordinate camera rounding', () => {
+    const centerZ = 1e150
+    const radius = 1e140
+    const bounds = new Box3(new Vector3(0, 0, centerZ - radius), new Vector3(0, 0, centerZ + radius))
+    const fit = calculateCameraFit(bounds, 70, 1, new Vector3(0, 0, 1))
+
+    expect(fit.position.distanceTo(new Vector3(0, 0, centerZ + radius))).toBeGreaterThan(fit.near)
+    expect(fit.position.distanceTo(new Vector3(0, 0, centerZ - radius))).toBeLessThan(fit.far)
+  })
 })

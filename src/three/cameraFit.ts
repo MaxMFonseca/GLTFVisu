@@ -34,13 +34,15 @@ export function calculateCameraFit(
   const paddingRadius = cappedProduct(radius, Math.max(0, finiteOr(padding, 0)))
   const distance = cappedAdd(cappedProduct(radius, 1 / Math.sin(limitingHalfFov)), paddingRadius)
   const coverageRadius = cappedAdd(radius, paddingRadius)
-  const clearance = clipClearance(distance, coverageRadius, minimumRadius)
-  const near = Math.max(minimumRadius * 1e-3, distance - coverageRadius - clearance)
-  const unclampedFar = cappedAdd(cappedAdd(distance, coverageRadius), clearance)
+  const position = addScaledSafely(target, normalizedDirection(direction), distance)
+  const actualDistance = scaledHypot(position.x - target.x, position.y - target.y, position.z - target.z)
+  const clearance = clipClearance(actualDistance, coverageRadius, minimumRadius, target, position)
+  const near = Math.max(minimumRadius * 1e-3, actualDistance - coverageRadius - clearance)
+  const unclampedFar = cappedAdd(cappedAdd(actualDistance, coverageRadius), clearance)
   const far = unclampedFar > near ? unclampedFar : cappedAdd(near, minimumRadius)
 
   return {
-    position: addScaledSafely(target, normalizedDirection(direction), distance),
+    position,
     target,
     near: Math.min(near, MAX_FINITE / 2),
     far: Math.min(far, MAX_FINITE),
@@ -115,8 +117,19 @@ function cappedSignedAdd(left: number, right: number): number {
   return Math.sign(left || right) * MAX_FINITE
 }
 
-function clipClearance(distance: number, coverageRadius: number, minimumRadius: number): number {
-  const scale = Math.max(distance, coverageRadius, minimumRadius, 1)
+function clipClearance(distance: number, coverageRadius: number, minimumRadius: number, target: Vector3, position: Vector3): number {
+  const scale = Math.max(
+    distance,
+    coverageRadius,
+    minimumRadius,
+    Math.abs(target.x),
+    Math.abs(target.y),
+    Math.abs(target.z),
+    Math.abs(position.x),
+    Math.abs(position.y),
+    Math.abs(position.z),
+    1,
+  )
   return Math.max(minimumRadius * 1e-3, scale * Number.EPSILON * 64)
 }
 
