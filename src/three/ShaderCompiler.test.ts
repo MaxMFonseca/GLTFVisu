@@ -125,7 +125,7 @@ describe('ShaderCompiler', () => {
           getProgramInfoLog: () => 'link failed',
           getShaderInfoLog: (shader: WebGLShader) => shader === fragment ? 'ERROR: 1:7: syntax error' : '',
         } as unknown as WebGLRenderingContext
-        renderer.debug.onShaderError?.(gl, {} as WebGLProgram, {} as WebGLShader, fragment)
+        renderer.debug.onShaderError?.(gl, {} as never, {} as WebGLShader, fragment)
       }),
     }
     const compiler = new ShaderCompiler(renderer)

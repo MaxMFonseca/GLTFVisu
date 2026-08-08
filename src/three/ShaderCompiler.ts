@@ -6,6 +6,7 @@ import {
   type Camera,
   type Object3D,
   type ShaderMaterial,
+  type WebGLRenderer,
 } from 'three'
 import type { ShaderParameterDefinition, ShaderParameterValue } from '../domain/parameters'
 import type { ShaderDraft } from '../domain/shader'
@@ -24,12 +25,7 @@ export type CompileResult =
   | { status: 'valid'; generation: number }
   | { status: 'error'; generation: number; diagnostics: CompileDiagnostic[] }
 
-type ShaderErrorHandler = (
-  gl: WebGLRenderingContext,
-  program: WebGLProgram,
-  vertexShader: WebGLShader,
-  fragmentShader: WebGLShader,
-) => void
+type ShaderErrorHandler = NonNullable<WebGLRenderer['debug']['onShaderError']>
 
 export interface ShaderValidationRenderer {
   debug: {
@@ -124,7 +120,7 @@ async function validateMaterial(
     const logs = [
       gl.getShaderInfoLog(fragmentShader) ?? '',
       gl.getShaderInfoLog(vertexShader) ?? '',
-      gl.getProgramInfoLog(program) ?? '',
+      gl.getProgramInfoLog(program as unknown as WebGLProgram) ?? '',
     ].filter((log) => log.trim().length > 0)
     const mapping = getShaderLineMapping(material)
     for (const log of logs) {
