@@ -1,10 +1,16 @@
-import { useRef, useState, type ChangeEvent } from 'react'
+import { useEffect, useId, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { useWorkspace } from '../../application/WorkspaceController'
 import type { ShaderDefinition } from '../../domain/shader'
 import { ShaderCard, type PortraitUrlPort } from './ShaderCard'
 
 export interface ShaderLibraryProps {
   portraitUrls?: PortraitUrlPort
+}
+
+interface DeleteTarget {
+  id: string
+  name: string
 }
 
 function selectedDraftInList(
@@ -30,14 +36,71 @@ function readFileText(file: File): Promise<string> {
 
 export function ShaderLibrary({ portraitUrls }: ShaderLibraryProps) {
   const { state, commands } = useWorkspace()
-  const [deleteConfirmation, setDeleteConfirmation] = useState(false)
+  const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteTarget>()
   const [importError, setImportError] = useState<string>()
   const importInput = useRef<HTMLInputElement>(null)
+  const libraryRoot = useRef<HTMLElement>(null)
+  const cancelDeleteButton = useRef<HTMLButtonElement>(null)
+  const confirmDeleteButton = useRef<HTMLButtonElement>(null)
+  const previousFocus = useRef<HTMLElement | undefined>(undefined)
+  const deleteHeadingId = useId()
+  const deleteDescriptionId = useId()
   const selectedIsLocal = state.draft.origin === 'local'
   const canCapture = selectedIsLocal
     && state.modelLoad.status === 'loaded'
     && state.compile.status === 'valid'
   const locals = selectedDraftInList(state.locals, state.selectedId, state.draft)
+  const actionNotices = state.notices.filter((notice) => notice.scope !== 'model')
+
+  useEffect(() => {
+    if (deleteConfirmation === undefined) return
+    const root = libraryRoot.current
+    const background = root?.closest<HTMLElement>('.workspace-shell') ?? root
+    const previousAriaHidden = background?.getAttribute('aria-hidden') ?? null
+    const previouslyInert = background?.inert ?? false
+    const hadInertAttribute = background?.hasAttribute('inert') ?? false
+    if (background !== undefined && background !== null) {
+      background.inert = true
+      background.setAttribute('inert', '')
+      background.setAttribute('aria-hidden', 'true')
+    }
+    cancelDeleteButton.current?.focus()
+    return () => {
+      if (background !== undefined && background !== null) {
+        background.inert = previouslyInert
+        if (!hadInertAttribute) background.removeAttribute('inert')
+        if (previousAriaHidden === null) background.removeAttribute('aria-hidden')
+        else background.setAttribute('aria-hidden', previousAriaHidden)
+      }
+      if (previousFocus.current?.isConnected) previousFocus.current.focus()
+      previousFocus.current = undefined
+    }
+  }, [deleteConfirmation])
+
+  function beginDelete(): void {
+    if (!selectedIsLocal) return
+    previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : undefined
+    setDeleteConfirmation({ id: state.draft.id, name: state.draft.name })
+  }
+
+  function handleDeleteDialogKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      setDeleteConfirmation(undefined)
+      return
+    }
+    if (event.key !== 'Tab') return
+    const cancel = cancelDeleteButton.current
+    const confirm = confirmDeleteButton.current
+    if (cancel === null || confirm === null) return
+    if (event.shiftKey && document.activeElement === cancel) {
+      event.preventDefault()
+      confirm.focus()
+    } else if (!event.shiftKey && document.activeElement === confirm) {
+      event.preventDefault()
+      cancel.focus()
+    }
+  }
 
   async function importFile(event: ChangeEvent<HTMLInputElement>): Promise<void> {
     const file = event.currentTarget.files?.[0]
@@ -52,7 +115,7 @@ export function ShaderLibrary({ portraitUrls }: ShaderLibraryProps) {
   }
 
   return (
-    <section className="shader-library" aria-label="Shader library">
+    <section ref={libraryRoot} className="shader-library" aria-label="Shader library">
       <div className="panel-heading">
         <div>
           <p className="panel-kicker">Library</p>
@@ -74,29 +137,22 @@ export function ShaderLibrary({ portraitUrls }: ShaderLibraryProps) {
         >
           Capture portrait
         </button>
-        <button type="button" disabled={!selectedIsLocal} onClick={() => setDeleteConfirmation(true)}>Delete shader</button>
+        <button type="button" disabled={!selectedIsLocal} onClick={beginDelete}>Delete shader</button>
       </div>
 
       {importError !== undefined && <p className="panel-message panel-error" role="alert">{importError}</p>}
 
-      {deleteConfirmation && selectedIsLocal && (
-        <div className="delete-confirmation" role="alertdialog" aria-label={`Delete ${state.draft.name}?`} aria-describedby="delete-shader-description">
-          <p id="delete-shader-description">This removes the local shader.</p>
-          <div>
-            <button type="button" onClick={() => setDeleteConfirmation(false)}>Cancel</button>
-            <button
-              type="button"
-              className="danger-button"
-              aria-label="Confirm delete"
-              onClick={() => {
-                setDeleteConfirmation(false)
-                void commands.deleteShader()
-              }}
-            >
-              Delete
-            </button>
-          </div>
-        </div>
+      {actionNotices.length > 0 && (
+        <section className="workspace-notices" aria-label="Shader action notices">
+          <ul>
+            {actionNotices.map((notice, index) => (
+              <li key={`${notice.scope}-${index}`}>
+                <p className={`notice-${notice.kind}`} role={notice.kind === 'error' ? 'alert' : 'status'}>{notice.message}</p>
+              </li>
+            ))}
+          </ul>
+          <button type="button" onClick={commands.clearNotices}>Dismiss notices</button>
+        </section>
       )}
 
       <section className="shader-group" aria-labelledby="built-in-shaders-heading">
@@ -135,6 +191,36 @@ export function ShaderLibrary({ portraitUrls }: ShaderLibraryProps) {
           </ul>
         )}
       </section>
+      {deleteConfirmation !== undefined && createPortal(
+        <div
+          className="delete-confirmation"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby={deleteHeadingId}
+          aria-describedby={deleteDescriptionId}
+          onKeyDown={handleDeleteDialogKeyDown}
+        >
+          <h2 id={deleteHeadingId}>Delete {deleteConfirmation.name}?</h2>
+          <p id={deleteDescriptionId}>This removes the local shader.</p>
+          <div>
+            <button ref={cancelDeleteButton} type="button" onClick={() => setDeleteConfirmation(undefined)}>Cancel</button>
+            <button
+              ref={confirmDeleteButton}
+              type="button"
+              className="danger-button"
+              aria-label="Confirm delete"
+              onClick={() => {
+                const targetId = deleteConfirmation.id
+                setDeleteConfirmation(undefined)
+                void commands.deleteShader(targetId)
+              }}
+            >
+              Delete
+            </button>
+          </div>
+        </div>,
+        document.body,
+      )}
     </section>
   )
 }

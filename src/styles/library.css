@@ -148,12 +148,24 @@ button:disabled {
   background: var(--color-neutral-100);
   border: 1px solid var(--color-warning);
   border-radius: 0.3rem;
-  margin-bottom: var(--space-3);
+  box-shadow: 0 0 0 100vmax rgb(0 0 0 / 58%);
+  left: 50%;
+  max-width: calc(100% - 2rem);
   padding: var(--space-2);
+  position: fixed;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 20rem;
+  z-index: 100;
 }
 
+.delete-confirmation h2,
 .delete-confirmation p {
   margin: 0 0 var(--space-2);
+}
+
+.delete-confirmation h2 {
+  font-size: var(--font-size-sm);
 }
 
 .delete-confirmation div {
@@ -165,6 +177,39 @@ button:disabled {
 .delete-confirmation .danger-button {
   border-color: var(--color-error);
   color: var(--color-error);
+}
+
+.workspace-notices {
+  background: var(--color-neutral-100);
+  border: 1px solid var(--color-neutral-300);
+  border-radius: 0.3rem;
+  margin-bottom: var(--space-3);
+  padding: var(--space-2);
+}
+
+.workspace-notices ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.workspace-notices p {
+  color: var(--color-neutral-700);
+  font-size: var(--font-size-xs);
+  margin: 0 0 var(--space-1);
+}
+
+.workspace-notices .notice-error {
+  color: var(--color-error);
+}
+
+.workspace-notices button {
+  background: transparent;
+  border: 0;
+  color: var(--color-accent);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  padding: 0;
 }
 
 .model-loader {
