@@ -70,6 +70,26 @@ export class ShaderCompiler {
     return this.activeMaterial
   }
 
+  validateRuntime(prepareRuntime: RuntimeMaterialPreparer): CompileDiagnostic[] {
+    if (this.disposed) throw new Error('Shader compiler is disposed')
+    const material = this.activeMaterial
+    if (material === undefined) return []
+    const runtime = prepareRuntime(material)
+    if (runtime === undefined) return []
+    let committed = false
+    try {
+      const diagnostics = runtime.validate(
+        (render) => captureShaderDiagnostics(this.renderer, material, render),
+      )
+      if (hasErrors(diagnostics)) return diagnostics
+      runtime.commit()
+      committed = true
+      return diagnostics
+    } finally {
+      if (!committed) runtime.dispose()
+    }
+  }
+
   async compile(draft: ShaderDraft, prepareRuntime?: RuntimeMaterialPreparer): Promise<CompileResult> {
     const generation = ++this.generation
     let candidate: ShaderMaterial

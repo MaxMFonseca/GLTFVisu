@@ -210,6 +210,130 @@ describe('ViewerEngine', () => {
     engine.dispose()
   })
 
+  it('rolls back camera, scene, and ownership when camera controls throw during model commit', async () => {
+    const firstRoot = new Group()
+    const firstGeometry = new BoxGeometry()
+    const firstMaterial = new MeshBasicMaterial()
+    firstRoot.add(new Mesh(firstGeometry, firstMaterial))
+    const secondRoot = new Group()
+    const secondGeometry = new BoxGeometry()
+    const secondMaterial = new MeshBasicMaterial()
+    secondRoot.add(new Mesh(secondGeometry, secondMaterial))
+    const disposeFirstGeometry = vi.spyOn(firstGeometry, 'dispose')
+    const disposeFirstMaterial = vi.spyOn(firstMaterial, 'dispose')
+    const disposeSecondGeometry = vi.spyOn(secondGeometry, 'dispose')
+    const disposeSecondMaterial = vi.spyOn(secondMaterial, 'dispose')
+    const loader: ModelLoaderPort = {
+      load: vi.fn()
+        .mockResolvedValueOnce({ scene: firstRoot, animations: [] })
+        .mockResolvedValueOnce({ scene: secondRoot, animations: [] }),
+    }
+    const harness = createHarness({ loader })
+    const onModelInfo = vi.fn()
+    const engine = new ViewerEngine(harness.host, { onModelInfo }, harness.dependencies)
+    const firstFile = modelFile('first.glb')
+    await engine.loadModel([firstFile], firstFile)
+    harness.frames.get(1)?.(16)
+    const [viewerScene, camera] = vi.mocked(harness.renderer.render).mock.calls.at(-1) as [Object3D, PerspectiveCamera]
+    const cameraPosition = camera.position.clone()
+    const cameraNear = camera.near
+    const cameraFar = camera.far
+    const controlsTarget = harness.controls.target.clone()
+    vi.mocked(harness.controls.saveState).mockImplementationOnce(() => { throw new Error('controls commit failed') })
+
+    const secondFile = modelFile('second.glb')
+    await expect(engine.loadModel([secondFile], secondFile)).rejects.toThrow('controls commit failed')
+
+    expect(firstRoot.parent).toBe(viewerScene)
+    expect(secondRoot.parent).toBeNull()
+    expect(disposeFirstGeometry).not.toHaveBeenCalled()
+    expect(disposeFirstMaterial).not.toHaveBeenCalled()
+    expect(disposeSecondGeometry).toHaveBeenCalledTimes(1)
+    expect(disposeSecondMaterial).toHaveBeenCalledTimes(1)
+    expect(camera.position).toEqual(cameraPosition)
+    expect(camera.near).toBe(cameraNear)
+    expect(camera.far).toBe(cameraFar)
+    expect(harness.controls.target).toEqual(controlsTarget)
+    expect(onModelInfo).toHaveBeenCalledTimes(1)
+
+    engine.dispose()
+  })
+
+  it('isolates notification callback failures after a successful model commit', async () => {
+    const root = new Group()
+    root.add(new Mesh(new BoxGeometry(), new MeshBasicMaterial()))
+    const loader: ModelLoaderPort = { load: vi.fn(async () => ({ scene: root, animations: [] })) }
+    const harness = createHarness({ loader })
+    const onModelInfo = vi.fn(() => { throw new Error('model notification failed') })
+    const onAnimationState = vi.fn(() => { throw new Error('animation notification failed') })
+    const engine = new ViewerEngine(harness.host, { onModelInfo, onAnimationState }, harness.dependencies)
+    const file = modelFile('notified.glb')
+
+    await expect(engine.loadModel([file], file)).resolves.toEqual({
+      name: 'notified.glb',
+      meshCount: 1,
+      animationClips: [],
+    })
+    expect(onModelInfo).toHaveBeenCalledTimes(1)
+    expect(onAnimationState).toHaveBeenCalledTimes(1)
+    engine.dispose()
+  })
+
+  it('keeps the current model when its shader fails a variant introduced by the replacement', async () => {
+    const firstRoot = new Group()
+    const firstMesh = new Mesh(new BoxGeometry(), new MeshBasicMaterial())
+    firstRoot.add(firstMesh)
+    const secondRoot = new Group()
+    const secondGeometry = new BoxGeometry()
+    const secondMaterial = new MeshBasicMaterial({ side: DoubleSide })
+    secondRoot.add(new Mesh(secondGeometry, secondMaterial))
+    const disposeSecondGeometry = vi.spyOn(secondGeometry, 'dispose')
+    const disposeSecondMaterial = vi.spyOn(secondMaterial, 'dispose')
+    const loader: ModelLoaderPort = {
+      load: vi.fn()
+        .mockResolvedValueOnce({ scene: firstRoot, animations: [] })
+        .mockResolvedValueOnce({ scene: secondRoot, animations: [] }),
+    }
+    const harness = createHarness({
+      loader,
+      createCompiler: (renderer) => new ShaderCompiler(renderer, { validate: async () => [] }),
+    })
+    let rejectDoubleSided = false
+    harness.renderer.render = vi.fn((scene: Object3D) => {
+      let hasDoubleSidedShader = false
+      scene.traverse((object) => {
+        if (object instanceof Mesh && object.material instanceof ShaderMaterial) {
+          hasDoubleSidedShader ||= object.material.side === DoubleSide
+        }
+      })
+      if (!rejectDoubleSided || !hasDoubleSidedShader) return
+      const fragment = {} as WebGLShader
+      const gl = {
+        getProgramInfoLog: () => 'link failed',
+        getShaderInfoLog: (shader: WebGLShader) => shader === fragment ? 'ERROR: 1:2: model variant failed' : '',
+      } as unknown as WebGLRenderingContext
+      harness.renderer.debug.onShaderError?.(gl, {} as never, {} as WebGLShader, fragment)
+    })
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    const firstFile = modelFile('front.glb')
+    await engine.loadModel([firstFile], firstFile)
+    await engine.compileShader(shader())
+    const working = firstMesh.material
+    const disposeWorking = vi.spyOn(working, 'dispose')
+    rejectDoubleSided = true
+
+    const secondFile = modelFile('double.glb')
+    await expect(engine.loadModel([secondFile], secondFile)).rejects.toThrow('model variant failed')
+
+    expect(firstRoot.parent).not.toBeNull()
+    expect(firstMesh.material).toBe(working)
+    expect(disposeWorking).not.toHaveBeenCalled()
+    expect(secondRoot.parent).toBeNull()
+    expect(disposeSecondGeometry).toHaveBeenCalledTimes(1)
+    expect(disposeSecondMaterial).toHaveBeenCalledTimes(1)
+    engine.dispose()
+  })
+
   it('installs only valid compiled materials and mutates shared uniforms on the frame loop', async () => {
     const root = new Group()
     const original = new MeshBasicMaterial()
