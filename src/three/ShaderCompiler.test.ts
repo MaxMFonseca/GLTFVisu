@@ -2,9 +2,9 @@ import type { ShaderMaterial } from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import type { ShaderParameterDefinition } from '../domain/parameters'
 import type { ShaderDraft } from '../domain/shader'
+import type { CompileDiagnostic } from '../application/ViewerPort'
 import {
   ShaderCompiler,
-  type CompileDiagnostic,
   type ShaderValidationRenderer,
 } from './ShaderCompiler'
 

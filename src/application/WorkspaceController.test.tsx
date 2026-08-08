@@ -5,7 +5,7 @@ import { BUILTIN_SHADERS } from '../domain/builtins'
 import type { ShaderParameterDefinition } from '../domain/parameters'
 import type { ShaderDefinition, ShaderPortrait } from '../domain/shader'
 import type { ShaderRepository } from './ShaderRepository'
-import type { CompileResult, ModelInfo, ViewerPort } from '../three/ViewerEngine'
+import type { CompileResult, ModelInfo, ViewerPort } from './ViewerPort'
 import {
   WorkspaceProvider,
   useWorkspace,
@@ -253,8 +253,145 @@ describe('WorkspaceProvider', () => {
     await act(async () => { saveGate.resolve(); await savePromise })
 
     expect(workspace.current().state.savedSnapshot).toMatchObject({ name: 'Saved name', updatedAt: 50 })
-    expect(workspace.current().state.draft).toMatchObject({ name: '  Saved name  ', fragmentSource: 'newer source' })
-    expect(workspace.current().state.dirty).toMatchObject({ name: true, source: true })
+    expect(workspace.current().state.draft).toMatchObject({ name: 'Saved name', fragmentSource: 'newer source' })
+    expect(workspace.current().state.dirty).toMatchObject({ name: false, source: true })
+  })
+
+  it('keeps a post-submit value round trip dirty until another explicit Save', async () => {
+    const local = localShader()
+    const repository = createRepository([local])
+    const saveGate = deferred<void>()
+    vi.mocked(repository.save).mockImplementationOnce(() => saveGate.promise)
+    const workspace = renderWorkspace({ repository, now: () => 50 })
+    await ready(workspace)
+    await act(async () => workspace.current().commands.selectShader(local.id))
+    act(() => workspace.current().commands.editName('Saved name'))
+
+    let savePromise!: Promise<void>
+    act(() => { savePromise = workspace.current().commands.save() })
+    act(() => workspace.current().commands.updateValue('gain', 2))
+    act(() => workspace.current().commands.updateValue('gain', 1))
+    await act(async () => { saveGate.resolve(); await savePromise })
+
+    expect(workspace.current().state.dirty.name).toBe(false)
+    expect(workspace.current().state.dirty.values).toBe(true)
+    await act(async () => workspace.current().commands.save())
+    expect(workspace.current().state.dirty.values).toBe(false)
+  })
+
+  it('merges a Save into the current baseline after selecting away and back to the same shader', async () => {
+    const first = localShader({ id: 'first', name: 'First' })
+    const second = localShader({ id: 'second', name: 'Second' })
+    const repository = createRepository([first, second])
+    const saveGate = deferred<void>()
+    vi.mocked(repository.save).mockImplementationOnce(() => saveGate.promise)
+    const workspace = renderWorkspace({ repository, now: () => 50 })
+    await ready(workspace)
+    await act(async () => workspace.current().commands.selectShader(first.id))
+    act(() => workspace.current().commands.editName('  Persisted name  '))
+
+    let firstSave!: Promise<void>
+    act(() => { firstSave = workspace.current().commands.save() })
+    await act(async () => workspace.current().commands.selectShader(second.id))
+    await act(async () => workspace.current().commands.selectShader(first.id))
+    act(() => workspace.current().commands.editSource('reselected source'))
+    await act(async () => { saveGate.resolve(); await firstSave })
+
+    expect(workspace.current().state.savedSnapshot).toMatchObject({ name: 'Persisted name', updatedAt: 50 })
+    expect(workspace.current().state.draft).toMatchObject({ name: 'Persisted name', fragmentSource: 'reselected source' })
+    expect(workspace.current().state.dirty).toMatchObject({ name: false, source: true })
+
+    await act(async () => workspace.current().commands.save())
+    expect(repository.save).toHaveBeenLastCalledWith(expect.objectContaining({
+      id: 'first', name: 'Persisted name', fragmentSource: 'reselected source',
+    }))
+    expect(workspace.current().state.dirty.source).toBe(false)
+  })
+
+  it('blocks capture until a source adopted after reselection recompiles', async () => {
+    const first = localShader({ id: 'first', name: 'First' })
+    const second = localShader({ id: 'second', name: 'Second' })
+    const repository = createRepository([first, second])
+    const viewer = createViewer()
+    const saveGate = deferred<void>()
+    vi.mocked(repository.save).mockImplementationOnce(() => saveGate.promise)
+    const workspace = renderWorkspace({ repository, viewer })
+    await ready(workspace)
+    await act(async () => workspace.current().commands.selectShader(first.id))
+    const root = new File(['model'], 'model.glb')
+    await act(async () => workspace.current().commands.loadModel([root], root))
+    vi.useFakeTimers()
+
+    act(() => workspace.current().commands.editSource('persisted source'))
+    let savePromise!: Promise<void>
+    act(() => { savePromise = workspace.current().commands.save() })
+    await act(async () => workspace.current().commands.selectShader(second.id))
+    await act(async () => workspace.current().commands.selectShader(first.id))
+    vi.mocked(viewer.compileShader).mockClear()
+    vi.mocked(viewer.capturePortrait).mockClear()
+
+    await act(async () => { saveGate.resolve(); await savePromise })
+
+    expect(workspace.current().state.draft.fragmentSource).toBe('persisted source')
+    expect(workspace.current().state.compile.status).toBe('idle')
+    await act(async () => workspace.current().commands.capturePortrait())
+    expect(viewer.capturePortrait).not.toHaveBeenCalled()
+
+    await act(async () => vi.advanceTimersByTimeAsync(399))
+    expect(viewer.compileShader).not.toHaveBeenCalled()
+    await act(async () => vi.advanceTimersByTimeAsync(1))
+    expect(viewer.compileShader).toHaveBeenCalledWith(expect.objectContaining({
+      id: first.id,
+      fragmentSource: 'persisted source',
+    }))
+    expect(workspace.current().state.compile.status).toBe('valid')
+
+    await act(async () => workspace.current().commands.capturePortrait())
+    expect(viewer.capturePortrait).toHaveBeenCalledTimes(1)
+  })
+
+  it('normalizes dirty reselected values against an adopted saved schema', async () => {
+    const legacy = {
+      id: 'legacy', type: 'boolean', uniformName: 'uLegacy', label: 'Legacy', defaultValue: false,
+    } as const
+    const first = localShader({
+      id: 'first',
+      name: 'First',
+      parameters: [...localShader().parameters, legacy],
+      parameterValues: { gain: 1, legacy: true },
+    })
+    const second = localShader({ id: 'second', name: 'Second' })
+    const repository = createRepository([first, second])
+    const saveGate = deferred<void>()
+    vi.mocked(repository.save).mockImplementationOnce(() => saveGate.promise)
+    const workspace = renderWorkspace({ repository })
+    await ready(workspace)
+    await act(async () => workspace.current().commands.selectShader(first.id))
+    const savedParameters: ShaderParameterDefinition[] = [
+      { id: 'gain', type: 'float', uniformName: 'uGain', label: 'Gain', min: 0, max: 1, step: 0.1, defaultValue: 0.25 },
+      { id: 'tint', type: 'color', uniformName: 'uTint', label: 'Tint', defaultValue: '#112233' },
+    ]
+    act(() => workspace.current().commands.editSchema(savedParameters, { gain: 0.5, tint: '#abcdef' }))
+
+    let savePromise!: Promise<void>
+    act(() => { savePromise = workspace.current().commands.save() })
+    await act(async () => workspace.current().commands.selectShader(second.id))
+    await act(async () => workspace.current().commands.selectShader(first.id))
+    act(() => workspace.current().commands.updateValue('gain', 1.8))
+    await act(async () => { saveGate.resolve(); await savePromise })
+
+    expect(workspace.current().state.draft.parameters).toEqual(savedParameters)
+    expect(workspace.current().state.draft.parameterValues).toEqual({ gain: 1, tint: '#abcdef' })
+    expect(workspace.current().state.dirty).toMatchObject({ schema: false, values: true })
+    expect(workspace.current().state.compile.status).toBe('idle')
+
+    await act(async () => workspace.current().commands.save())
+    expect(repository.save).toHaveBeenLastCalledWith(expect.objectContaining({
+      id: first.id,
+      parameters: savedParameters,
+      parameterValues: { gain: 1, tint: '#abcdef' },
+    }))
+    expect(workspace.current().state.dirty.values).toBe(false)
   })
 
   it('merges shaders created while repository hydration is pending', async () => {

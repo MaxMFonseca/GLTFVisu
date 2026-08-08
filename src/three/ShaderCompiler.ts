@@ -10,20 +10,10 @@ import {
 } from 'three'
 import type { ShaderParameterDefinition, ShaderParameterValue } from '../domain/parameters'
 import type { ShaderDraft } from '../domain/shader'
+import type { CompileDiagnostic, CompileResult } from '../application/ViewerPort'
 import { getShaderLineMapping, createShaderMaterial } from './shaders/materialFactory'
 import { parseShaderDiagnostics } from './shaders/diagnostics'
 import { updateUniformValue } from './shaders/uniforms'
-
-export interface CompileDiagnostic {
-  severity: 'error' | 'warning'
-  message: string
-  editorLine?: number
-  raw: string
-}
-
-export type CompileResult =
-  | { status: 'valid'; generation: number }
-  | { status: 'error'; generation: number; diagnostics: CompileDiagnostic[] }
 
 type ShaderErrorHandler = NonNullable<WebGLRenderer['debug']['onShaderError']>
 

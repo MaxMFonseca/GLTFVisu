@@ -1,6 +1,6 @@
 import type { ParameterDefinitionValidationError } from '../domain/uniformValidation'
 import type { ShaderDefinition, ShaderDraft } from '../domain/shader'
-import type { CompileDiagnostic } from '../three/ViewerEngine'
+import type { CompileDiagnostic } from './ViewerPort'
 
 export interface WorkspaceDirtyFields {
   name: boolean
@@ -8,6 +8,14 @@ export interface WorkspaceDirtyFields {
   schema: boolean
   values: boolean
   portrait: boolean
+}
+
+export interface WorkspaceFieldRevisions {
+  name: number
+  source: number
+  schema: number
+  values: number
+  portrait: number
 }
 
 export interface WorkspaceCompileState {
@@ -41,6 +49,8 @@ export interface WorkspaceState {
   savedSnapshot: ShaderDefinition
   draft: ShaderDraft
   draftRevision: number
+  selectionRevision: number
+  fieldRevisions: WorkspaceFieldRevisions
   dirty: WorkspaceDirtyFields
   hydration: 'loading' | 'ready' | 'error'
   persistence: 'idle' | 'saving'
@@ -66,6 +76,10 @@ export function cloneShader(shader: ShaderDefinition): ShaderDefinition {
 
 export function cleanDirtyFields(): WorkspaceDirtyFields {
   return { name: false, source: false, schema: false, values: false, portrait: false }
+}
+
+export function initialFieldRevisions(revision: number): WorkspaceFieldRevisions {
+  return { name: revision, source: revision, schema: revision, values: revision, portrait: revision }
 }
 
 export function hasDirtyFields(dirty: WorkspaceDirtyFields): boolean {

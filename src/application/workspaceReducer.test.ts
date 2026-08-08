@@ -138,7 +138,12 @@ describe('workspaceReducer', () => {
     const saving = workspaceReducer(dirty, { type: 'saveStarted' })
     const failed = workspaceReducer(saving, { type: 'operationFailed', scope: 'save', message: 'Disk unavailable' })
     const normalized = localShader({ name: 'Normalized', updatedAt: 30 })
-    const saved = workspaceReducer(failed, { type: 'saveSucceeded', shader: normalized, draftRevision: dirty.draftRevision })
+    const saved = workspaceReducer(failed, {
+      type: 'saveSucceeded',
+      shader: normalized,
+      submittedRevisions: dirty.fieldRevisions,
+      selectionRevision: dirty.selectionRevision,
+    })
 
     expect(failed.draft.name).toBe('  Normalized  ')
     expect(failed.dirty.name).toBe(true)
@@ -146,6 +151,7 @@ describe('workspaceReducer', () => {
     expect(saved.savedSnapshot).toEqual(normalized)
     expect(saved.draft).toEqual(normalized)
     expect(saved.draft).not.toBe(saved.savedSnapshot)
+    expect(saved.dirty.name).toBe(false)
     expect(hasDirtyFields(saved.dirty)).toBe(false)
   })
 
@@ -159,13 +165,38 @@ describe('workspaceReducer', () => {
     const persisted = localShader({ name: 'Saved name', updatedAt: 30 })
 
     const state = workspaceReducer(editedAgain, {
-      type: 'saveSucceeded', shader: persisted, draftRevision: renamed.draftRevision,
+      type: 'saveSucceeded',
+      shader: persisted,
+      submittedRevisions: renamed.fieldRevisions,
+      selectionRevision: renamed.selectionRevision,
     })
 
     expect(state.savedSnapshot).toEqual(persisted)
     expect(state.draft.name).toBe('Saved name')
     expect(state.draft.fragmentSource).toBe('newer source')
     expect(state.dirty).toMatchObject({ name: false, source: true })
+  })
+
+  it('keeps a post-submit value edit dirty even when it returns to the persisted value', () => {
+    const selected = workspaceReducer(createInitialWorkspaceState(BUILTIN_SHADERS), {
+      type: 'select', shader: localShader(),
+    })
+    const renamed = workspaceReducer(selected, { type: 'editName', name: 'Saved name' })
+    const saving = workspaceReducer(renamed, { type: 'saveStarted' })
+    const changed = workspaceReducer(saving, { type: 'editValue', parameterId: 'gain', value: 2 })
+    const returned = workspaceReducer(changed, { type: 'editValue', parameterId: 'gain', value: 1 })
+    const persisted = localShader({ name: 'Saved name', updatedAt: 30 })
+
+    const state = workspaceReducer(returned, {
+      type: 'saveSucceeded',
+      shader: persisted,
+      submittedRevisions: renamed.fieldRevisions,
+      selectionRevision: renamed.selectionRevision,
+    })
+
+    expect(state.draft.parameterValues.gain).toBe(1)
+    expect(state.dirty.name).toBe(false)
+    expect(state.dirty.values).toBe(true)
   })
 
   it('uses the supplied deterministic fallback after deleting a local shader', () => {

@@ -14,7 +14,8 @@ import {
 import { describe, expect, it, vi } from 'vitest'
 import type { ShaderParameterDefinition } from '../domain/parameters'
 import type { ShaderDraft } from '../domain/shader'
-import { ShaderCompiler, type CompileDiagnostic } from './ShaderCompiler'
+import type { CompileDiagnostic, ViewerPort } from '../application/ViewerPort'
+import { ShaderCompiler } from './ShaderCompiler'
 import {
   ViewerEngine,
   type ModelLoaderPort,
@@ -135,7 +136,7 @@ function createHarness(
 describe('ViewerEngine', () => {
   it('keeps one RAF pending, resizes imperatively, and tears down idempotently across remounts', () => {
     const first = createHarness()
-    const engine = new ViewerEngine(first.host, {}, first.dependencies)
+    const engine: ViewerPort = new ViewerEngine(first.host, {}, first.dependencies)
 
     expect(first.host.lastElementChild).toBe(first.renderer.domElement)
     expect(first.renderer.setSize).toHaveBeenCalledWith(800, 400, false)
