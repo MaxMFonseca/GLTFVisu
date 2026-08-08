@@ -19,22 +19,67 @@ export interface ViewerHostProps {
   mountViewer?: ViewerMountFactory
 }
 
+interface ViewerOwnership {
+  host: HTMLElement
+  factory: ViewerMountFactory
+  handle: ViewerMountHandle
+  users: number
+  cleanupGeneration: number
+  disposed: boolean
+}
+
+function disposeOwnership(
+  ownership: ViewerOwnership,
+  ownershipRef: { current: ViewerOwnership | undefined },
+): void {
+  if (ownership.disposed) return
+  ownership.disposed = true
+  ownership.handle.dispose()
+  if (ownershipRef.current === ownership) ownershipRef.current = undefined
+}
+
 export function ViewerHost({ mountViewer = DEFAULT_MOUNT }: ViewerHostProps) {
   const { state } = useWorkspace()
   const canvasHost = useRef<HTMLDivElement>(null)
+  const ownershipRef = useRef<ViewerOwnership | undefined>(undefined)
   const [mountError, setMountError] = useState<string>()
 
   useEffect(() => {
     const host = canvasHost.current
     if (host === null) return
-    let handle: ViewerMountHandle
-    try {
-      handle = mountViewer(host)
-    } catch (error) {
-      setMountError(errorMessage(error))
-      return
+    let ownership = ownershipRef.current
+    if (ownership !== undefined && (ownership.host !== host || ownership.factory !== mountViewer)) {
+      disposeOwnership(ownership, ownershipRef)
+      ownership = undefined
     }
-    return () => handle.dispose()
+    if (ownership === undefined) {
+      try {
+        ownership = {
+          host,
+          factory: mountViewer,
+          handle: mountViewer(host),
+          users: 0,
+          cleanupGeneration: 0,
+          disposed: false,
+        }
+        ownershipRef.current = ownership
+        setMountError(undefined)
+      } catch (error) {
+        setMountError(errorMessage(error))
+        return
+      }
+    }
+    ownership.users += 1
+    ownership.cleanupGeneration += 1
+    return () => {
+      ownership.users -= 1
+      const cleanupGeneration = ++ownership.cleanupGeneration
+      queueMicrotask(() => {
+        if (ownership.users === 0 && ownership.cleanupGeneration === cleanupGeneration) {
+          disposeOwnership(ownership, ownershipRef)
+        }
+      })
+    }
   }, [mountViewer])
 
   let overlay: React.ReactNode

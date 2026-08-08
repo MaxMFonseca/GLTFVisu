@@ -17,6 +17,7 @@ export interface AppProps {
 }
 
 const DEFAULT_VIEWER_FACTORY: ViewerEngineFactory = (host) => new ViewerEngine(host)
+const DEFAULT_REPOSITORY = new IndexedDbShaderRepository()
 
 class MountedViewerPort implements ViewerPort {
   private engine?: ViewerPort
@@ -96,10 +97,7 @@ function createViewerRuntime(createViewer: ViewerEngineFactory): {
 }
 
 function App({ repository: injectedRepository, createViewer = DEFAULT_VIEWER_FACTORY }: AppProps) {
-  const repository = useMemo(
-    () => injectedRepository ?? new IndexedDbShaderRepository(),
-    [injectedRepository],
-  )
+  const repository = injectedRepository ?? DEFAULT_REPOSITORY
   const runtime = useMemo(() => createViewerRuntime(createViewer), [createViewer])
 
   useEffect(() => {
