@@ -1,0 +1,328 @@
+import { act, render, waitFor } from '@testing-library/react'
+import type { ReactNode } from 'react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { BUILTIN_SHADERS } from '../domain/builtins'
+import type { ShaderParameterDefinition } from '../domain/parameters'
+import type { ShaderDefinition, ShaderPortrait } from '../domain/shader'
+import type { ShaderRepository } from './ShaderRepository'
+import type { CompileResult, ModelInfo, ViewerPort } from '../three/ViewerEngine'
+import {
+  WorkspaceProvider,
+  useWorkspace,
+  type WorkspaceContextValue,
+  type WorkspaceProviderProps,
+} from './WorkspaceController'
+
+function localShader(overrides: Partial<ShaderDefinition> = {}): ShaderDefinition {
+  return {
+    id: 'local-one',
+    name: 'Local shader',
+    fragmentSource: 'void main() { outColor = vec4(uGain); }',
+    origin: 'local',
+    parameters: [
+      { id: 'gain', type: 'float', uniformName: 'uGain', label: 'Gain', min: 0, max: 2, step: 0.1, defaultValue: 1 },
+    ],
+    parameterValues: { gain: 1 },
+    createdAt: 10,
+    updatedAt: 10,
+    schemaVersion: 1,
+    ...overrides,
+  }
+}
+
+function createRepository(locals: ShaderDefinition[] = []): ShaderRepository {
+  return {
+    list: vi.fn(async () => locals),
+    get: vi.fn(async (id) => locals.find((shader) => shader.id === id)),
+    save: vi.fn(async (shader) => { locals.splice(0, locals.length, shader) }),
+    delete: vi.fn(async (id) => { locals.splice(0, locals.length, ...locals.filter((shader) => shader.id !== id)) }),
+  }
+}
+
+function createViewer(): ViewerPort {
+  let generation = 0
+  return {
+    loadModel: vi.fn(async (): Promise<ModelInfo> => ({ name: 'model.glb', meshCount: 2, animationClips: ['Idle', 'Run'] })),
+    fitModel: vi.fn(),
+    compileShader: vi.fn(async (): Promise<CompileResult> => ({ status: 'valid', generation: ++generation })),
+    updateParameter: vi.fn(),
+    capturePortrait: vi.fn(async (): Promise<ShaderPortrait> => ({
+      kind: 'captured', blob: new Blob(['portrait']), mimeType: 'image/png', width: 4, height: 4,
+    })),
+    selectAnimation: vi.fn(),
+    setAnimationPlaying: vi.fn(),
+    dispose: vi.fn(),
+  }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve
+    reject = promiseReject
+  })
+  return { promise, resolve, reject }
+}
+
+function readBlob(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(reader.error)
+    reader.onload = () => resolve(String(reader.result))
+    reader.readAsText(blob)
+  })
+}
+
+function renderWorkspace(overrides: Partial<WorkspaceProviderProps> = {}) {
+  const repository = overrides.repository ?? createRepository()
+  const viewer = overrides.viewer ?? createViewer()
+  let latest: WorkspaceContextValue | undefined
+  function Probe(): ReactNode {
+    latest = useWorkspace()
+    return null
+  }
+  const rendered = render(
+    <WorkspaceProvider repository={repository} viewer={viewer} {...overrides}>
+      <Probe />
+    </WorkspaceProvider>,
+  )
+  return {
+    ...rendered,
+    repository,
+    viewer,
+    current: () => {
+      if (latest === undefined) throw new Error('Workspace did not render')
+      return latest
+    },
+  }
+}
+
+async function ready(workspace: ReturnType<typeof renderWorkspace>): Promise<void> {
+  await waitFor(() => expect(workspace.current().state.hydration).toBe('ready'))
+  await waitFor(() => expect(workspace.current().state.compile.status).toBe('valid'))
+}
+
+afterEach(() => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+})
+
+describe('WorkspaceProvider', () => {
+  it('shows the initial built-in, hydrates locals, and compiles without persisting', async () => {
+    const repository = createRepository([localShader()])
+    const viewer = createViewer()
+    const workspace = renderWorkspace({ repository, viewer })
+
+    expect(workspace.current().state.selectedId).toBe(BUILTIN_SHADERS[0].id)
+    await ready(workspace)
+
+    expect(workspace.current().state.locals).toEqual([localShader()])
+    expect(viewer.compileShader).toHaveBeenCalledWith(expect.objectContaining({ id: BUILTIN_SHADERS[0].id }))
+    expect(repository.save).not.toHaveBeenCalled()
+  })
+
+  it('debounces source compilation for exactly 400 ms and cancels it on selection and unmount', async () => {
+    vi.useFakeTimers()
+    const local = localShader()
+    const repository = createRepository([local])
+    const viewer = createViewer()
+    const workspace = renderWorkspace({ repository, viewer })
+    await act(async () => { await Promise.resolve(); await Promise.resolve() })
+    await act(async () => { workspace.current().commands.selectShader(local.id); await Promise.resolve() })
+    vi.mocked(viewer.compileShader).mockClear()
+
+    act(() => workspace.current().commands.editSource('first edit'))
+    act(() => vi.advanceTimersByTime(399))
+    expect(viewer.compileShader).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(1))
+    expect(viewer.compileShader).toHaveBeenCalledTimes(1)
+
+    act(() => workspace.current().commands.editSource('cancelled by select'))
+    act(() => workspace.current().commands.selectShader(BUILTIN_SHADERS[1].id))
+    vi.mocked(viewer.compileShader).mockClear()
+    act(() => vi.advanceTimersByTime(400))
+    expect(viewer.compileShader).not.toHaveBeenCalled()
+
+    act(() => workspace.current().commands.selectShader(local.id))
+    vi.mocked(viewer.compileShader).mockClear()
+    act(() => workspace.current().commands.editSource('cancelled by unmount'))
+    workspace.unmount()
+    act(() => vi.advanceTimersByTime(400))
+    expect(viewer.compileShader).not.toHaveBeenCalled()
+  })
+
+  it('ignores stale compile responses in application state', async () => {
+    const viewer = createViewer()
+    const workspace = renderWorkspace({ viewer })
+    await ready(workspace)
+    const first = deferred<CompileResult>()
+    const second = deferred<CompileResult>()
+    vi.mocked(viewer.compileShader)
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise)
+
+    act(() => { void workspace.current().commands.compile() })
+    act(() => { void workspace.current().commands.compile() })
+    await act(async () => second.resolve({ status: 'valid', generation: 22 }))
+    await act(async () => first.resolve({
+      status: 'error', generation: 21, diagnostics: [{ severity: 'error', message: 'stale error', raw: 'stale' }],
+    }))
+
+    expect(workspace.current().state.compile).toMatchObject({ status: 'valid', diagnostics: [] })
+  })
+
+  it('updates runtime values synchronously without compiling and saves only on explicit Save', async () => {
+    const local = localShader()
+    const repository = createRepository([local])
+    const viewer = createViewer()
+    const workspace = renderWorkspace({ repository, viewer, now: () => 50 })
+    await ready(workspace)
+    await act(async () => workspace.current().commands.selectShader(local.id))
+    vi.mocked(viewer.compileShader).mockClear()
+
+    act(() => workspace.current().commands.updateValue('gain', 9))
+
+    expect(viewer.updateParameter).toHaveBeenCalledWith(local.parameters[0], 2)
+    expect(viewer.compileShader).not.toHaveBeenCalled()
+    expect(workspace.current().state.draft.parameterValues.gain).toBe(2)
+    expect(workspace.current().state.dirty.values).toBe(true)
+    expect(repository.save).not.toHaveBeenCalled()
+
+    await act(async () => workspace.current().commands.save())
+    expect(repository.save).toHaveBeenCalledWith(expect.objectContaining({ id: local.id, parameterValues: { gain: 2 }, updatedAt: 50 }))
+    expect(workspace.current().state.dirty.values).toBe(false)
+  })
+
+  it('blocks invalid schemas from compile and save while preserving a recoverable draft', async () => {
+    const local = localShader()
+    const repository = createRepository([local])
+    const viewer = createViewer()
+    const workspace = renderWorkspace({ repository, viewer })
+    await ready(workspace)
+    await act(async () => workspace.current().commands.selectShader(local.id))
+    vi.mocked(viewer.compileShader).mockClear()
+    const invalid: ShaderParameterDefinition[] = [
+      { id: 'bad', type: 'float', uniformName: 'not valid', label: 'Bad', min: 0, max: 1, step: 0.1, defaultValue: 0 },
+    ]
+
+    act(() => workspace.current().commands.editSchema(invalid, { bad: 0 }))
+    await act(async () => workspace.current().commands.save())
+
+    expect(workspace.current().state.compile.status).toBe('schema-invalid')
+    expect(workspace.current().state.schemaErrors).not.toHaveLength(0)
+    expect(workspace.current().state.dirty.schema).toBe(true)
+    expect(viewer.compileShader).not.toHaveBeenCalled()
+    expect(repository.save).not.toHaveBeenCalled()
+  })
+
+  it('keeps a normalized dirty draft when Save fails', async () => {
+    const local = localShader()
+    const repository = createRepository([local])
+    vi.mocked(repository.save).mockRejectedValue(new Error('Quota exceeded'))
+    const workspace = renderWorkspace({ repository })
+    await ready(workspace)
+    await act(async () => workspace.current().commands.selectShader(local.id))
+    act(() => workspace.current().commands.editName('  Changed locally  '))
+
+    await act(async () => workspace.current().commands.save())
+
+    expect(workspace.current().state.draft.name).toBe('  Changed locally  ')
+    expect(workspace.current().state.savedSnapshot.name).toBe('Local shader')
+    expect(workspace.current().state.dirty.name).toBe(true)
+    expect(workspace.current().state.notices.at(-1)).toMatchObject({ scope: 'save', message: 'Quota exceeded' })
+  })
+
+  it('keeps built-ins read-only and gives duplicates fresh persisted identity and timestamps', async () => {
+    const repository = createRepository()
+    const workspace = renderWorkspace({ repository, idFactory: () => 'fresh-id', now: () => 100 })
+    await ready(workspace)
+
+    act(() => workspace.current().commands.editName('Blocked'))
+    await act(async () => workspace.current().commands.duplicateShader())
+
+    expect(workspace.current().state.builtins[0].name).toBe('Normal')
+    expect(repository.save).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'fresh-id', origin: 'local', name: 'Normal copy', createdAt: 100, updatedAt: 100,
+    }))
+    expect(workspace.current().state.selectedId).toBe('fresh-id')
+  })
+
+  it('imports strictly, exports a versioned Blob, and always revokes its URL', async () => {
+    const repository = createRepository()
+    const urls = { createObjectURL: vi.fn((blob: Blob) => { void blob; return 'blob:shader' }), revokeObjectURL: vi.fn() }
+    const download = vi.fn()
+    const workspace = renderWorkspace({ repository, urls, download, idFactory: () => 'import-id', now: () => 75 })
+    await ready(workspace)
+    const packageJson = JSON.stringify({
+      format: 'gltf-shader-visualizer', version: 1,
+      shader: { name: 'Imported', fragmentSource: 'void main() {}', parameters: [], parameterValues: {} },
+    })
+
+    await act(async () => workspace.current().commands.importShader(packageJson))
+    await act(async () => workspace.current().commands.exportShader())
+
+    expect(repository.save).toHaveBeenCalledWith(expect.objectContaining({ id: 'import-id', origin: 'local', createdAt: 75 }))
+    const blob = urls.createObjectURL.mock.calls[0][0]
+    expect(JSON.parse(await readBlob(blob))).toMatchObject({ format: 'gltf-shader-visualizer', version: 1 })
+    expect(download).toHaveBeenCalledWith('blob:shader', 'Imported.shader.json')
+    expect(urls.revokeObjectURL).toHaveBeenCalledWith('blob:shader')
+
+    await act(async () => workspace.current().commands.importShader('{bad json'))
+    expect(vi.mocked(repository.save)).toHaveBeenCalledTimes(1)
+    expect(workspace.current().state.notices.at(-1)).toMatchObject({ scope: 'import', message: 'Malformed shader JSON' })
+  })
+
+  it('requires a loaded model for capture and relays structured model and animation commands', async () => {
+    const local = localShader()
+    const repository = createRepository([local])
+    const viewer = createViewer()
+    const workspace = renderWorkspace({ repository, viewer })
+    await ready(workspace)
+    await act(async () => workspace.current().commands.selectShader(local.id))
+
+    await act(async () => workspace.current().commands.capturePortrait())
+    expect(viewer.capturePortrait).not.toHaveBeenCalled()
+
+    const root = new File(['model'], 'model.glb')
+    await act(async () => workspace.current().commands.loadModel([root], root))
+    expect(workspace.current().state.modelLoad).toEqual({ status: 'loaded', name: 'model.glb', meshCount: 2 })
+    expect(workspace.current().state.animations).toEqual({ clipNames: ['Idle', 'Run'], selectedClip: 'Idle', playing: true })
+
+    vi.mocked(viewer.compileShader).mockResolvedValueOnce({
+      status: 'error', generation: 20, diagnostics: [{ severity: 'error', message: 'invalid shader', raw: 'invalid' }],
+    })
+    await act(async () => workspace.current().commands.compile())
+    await act(async () => workspace.current().commands.capturePortrait())
+    expect(viewer.capturePortrait).not.toHaveBeenCalled()
+
+    vi.mocked(viewer.compileShader).mockResolvedValueOnce({ status: 'valid', generation: 21 })
+    await act(async () => workspace.current().commands.compile())
+
+    act(() => workspace.current().commands.selectAnimation('Run'))
+    act(() => workspace.current().commands.setAnimationPlaying(false))
+    workspace.current().commands.fitModel()
+    expect(viewer.selectAnimation).toHaveBeenCalledWith('Run')
+    expect(viewer.setAnimationPlaying).toHaveBeenCalledWith(false)
+    expect(viewer.fitModel).toHaveBeenCalled()
+
+    await act(async () => workspace.current().commands.capturePortrait())
+    expect(workspace.current().state.draft.portrait).toMatchObject({ kind: 'captured', width: 4, height: 4 })
+    expect(workspace.current().state.dirty.portrait).toBe(true)
+    expect(repository.save).toHaveBeenCalledTimes(0)
+  })
+
+  it('deletes only locals and selects the next local before the first built-in', async () => {
+    const first = localShader({ id: 'first' })
+    const second = localShader({ id: 'second' })
+    const repository = createRepository([first, second])
+    const workspace = renderWorkspace({ repository })
+    await ready(workspace)
+    await act(async () => workspace.current().commands.selectShader(first.id))
+
+    await act(async () => workspace.current().commands.deleteShader())
+
+    expect(repository.delete).toHaveBeenCalledWith('first')
+    expect(workspace.current().state.selectedId).toBe('second')
+  })
+})
