@@ -1,0 +1,77 @@
+.viewer-stage {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  width: 100%;
+}
+
+.viewer-toolbar {
+  align-items: center;
+  background: var(--color-neutral-50);
+  border-bottom: 1px solid var(--color-neutral-200);
+  display: flex;
+  gap: var(--space-2);
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-3);
+}
+
+.viewer-toolbar button,
+.viewer-toolbar select {
+  background: var(--color-neutral-100);
+  border: 1px solid var(--color-neutral-300);
+  border-radius: 0.25rem;
+  color: var(--color-neutral-900);
+  font-size: var(--font-size-xs);
+  min-height: 1.75rem;
+  padding: var(--space-1) var(--space-2);
+}
+
+.viewer-toolbar label {
+  align-items: center;
+  display: flex;
+  gap: var(--space-2);
+}
+
+.viewer-toolbar label span {
+  color: var(--color-neutral-500);
+  font-size: var(--font-size-xs);
+}
+
+.viewer-viewport {
+  background: radial-gradient(circle at center, var(--color-neutral-100), var(--color-neutral-0) 72%);
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.viewer-canvas {
+  height: 100%;
+  inset: 0;
+  position: absolute;
+  width: 100%;
+}
+
+.viewer-overlay {
+  background: color-mix(in srgb, var(--color-neutral-0) 82%, transparent);
+  border: 1px solid var(--color-neutral-300);
+  border-radius: 0.35rem;
+  display: grid;
+  gap: var(--space-1);
+  left: 50%;
+  max-width: min(26rem, calc(100% - 2rem));
+  padding: var(--space-4);
+  position: absolute;
+  text-align: center;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.viewer-overlay span {
+  color: var(--color-neutral-500);
+  font-size: var(--font-size-sm);
+}
+
+.viewer-error {
+  border-color: var(--color-error);
+}
