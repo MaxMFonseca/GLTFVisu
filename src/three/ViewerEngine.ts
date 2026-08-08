@@ -25,6 +25,8 @@ import { MaterialOverride } from './MaterialOverride'
 import {
   ShaderCompiler,
   type CompileResult,
+  type PreparedRuntimeMaterial,
+  type RuntimeMaterialPreparer,
   type ShaderValidationRenderer,
 } from './ShaderCompiler'
 
@@ -94,7 +96,7 @@ export interface ClockPort {
 
 export interface CompilerPort {
   readonly material: ShaderMaterial | undefined
-  compile(draft: ShaderDraft): Promise<CompileResult>
+  compile(draft: ShaderDraft, prepareRuntime?: RuntimeMaterialPreparer): Promise<CompileResult>
   updateParameter(definition: ShaderParameterDefinition, value: ShaderParameterValue): void
   dispose(): void
 }
@@ -215,16 +217,8 @@ export class ViewerEngine implements ViewerPort {
   async compileShader(draft: ShaderDraft): Promise<CompileResult> {
     this.assertActive()
     const generation = ++this.compileGeneration
-    const result = await this.compiler.compile(draft)
-    if (
-      !this.disposed
-      && generation === this.compileGeneration
-      && result.status === 'valid'
-      && this.materialOverride !== undefined
-      && this.compiler.material !== undefined
-    ) {
-      this.materialOverride.apply(this.compiler.material)
-    }
+    const result = await this.compiler.compile(draft, this.prepareRuntimeMaterial)
+    if (this.disposed || generation !== this.compileGeneration) return result
     return result
   }
 
@@ -297,6 +291,20 @@ export class ViewerEngine implements ViewerPort {
     if (resolution instanceof Vector2) resolution.copy(this.drawingBufferSize)
     const cameraPosition = uniforms.uCameraPosition?.value
     if (cameraPosition instanceof Vector3) cameraPosition.copy(this.camera.position)
+  }
+
+  private readonly prepareRuntimeMaterial: RuntimeMaterialPreparer = (material) => {
+    const override = this.materialOverride
+    if (override === undefined) return undefined
+    const prepared = override.prepare(material)
+    const runtime: PreparedRuntimeMaterial = {
+      validate: (validateRender) => prepared.run(
+        () => validateRender(() => this.renderer.render(this.scene, this.camera)),
+      ),
+      commit: () => prepared.commit(),
+      dispose: () => prepared.dispose(),
+    }
+    return runtime
   }
 
   private installModel(loaded: LoadedModel, name: string): ModelInfo {

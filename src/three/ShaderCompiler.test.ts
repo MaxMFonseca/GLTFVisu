@@ -115,6 +115,25 @@ describe('ShaderCompiler', () => {
     expect(uniform?.value).toBe(1.75)
   })
 
+  it('applies a parameter update to a candidate that is still compiling', async () => {
+    const validation = deferred<CompileDiagnostic[]>()
+    let candidate: ShaderMaterial | undefined
+    const compiler = new ShaderCompiler(unusedRenderer, {
+      validate: (material) => {
+        candidate = material
+        return validation.promise
+      },
+    })
+
+    const compiling = compiler.compile(draft('pending'))
+    compiler.updateParameter(gain, 1.75)
+
+    expect(candidate?.uniforms.uGain.value).toBe(1.75)
+    validation.resolve([])
+    await expect(compiling).resolves.toEqual({ status: 'valid', generation: 1 })
+    expect(compiler.material?.uniforms.uGain.value).toBe(1.75)
+  })
+
   it('captures renderer shader errors and maps user-source lines', async () => {
     const previousErrorHandler = vi.fn()
     const renderer: ShaderValidationRenderer = {

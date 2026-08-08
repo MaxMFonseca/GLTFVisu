@@ -1,6 +1,7 @@
 import {
   AnimationClip,
   BoxGeometry,
+  DoubleSide,
   Group,
   Mesh,
   MeshBasicMaterial,
@@ -8,6 +9,7 @@ import {
   ShaderMaterial,
   Vector2,
   Vector3,
+  type Object3D,
 } from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import type { ShaderParameterDefinition } from '../domain/parameters'
@@ -249,6 +251,50 @@ describe('ViewerEngine', () => {
 
     engine.dispose()
     expect(mesh.material).toBe(original)
+  })
+
+  it('keeps the working override when an installed material variant fails GPU validation', async () => {
+    const root = new Group()
+    const original = new MeshBasicMaterial({ side: DoubleSide })
+    const mesh = new Mesh(new BoxGeometry(), original)
+    root.add(mesh)
+    const loader: ModelLoaderPort = { load: vi.fn(async () => ({ scene: root, animations: [] })) }
+    const harness = createHarness({
+      loader,
+      createCompiler: (renderer) => new ShaderCompiler(renderer, { validate: async () => [] }),
+    })
+    let failedVariant: ShaderMaterial | undefined
+    let disposeFailedVariant: ReturnType<typeof vi.spyOn> | undefined
+    harness.renderer.render = vi.fn((scene: Object3D) => {
+      scene.traverse((object) => {
+        if (!(object instanceof Mesh) || !(object.material instanceof ShaderMaterial)) return
+        if (!object.material.fragmentShader.includes('variantFailure')) return
+        failedVariant = object.material
+        disposeFailedVariant ??= vi.spyOn(object.material, 'dispose')
+      })
+      if (failedVariant === undefined) return
+      const fragment = {} as WebGLShader
+      const gl = {
+        getProgramInfoLog: () => 'link failed',
+        getShaderInfoLog: (shader: WebGLShader) => shader === fragment ? 'ERROR: 1:2: variant failed' : '',
+      } as unknown as WebGLRenderingContext
+      harness.renderer.debug.onShaderError?.(gl, {} as never, {} as WebGLShader, fragment)
+    })
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    const file = modelFile('double-sided.glb')
+    await engine.loadModel([file], file)
+    await engine.compileShader(shader())
+    const working = mesh.material as unknown as ShaderMaterial
+    const disposeWorking = vi.spyOn(working, 'dispose')
+
+    const result = await engine.compileShader(shader('void main() { variantFailure; }'))
+
+    expect(result.status).toBe('error')
+    expect(mesh.material).toBe(working)
+    expect(disposeWorking).not.toHaveBeenCalled()
+    expect(failedVariant?.side).toBe(DoubleSide)
+    expect(disposeFailedVariant).toHaveBeenCalledTimes(1)
+    engine.dispose()
   })
 
   it('wraps a canvas capture as a domain portrait without changing render state', async () => {

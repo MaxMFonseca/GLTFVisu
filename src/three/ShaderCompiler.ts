@@ -40,15 +40,28 @@ export interface ShaderCompilerDependencies {
   validate?: (material: ShaderMaterial) => Promise<CompileDiagnostic[]>
 }
 
+export type ShaderRenderValidator = (render: () => void) => CompileDiagnostic[]
+
+export interface PreparedRuntimeMaterial {
+  validate(validateRender: ShaderRenderValidator): CompileDiagnostic[]
+  commit(): void
+  dispose(): void
+}
+
+export type RuntimeMaterialPreparer = (material: ShaderMaterial) => PreparedRuntimeMaterial | undefined
+
 /** Validates disposable candidates and atomically owns the latest valid shader template. */
 export class ShaderCompiler {
   private generation = 0
   private disposed = false
   private activeMaterial?: ShaderMaterial
+  private readonly pendingMaterials = new Set<ShaderMaterial>()
+  private readonly renderer: ShaderValidationRenderer
   private readonly createMaterial: typeof createShaderMaterial
   private readonly validate: (material: ShaderMaterial) => Promise<CompileDiagnostic[]>
 
   constructor(renderer: ShaderValidationRenderer, dependencies: ShaderCompilerDependencies = {}) {
+    this.renderer = renderer
     this.createMaterial = dependencies.createMaterial ?? createShaderMaterial
     this.validate = dependencies.validate ?? ((material) => validateMaterial(renderer, material))
   }
@@ -57,7 +70,7 @@ export class ShaderCompiler {
     return this.activeMaterial
   }
 
-  async compile(draft: ShaderDraft): Promise<CompileResult> {
+  async compile(draft: ShaderDraft, prepareRuntime?: RuntimeMaterialPreparer): Promise<CompileResult> {
     const generation = ++this.generation
     let candidate: ShaderMaterial
     try {
@@ -66,31 +79,67 @@ export class ShaderCompiler {
       return errorResult(generation, error)
     }
 
-    let diagnostics: CompileDiagnostic[]
+    this.pendingMaterials.add(candidate)
+    let runtime: PreparedRuntimeMaterial | undefined
+    let committed = false
     try {
-      diagnostics = await this.validate(candidate)
+      let diagnostics: CompileDiagnostic[]
+      try {
+        diagnostics = await this.validate(candidate)
+      } catch (error) {
+        diagnostics = [diagnosticFor(error)]
+      }
+
+      if (this.disposed || generation !== this.generation) {
+        return { status: 'error', generation, diagnostics: [] }
+      }
+      if (hasErrors(diagnostics)) return { status: 'error', generation, diagnostics }
+
+      try {
+        runtime = prepareRuntime?.(candidate)
+        if (runtime !== undefined) {
+          diagnostics = runtime.validate((render) => captureShaderDiagnostics(this.renderer, candidate, render))
+        }
+      } catch (error) {
+        diagnostics = [diagnosticFor(error)]
+      }
+
+      if (this.disposed || generation !== this.generation) {
+        return { status: 'error', generation, diagnostics: [] }
+      }
+      if (hasErrors(diagnostics)) return { status: 'error', generation, diagnostics }
+
+      runtime?.commit()
+      const predecessor = this.activeMaterial
+      this.activeMaterial = candidate
+      committed = true
+      predecessor?.dispose()
+      return { status: 'valid', generation }
     } catch (error) {
-      diagnostics = [diagnosticFor(error)]
+      return errorResult(generation, error)
+    } finally {
+      this.pendingMaterials.delete(candidate)
+      if (!committed) {
+        runtime?.dispose()
+        candidate.dispose()
+      }
     }
-
-    if (this.disposed || generation !== this.generation) {
-      candidate.dispose()
-      return { status: 'error', generation, diagnostics: [] }
-    }
-    if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
-      candidate.dispose()
-      return { status: 'error', generation, diagnostics }
-    }
-
-    const predecessor = this.activeMaterial
-    this.activeMaterial = candidate
-    predecessor?.dispose()
-    return { status: 'valid', generation }
   }
 
   updateParameter(definition: ShaderParameterDefinition, value: ShaderParameterValue): void {
-    if (this.activeMaterial === undefined) return
-    updateUniformValue(this.activeMaterial.uniforms, definition, value)
+    let updated = false
+    if (this.activeMaterial?.uniforms[definition.uniformName] !== undefined) {
+      updateUniformValue(this.activeMaterial.uniforms, definition, value)
+      updated = true
+    }
+    for (const material of this.pendingMaterials) {
+      if (material.uniforms[definition.uniformName] === undefined) continue
+      updateUniformValue(material.uniforms, definition, value)
+      updated = true
+    }
+    if (!updated && this.activeMaterial !== undefined && this.pendingMaterials.size === 0) {
+      updateUniformValue(this.activeMaterial.uniforms, definition, value)
+    }
   }
 
   dispose(): void {
@@ -111,10 +160,22 @@ async function validateMaterial(
   const camera = new OrthographicCamera(-1, 1, 1, -1, 0, 1)
   const mesh = new Mesh(geometry, material)
   scene.add(mesh)
+  try {
+    return captureShaderDiagnostics(renderer, material, () => renderer.render(scene, camera))
+  } finally {
+    scene.remove(mesh)
+    geometry.dispose()
+  }
+}
+
+function captureShaderDiagnostics(
+  renderer: ShaderValidationRenderer,
+  material: ShaderMaterial,
+  render: () => void,
+): CompileDiagnostic[] {
   const previousHandler = renderer.debug.onShaderError
   const previousChecking = renderer.debug.checkShaderErrors
   const diagnostics: CompileDiagnostic[] = []
-
   renderer.debug.checkShaderErrors = true
   renderer.debug.onShaderError = (gl, program, vertexShader, fragmentShader) => {
     const logs = [
@@ -139,15 +200,17 @@ async function validateMaterial(
   }
 
   try {
-    renderer.render(scene, camera)
+    render()
   } finally {
     renderer.debug.onShaderError = previousHandler
     renderer.debug.checkShaderErrors = previousChecking
-    scene.remove(mesh)
-    geometry.dispose()
   }
 
   return diagnostics
+}
+
+function hasErrors(diagnostics: readonly CompileDiagnostic[]): boolean {
+  return diagnostics.some((diagnostic) => diagnostic.severity === 'error')
 }
 
 function errorResult(generation: number, error: unknown): CompileResult {

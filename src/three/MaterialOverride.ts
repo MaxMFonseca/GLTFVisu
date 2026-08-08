@@ -12,10 +12,17 @@ interface MaterialCompatibility {
   alphaTest: number
 }
 
+export interface PreparedMaterialOverride {
+  run<T>(operation: () => T): T
+  commit(): void
+  dispose(): void
+}
+
 /** Owns app-created material assignments while retaining model-owned originals. */
 export class MaterialOverride {
   private readonly originals = new Map<Mesh, MaterialAssignment>()
   private overrideMaterials = new Set<ShaderMaterial>()
+  private revision = 0
   private disposed = false
 
   constructor(root: Object3D) {
@@ -29,13 +36,26 @@ export class MaterialOverride {
   }
 
   apply(template: ShaderMaterial): void {
+    const prepared = this.prepare(template)
+    try {
+      prepared.commit()
+    } catch (error) {
+      prepared.dispose()
+      throw error
+    }
+  }
+
+  prepare(template: ShaderMaterial): PreparedMaterialOverride {
     if (this.disposed) throw new Error('Material override is disposed')
 
     const variants = new Map<string, ShaderMaterial>()
     const assignments = new Map<Mesh, MaterialAssignment>()
+    const predecessors = new Map<Mesh, MaterialAssignment>()
+    const revision = this.revision
 
     try {
       for (const [mesh, original] of this.originals) {
+        predecessors.set(mesh, mesh.material)
         assignments.set(
           mesh,
           Array.isArray(original)
@@ -48,10 +68,37 @@ export class MaterialOverride {
       throw error
     }
 
-    const predecessors = this.overrideMaterials
-    for (const [mesh, assignment] of assignments) mesh.material = assignment
-    this.overrideMaterials = new Set(variants.values())
-    for (const material of predecessors) material.dispose()
+    let completed = false
+    const assertCurrent = () => {
+      if (completed) throw new Error('Material override transaction is complete')
+      if (this.disposed || revision !== this.revision) throw new Error('Material override transaction is stale')
+    }
+
+    return {
+      run: <T>(operation: () => T): T => {
+        assertCurrent()
+        for (const [mesh, assignment] of assignments) mesh.material = assignment
+        try {
+          return operation()
+        } finally {
+          for (const [mesh, assignment] of predecessors) mesh.material = assignment
+        }
+      },
+      commit: () => {
+        assertCurrent()
+        const previousMaterials = this.overrideMaterials
+        for (const [mesh, assignment] of assignments) mesh.material = assignment
+        this.overrideMaterials = new Set(variants.values())
+        this.revision += 1
+        completed = true
+        for (const material of previousMaterials) material.dispose()
+      },
+      dispose: () => {
+        if (completed) return
+        completed = true
+        for (const material of variants.values()) material.dispose()
+      },
+    }
   }
 
   restore(): void {
@@ -59,6 +106,7 @@ export class MaterialOverride {
     for (const [mesh, original] of this.originals) mesh.material = original
     for (const material of this.overrideMaterials) material.dispose()
     this.overrideMaterials.clear()
+    this.revision += 1
   }
 
   dispose(): void {
