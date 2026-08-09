@@ -1,7 +1,7 @@
 import type { ShaderParameterDefinition, ShaderParameterValue } from '../domain/parameters'
 import type { ShaderDefinition, ShaderPortrait } from '../domain/shader'
 import type { ParameterDefinitionValidationError } from '../domain/uniformValidation'
-import type { CompileResult, ModelInfo } from '../three/ViewerEngine'
+import type { CompileResult, ModelInfo } from './ViewerPort'
 import {
   cleanDirtyFields,
   cloneShader,

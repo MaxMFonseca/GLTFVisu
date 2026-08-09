@@ -1,6 +1,6 @@
 import type { ParameterDefinitionValidationError } from '../domain/uniformValidation'
 import type { ShaderDefinition, ShaderDraft } from '../domain/shader'
-import type { CompileDiagnostic } from '../three/ViewerEngine'
+import type { CompileDiagnostic } from './ViewerPort'
 
 export interface WorkspaceDirtyFields {
   name: boolean

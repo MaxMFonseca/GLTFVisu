@@ -14,6 +14,7 @@ import {
   type ShaderMaterial,
 } from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import type { CompileDiagnostic, CompileResult, ModelInfo, ViewerPort } from '../application/ViewerPort'
 import type { ShaderParameterDefinition, ShaderParameterValue } from '../domain/parameters'
 import type { ShaderDraft, ShaderPortrait } from '../domain/shader'
 import { AnimationController } from './AnimationController'
@@ -24,31 +25,10 @@ import { GltfAssetLoader, ModelLoadError } from './GltfAssetLoader'
 import { MaterialOverride } from './MaterialOverride'
 import {
   ShaderCompiler,
-  type CompileDiagnostic,
-  type CompileResult,
   type PreparedRuntimeMaterial,
   type RuntimeMaterialPreparer,
   type ShaderValidationRenderer,
 } from './ShaderCompiler'
-
-export type { CompileDiagnostic, CompileResult } from './ShaderCompiler'
-
-export interface ViewerPort {
-  loadModel(files: File[], root: File): Promise<ModelInfo>
-  fitModel(): void
-  compileShader(draft: ShaderDraft): Promise<CompileResult>
-  updateParameter(definition: ShaderParameterDefinition, value: ShaderParameterValue): void
-  capturePortrait(): Promise<ShaderPortrait>
-  selectAnimation(name: string): void
-  setAnimationPlaying(playing: boolean): void
-  dispose(): void
-}
-
-export interface ModelInfo {
-  name: string
-  meshCount: number
-  animationClips: readonly string[]
-}
 
 export interface AnimationState {
   clipNames: readonly string[]

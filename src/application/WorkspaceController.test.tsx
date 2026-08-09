@@ -5,7 +5,7 @@ import { BUILTIN_SHADERS } from '../domain/builtins'
 import type { ShaderParameterDefinition } from '../domain/parameters'
 import type { ShaderDefinition, ShaderPortrait } from '../domain/shader'
 import type { ShaderRepository } from './ShaderRepository'
-import type { CompileResult, ModelInfo, ViewerPort } from '../three/ViewerEngine'
+import type { CompileResult, ModelInfo, ViewerPort } from './ViewerPort'
 import {
   WorkspaceProvider,
   useWorkspace,
