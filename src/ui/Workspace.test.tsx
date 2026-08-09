@@ -1,4 +1,4 @@
-import { cleanup, createEvent, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceProvider } from '../application/WorkspaceController'
@@ -10,7 +10,21 @@ import { Workspace } from './Workspace'
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
+
+function useNarrowViewport(): void {
+  vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
+    matches: true,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })))
+}
 
 function repository(): ShaderRepository {
   return {
@@ -25,6 +39,7 @@ function viewer(): ViewerPort {
   return {
     loadModel: vi.fn(async (_files, root) => ({ name: root.name, meshCount: 1, animationClips: [] })),
     fitModel: vi.fn(),
+    resize: vi.fn(),
     compileShader: vi.fn(async () => ({ status: 'valid' as const, generation: 1 })),
     updateParameter: vi.fn(),
     capturePortrait: vi.fn(async () => ({
@@ -67,6 +82,41 @@ describe('Workspace', () => {
 
     await user.click(screen.getByRole('button', { name: 'Collapse shader editor' }))
     expect(screen.getByRole('button', { name: 'Expand shader editor' })).toBeVisible()
+  })
+
+  it('offers keyboard tabs on narrow displays and resizes the viewer when activated', async () => {
+    useNarrowViewport()
+    const user = userEvent.setup()
+    const workspaceViewer = viewer()
+    render(
+      <WorkspaceProvider repository={repository()} viewer={workspaceViewer}>
+        <Workspace mountViewer={() => ({ dispose: vi.fn() })} />
+      </WorkspaceProvider>,
+    )
+
+    const tablist = screen.getByRole('tablist', { name: 'Workspace panels' })
+    const libraryTab = screen.getByRole('tab', { name: 'Library' })
+    const viewerTab = screen.getByRole('tab', { name: 'Viewer' })
+    const editorTab = screen.getByRole('tab', { name: 'Editor' })
+    expect(tablist).toContainElement(viewerTab)
+    expect(viewerTab).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tabpanel', { name: 'Viewer' })).toBeVisible()
+
+    await user.click(libraryTab)
+    expect(libraryTab).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tabpanel', { name: 'Library' })).toBeVisible()
+    expect(document.getElementById('shader-viewer-panel')).toHaveAttribute('hidden')
+
+    vi.mocked(workspaceViewer.resize).mockClear()
+    await user.keyboard('{ArrowRight}')
+    expect(viewerTab).toHaveFocus()
+    expect(viewerTab).toHaveAttribute('aria-selected', 'true')
+    await waitFor(() => expect(workspaceViewer.resize).toHaveBeenCalledOnce())
+
+    await user.keyboard('{End}')
+    expect(editorTab).toHaveFocus()
+    expect(editorTab).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tabpanel', { name: 'Editor' })).toBeVisible()
   })
 
   it('isolates an unexpected panel render failure', () => {

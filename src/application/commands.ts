@@ -18,6 +18,7 @@ export interface WorkspaceCommands {
   capturePortrait(): Promise<void>
   loadModel(files: File[], root: File): Promise<void>
   fitModel(): void
+  resizeViewer(): void
   selectAnimation(name: string): void
   setAnimationPlaying(playing: boolean): void
   compile(): Promise<void>

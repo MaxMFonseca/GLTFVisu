@@ -44,6 +44,7 @@ function createViewer(): ViewerPort {
   return {
     loadModel: vi.fn(async (): Promise<ModelInfo> => ({ name: 'model.glb', meshCount: 2, animationClips: ['Idle', 'Run'] })),
     fitModel: vi.fn(),
+    resize: vi.fn(),
     compileShader: vi.fn(async (): Promise<CompileResult> => ({ status: 'valid', generation: ++generation })),
     updateParameter: vi.fn(),
     capturePortrait: vi.fn(async (): Promise<ShaderPortrait> => ({
@@ -196,6 +197,7 @@ describe('WorkspaceProvider', () => {
     await act(async () => workspace.current().commands.save())
     expect(repository.save).toHaveBeenCalledWith(expect.objectContaining({ id: local.id, parameterValues: { gain: 2 }, updatedAt: 50 }))
     expect(workspace.current().state.dirty.values).toBe(false)
+    expect(workspace.current().state.notices.at(-1)).toEqual({ kind: 'info', scope: 'save', message: 'Saved Local shader' })
   })
 
   it('blocks invalid schemas from compile and save while preserving a recoverable draft', async () => {
@@ -460,6 +462,7 @@ describe('WorkspaceProvider', () => {
     expect(repository.save).toHaveBeenCalledWith(expect.objectContaining({
       id: 'fresh-id', origin: 'local', name: 'Normal copy', createdAt: 100, updatedAt: 100,
     }))
+    expect(workspace.current().state.draft.portrait).toBeUndefined()
     expect(workspace.current().state.selectedId).toBe('fresh-id')
   })
 
@@ -482,6 +485,7 @@ describe('WorkspaceProvider', () => {
     expect(JSON.parse(await readBlob(blob))).toMatchObject({ format: 'gltf-shader-visualizer', version: 1 })
     expect(download).toHaveBeenCalledWith('blob:shader', 'Imported.shader.json')
     expect(urls.revokeObjectURL).toHaveBeenCalledWith('blob:shader')
+    expect(workspace.current().state.notices.at(-1)).toEqual({ kind: 'info', scope: 'export', message: 'Exported Imported' })
 
     await act(async () => workspace.current().commands.importShader('{bad json'))
     expect(vi.mocked(repository.save)).toHaveBeenCalledTimes(1)
@@ -525,6 +529,7 @@ describe('WorkspaceProvider', () => {
     expect(workspace.current().state.draft.portrait).toMatchObject({ kind: 'captured', width: 4, height: 4 })
     expect(workspace.current().state.dirty.portrait).toBe(true)
     expect(repository.save).toHaveBeenCalledTimes(0)
+    expect(workspace.current().state.notices.at(-1)).toEqual({ kind: 'info', scope: 'capture', message: 'Captured portrait for Local shader' })
   })
 
   it('deletes only locals and selects the next local before the first built-in', async () => {

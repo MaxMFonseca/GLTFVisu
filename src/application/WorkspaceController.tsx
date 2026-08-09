@@ -155,7 +155,7 @@ function createLocal(id: string, timestamp: number): ShaderDefinition {
 }
 
 function duplicateLocal(shader: ShaderDefinition, id: string, timestamp: number): ShaderDefinition {
-  return {
+  const duplicate: ShaderDefinition = {
     ...cloneShader(shader),
     id,
     name: `${shader.name} copy`,
@@ -163,6 +163,8 @@ function duplicateLocal(shader: ShaderDefinition, id: string, timestamp: number)
     createdAt: timestamp,
     updatedAt: timestamp,
   }
+  if (duplicate.portrait?.kind === 'bundled') delete duplicate.portrait
+  return duplicate
 }
 
 export function WorkspaceProvider({
@@ -355,6 +357,7 @@ export function WorkspaceProvider({
             selectionRevision,
           )
           dispatch({ type: 'saveSucceeded', shader: snapshot, submittedRevisions, selectionRevision })
+          dispatch({ type: 'operationSucceeded', scope: 'save', message: `Saved ${snapshot.name}` })
           if (shouldRecompile) scheduleCompile(snapshot.id)
         }
       } catch (error) {
@@ -402,6 +405,9 @@ export function WorkspaceProvider({
         const json = await serializeShader(shader)
         objectUrl = urls.createObjectURL(new Blob([json], { type: 'application/json' }))
         download(objectUrl, safeFilename(shader.name))
+        if (activeRef.current) {
+          dispatch({ type: 'operationSucceeded', scope: 'export', message: `Exported ${shader.name}` })
+        }
       } catch (error) {
         if (activeRef.current) dispatch({ type: 'operationFailed', scope: 'export', message: errorMessage(error) })
       } finally {
@@ -422,6 +428,11 @@ export function WorkspaceProvider({
         const portrait = await viewer.capturePortrait()
         if (activeRef.current && stateRef.current.selectedId === selectedId) {
           dispatch({ type: 'portraitCaptured', portrait })
+          dispatch({
+            type: 'operationSucceeded',
+            scope: 'capture',
+            message: `Captured portrait for ${stateRef.current.draft.name}`,
+          })
         }
       } catch (error) {
         if (activeRef.current) dispatch({ type: 'operationFailed', scope: 'capture', message: errorMessage(error) })
@@ -441,6 +452,9 @@ export function WorkspaceProvider({
     },
     fitModel() {
       viewer.fitModel()
+    },
+    resizeViewer() {
+      viewer.resize()
     },
     selectAnimation(name) {
       if (!stateRef.current.animations.clipNames.includes(name)) return

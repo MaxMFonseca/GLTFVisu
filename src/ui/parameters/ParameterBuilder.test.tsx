@@ -40,6 +40,7 @@ function viewer(): ViewerPort {
   return {
     loadModel: vi.fn(async () => ({ name: 'model.glb', meshCount: 1, animationClips: [] })),
     fitModel: vi.fn(),
+    resize: vi.fn(),
     compileShader: vi.fn(async () => ({ status: 'valid' as const, generation: 1 })),
     updateParameter: vi.fn(),
     capturePortrait: vi.fn(async () => ({

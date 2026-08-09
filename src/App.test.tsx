@@ -19,6 +19,7 @@ describe('shader workspace shell', () => {
     const engine: ViewerPort = {
       loadModel: vi.fn(async (_files, root) => ({ name: root.name, meshCount: 1, animationClips: [] })),
       fitModel: vi.fn(),
+      resize: vi.fn(),
       compileShader: vi.fn(async () => ({ status: 'valid' as const, generation: 1 })),
       updateParameter: vi.fn(),
       capturePortrait: vi.fn(async () => ({
@@ -45,6 +46,7 @@ describe('shader workspace shell', () => {
     const engine: ViewerPort = {
       loadModel: vi.fn(async (_files, root) => ({ name: root.name, meshCount: 1, animationClips: [] })),
       fitModel: vi.fn(),
+      resize: vi.fn(),
       compileShader: vi.fn(async () => ({ status: 'valid' as const, generation: 1 })),
       updateParameter: vi.fn(),
       capturePortrait: vi.fn(async () => ({

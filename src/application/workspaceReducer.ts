@@ -44,6 +44,7 @@ export type WorkspaceAction =
   | { type: 'modelLoadStarted'; fileName: string }
   | { type: 'modelLoadSucceeded'; info: ModelInfo }
   | { type: 'animationsChanged'; selectedClip?: string; playing: boolean }
+  | { type: 'operationSucceeded'; scope: WorkspaceNotice['scope']; message: string }
   | { type: 'operationFailed'; scope: WorkspaceNotice['scope']; message: string }
   | { type: 'clearNotices' }
 
@@ -328,6 +329,11 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
       }
     case 'animationsChanged':
       return { ...state, animations: { ...state.animations, selectedClip: action.selectedClip, playing: action.playing } }
+    case 'operationSucceeded':
+      return {
+        ...state,
+        notices: appendNotice(state, { kind: 'info', scope: action.scope, message: action.message }),
+      }
     case 'operationFailed':
       return {
         ...state,

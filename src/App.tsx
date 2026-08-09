@@ -40,6 +40,10 @@ class MountedViewerPort implements ViewerPort {
     this.engine?.fitModel()
   }
 
+  resize(): void {
+    this.engine?.resize()
+  }
+
   async compileShader(draft: ShaderDraft): Promise<CompileResult> {
     return (await this.mounted()).compileShader(draft)
   }

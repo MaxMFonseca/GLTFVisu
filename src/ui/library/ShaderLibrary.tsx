@@ -50,7 +50,6 @@ export function ShaderLibrary({ portraitUrls }: ShaderLibraryProps) {
     && state.modelLoad.status === 'loaded'
     && state.compile.status === 'valid'
   const locals = selectedDraftInList(state.locals, state.selectedId, state.draft)
-  const actionNotices = state.notices.filter((notice) => notice.scope !== 'model')
 
   useEffect(() => {
     if (deleteConfirmation === undefined) return
@@ -141,19 +140,6 @@ export function ShaderLibrary({ portraitUrls }: ShaderLibraryProps) {
       </div>
 
       {importError !== undefined && <p className="panel-message panel-error" role="alert">{importError}</p>}
-
-      {actionNotices.length > 0 && (
-        <section className="workspace-notices" aria-label="Shader action notices">
-          <ul>
-            {actionNotices.map((notice, index) => (
-              <li key={`${notice.scope}-${index}`}>
-                <p className={`notice-${notice.kind}`} role={notice.kind === 'error' ? 'alert' : 'status'}>{notice.message}</p>
-              </li>
-            ))}
-          </ul>
-          <button type="button" onClick={commands.clearNotices}>Dismiss notices</button>
-        </section>
-      )}
 
       <section className="shader-group" aria-labelledby="built-in-shaders-heading">
         <h2 id="built-in-shaders-heading">Built-in</h2>

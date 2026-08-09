@@ -22,6 +22,7 @@ export interface ModelInfo {
 export interface ViewerPort {
   loadModel(files: File[], root: File): Promise<ModelInfo>
   fitModel(): void
+  resize(): void
   compileShader(draft: ShaderDraft): Promise<CompileResult>
   updateParameter(definition: ShaderParameterDefinition, value: ShaderParameterValue): void
   capturePortrait(): Promise<ShaderPortrait>
