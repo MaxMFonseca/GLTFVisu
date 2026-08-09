@@ -220,6 +220,43 @@ describe('WorkspaceProvider', () => {
     expect(repository.save).not.toHaveBeenCalled()
   })
 
+  it('defensively blocks save while a dirty draft is uncompiled, compiling, or failed', async () => {
+    const local = localShader()
+    const repository = createRepository([local])
+    const viewer = createViewer()
+    const workspace = renderWorkspace({ repository, viewer })
+    await ready(workspace)
+    await act(async () => workspace.current().commands.selectShader(local.id))
+    vi.mocked(repository.save).mockClear()
+    vi.useFakeTimers()
+
+    act(() => workspace.current().commands.editSource('uncompiled source'))
+    expect(workspace.current().state.compile.status).toBe('idle')
+    await act(async () => workspace.current().commands.save())
+    expect(repository.save).not.toHaveBeenCalled()
+
+    const pendingCompile = deferred<CompileResult>()
+    vi.mocked(viewer.compileShader).mockReturnValueOnce(pendingCompile.promise)
+    act(() => { void workspace.current().commands.compile() })
+    expect(workspace.current().state.compile.status).toBe('pending')
+    await act(async () => workspace.current().commands.save())
+    expect(repository.save).not.toHaveBeenCalled()
+
+    await act(async () => pendingCompile.resolve({
+      status: 'error',
+      generation: 2,
+      diagnostics: [{ severity: 'error', message: 'Compile failed', raw: 'Compile failed' }],
+    }))
+    expect(workspace.current().state.compile.status).toBe('error')
+    await act(async () => workspace.current().commands.save())
+    expect(repository.save).not.toHaveBeenCalled()
+
+    await act(async () => workspace.current().commands.compile())
+    expect(workspace.current().state.compile.status).toBe('valid')
+    await act(async () => workspace.current().commands.save())
+    expect(repository.save).toHaveBeenCalledWith(expect.objectContaining({ fragmentSource: 'uncompiled source' }))
+  })
+
   it('keeps a normalized dirty draft when Save fails', async () => {
     const local = localShader()
     const repository = createRepository([local])
@@ -301,6 +338,7 @@ describe('WorkspaceProvider', () => {
     expect(workspace.current().state.draft).toMatchObject({ name: 'Persisted name', fragmentSource: 'reselected source' })
     expect(workspace.current().state.dirty).toMatchObject({ name: false, source: true })
 
+    await act(async () => workspace.current().commands.compile())
     await act(async () => workspace.current().commands.save())
     expect(repository.save).toHaveBeenLastCalledWith(expect.objectContaining({
       id: 'first', name: 'Persisted name', fragmentSource: 'reselected source',
@@ -323,6 +361,7 @@ describe('WorkspaceProvider', () => {
     vi.useFakeTimers()
 
     act(() => workspace.current().commands.editSource('persisted source'))
+    await act(async () => workspace.current().commands.compile())
     let savePromise!: Promise<void>
     act(() => { savePromise = workspace.current().commands.save() })
     await act(async () => workspace.current().commands.selectShader(second.id))
@@ -372,6 +411,7 @@ describe('WorkspaceProvider', () => {
       { id: 'tint', type: 'color', uniformName: 'uTint', label: 'Tint', defaultValue: '#112233' },
     ]
     act(() => workspace.current().commands.editSchema(savedParameters, { gain: 0.5, tint: '#abcdef' }))
+    await act(async () => workspace.current().commands.compile())
 
     let savePromise!: Promise<void>
     act(() => { savePromise = workspace.current().commands.save() })
@@ -385,6 +425,7 @@ describe('WorkspaceProvider', () => {
     expect(workspace.current().state.dirty).toMatchObject({ schema: false, values: true })
     expect(workspace.current().state.compile.status).toBe('idle')
 
+    await act(async () => workspace.current().commands.compile())
     await act(async () => workspace.current().commands.save())
     expect(repository.save).toHaveBeenLastCalledWith(expect.objectContaining({
       id: first.id,

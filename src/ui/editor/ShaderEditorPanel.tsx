@@ -5,12 +5,15 @@ import { useWorkspace } from '../../application/WorkspaceController'
 import { CompileStatus } from './CompileStatus'
 import { MonacoShaderEditor } from './MonacoShaderEditor'
 import { ShaderContractHelp } from './ShaderContractHelp'
+import { ParameterBuilder } from '../parameters/ParameterBuilder'
+import { ParameterControls } from '../parameters/ParameterControls'
 
 export interface ShaderSourceEditorHandle {
   focusLine(line: number): void
 }
 
 export interface ShaderSourceEditorProps {
+  shaderId: string
   value: string
   readOnly: boolean
   diagnostics: readonly CompileDiagnostic[]
@@ -32,6 +35,7 @@ export function ShaderEditorPanel({ SourceEditor = MonacoShaderEditor }: ShaderE
   const dirty = hasDirtyFields(state.dirty)
   const invalid = state.draft.name.trim().length === 0 || state.schemaErrors.length > 0
   const saving = state.persistence === 'saving'
+  const canSave = !readOnly && dirty && !invalid && !saving && state.compile.status === 'valid'
   const canCapture = !readOnly && state.modelLoad.status === 'loaded' && state.compile.status === 'valid'
 
   return (
@@ -56,7 +60,7 @@ export function ShaderEditorPanel({ SourceEditor = MonacoShaderEditor }: ShaderE
       </label>
 
       <div className="editor-actions" aria-label="Shader editor actions">
-        <button type="button" aria-label="Save shader" disabled={readOnly || !dirty || invalid || saving} onClick={() => void commands.save()}>
+        <button type="button" aria-label="Save shader" disabled={!canSave} onClick={() => void commands.save()}>
           {saving ? 'Saving…' : 'Save'}
         </button>
         <button type="button" aria-label="Duplicate shader" onClick={() => void commands.duplicateShader()}>Duplicate</button>
@@ -75,6 +79,7 @@ export function ShaderEditorPanel({ SourceEditor = MonacoShaderEditor }: ShaderE
       <div className="shader-source-editor">
         <SourceEditor
           ref={editorRef}
+          shaderId={state.selectedId}
           value={state.draft.fragmentSource}
           readOnly={readOnly}
           diagnostics={state.compile.diagnostics}
@@ -83,6 +88,8 @@ export function ShaderEditorPanel({ SourceEditor = MonacoShaderEditor }: ShaderE
       </div>
       <CompileStatus compile={state.compile} editorRef={editorRef} />
       <ShaderContractHelp />
+      <ParameterBuilder />
+      <ParameterControls />
     </section>
   )
 }
