@@ -253,8 +253,30 @@ describe('WorkspaceProvider', () => {
     await act(async () => { saveGate.resolve(); await savePromise })
 
     expect(workspace.current().state.savedSnapshot).toMatchObject({ name: 'Saved name', updatedAt: 50 })
-    expect(workspace.current().state.draft).toMatchObject({ name: '  Saved name  ', fragmentSource: 'newer source' })
-    expect(workspace.current().state.dirty).toMatchObject({ name: true, source: true })
+    expect(workspace.current().state.draft).toMatchObject({ name: 'Saved name', fragmentSource: 'newer source' })
+    expect(workspace.current().state.dirty).toMatchObject({ name: false, source: true })
+  })
+
+  it('keeps a post-submit value round trip dirty until another explicit Save', async () => {
+    const local = localShader()
+    const repository = createRepository([local])
+    const saveGate = deferred<void>()
+    vi.mocked(repository.save).mockImplementationOnce(() => saveGate.promise)
+    const workspace = renderWorkspace({ repository, now: () => 50 })
+    await ready(workspace)
+    await act(async () => workspace.current().commands.selectShader(local.id))
+    act(() => workspace.current().commands.editName('Saved name'))
+
+    let savePromise!: Promise<void>
+    act(() => { savePromise = workspace.current().commands.save() })
+    act(() => workspace.current().commands.updateValue('gain', 2))
+    act(() => workspace.current().commands.updateValue('gain', 1))
+    await act(async () => { saveGate.resolve(); await savePromise })
+
+    expect(workspace.current().state.dirty.name).toBe(false)
+    expect(workspace.current().state.dirty.values).toBe(true)
+    await act(async () => workspace.current().commands.save())
+    expect(workspace.current().state.dirty.values).toBe(false)
   })
 
   it('merges shaders created while repository hydration is pending', async () => {

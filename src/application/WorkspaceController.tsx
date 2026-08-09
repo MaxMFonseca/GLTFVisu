@@ -295,7 +295,8 @@ export function WorkspaceProvider({
         return
       }
       let snapshot: ShaderDefinition
-      const draftRevision = stateRef.current.draftRevision
+      const submittedRevisions = { ...stateRef.current.fieldRevisions }
+      const selectionRevision = stateRef.current.selectionRevision
       try {
         snapshot = normalizeForSave(current, now())
       } catch (error) {
@@ -305,7 +306,9 @@ export function WorkspaceProvider({
       dispatch({ type: 'saveStarted' })
       try {
         await repository.save(snapshot)
-        if (activeRef.current) dispatch({ type: 'saveSucceeded', shader: snapshot, draftRevision })
+        if (activeRef.current) {
+          dispatch({ type: 'saveSucceeded', shader: snapshot, submittedRevisions, selectionRevision })
+        }
       } catch (error) {
         if (activeRef.current) dispatch({ type: 'operationFailed', scope: 'save', message: errorMessage(error) })
       }

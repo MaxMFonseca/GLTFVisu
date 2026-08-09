@@ -5,12 +5,14 @@ import type { CompileResult, ModelInfo } from './ViewerPort'
 import {
   cleanDirtyFields,
   cloneShader,
+  initialFieldRevisions,
+  type WorkspaceFieldRevisions,
   type WorkspaceNotice,
   type WorkspaceState,
 } from './workspaceState'
 
 export { hasDirtyFields } from './workspaceState'
-export type { WorkspaceDirtyFields, WorkspaceState } from './workspaceState'
+export type { WorkspaceDirtyFields, WorkspaceFieldRevisions, WorkspaceState } from './workspaceState'
 
 export type WorkspaceAction =
   | { type: 'hydrateSucceeded'; locals: readonly ShaderDefinition[] }
@@ -27,7 +29,12 @@ export type WorkspaceAction =
   | { type: 'compileFinished'; generation: number; result: CompileResult }
   | { type: 'schemaInvalid'; generation: number; errors: readonly ParameterDefinitionValidationError[] }
   | { type: 'saveStarted' }
-  | { type: 'saveSucceeded'; shader: ShaderDefinition; draftRevision: number }
+  | {
+      type: 'saveSucceeded'
+      shader: ShaderDefinition
+      submittedRevisions: WorkspaceFieldRevisions
+      selectionRevision: number
+    }
   | { type: 'deleteSucceeded'; id: string; fallback?: ShaderDefinition }
   | { type: 'modelLoadStarted'; fileName: string }
   | { type: 'modelLoadSucceeded'; info: ModelInfo }
@@ -45,6 +52,8 @@ export function createInitialWorkspaceState(builtins: readonly ShaderDefinition[
     savedSnapshot: cloneShader(first),
     draft: cloneShader(first),
     draftRevision: 0,
+    selectionRevision: 0,
+    fieldRevisions: initialFieldRevisions(0),
     dirty: cleanDirtyFields(),
     hydration: 'loading',
     persistence: 'idle',
@@ -57,12 +66,15 @@ export function createInitialWorkspaceState(builtins: readonly ShaderDefinition[
 }
 
 function selectedState(state: WorkspaceState, shader: ShaderDefinition): WorkspaceState {
+  const revision = state.draftRevision + 1
   return {
     ...state,
     selectedId: shader.id,
     savedSnapshot: cloneShader(shader),
     draft: cloneShader(shader),
-    draftRevision: state.draftRevision + 1,
+    draftRevision: revision,
+    selectionRevision: state.selectionRevision + 1,
+    fieldRevisions: initialFieldRevisions(revision),
     dirty: cleanDirtyFields(),
     schemaErrors: [],
     compile: { generation: state.compile.generation, status: 'idle', diagnostics: [] },
@@ -88,57 +100,43 @@ function mergeHydratedLocals(
   return [...current.map(cloneShader), ...hydrated.filter((shader) => !currentIds.has(shader.id)).map(cloneShader)]
 }
 
-function parameterDefinitionsEqual(
-  left: readonly ShaderParameterDefinition[],
-  right: readonly ShaderParameterDefinition[],
-): boolean {
-  return left.length === right.length && left.every((parameter, index) => {
-    const candidate = right[index]
-    if (
-      candidate === undefined
-      || parameter.id !== candidate.id
-      || parameter.type !== candidate.type
-      || parameter.uniformName !== candidate.uniformName
-      || parameter.label !== candidate.label
-      || parameter.defaultValue !== candidate.defaultValue
-    ) return false
-    if (parameter.type === 'float' || parameter.type === 'integer') {
-      return (candidate.type === 'float' || candidate.type === 'integer')
-        && parameter.min === candidate.min
-        && parameter.max === candidate.max
-        && parameter.step === candidate.step
-    }
-    return true
-  })
+function reviseFields(
+  state: WorkspaceState,
+  fields: readonly (keyof WorkspaceFieldRevisions)[],
+): Pick<WorkspaceState, 'draftRevision' | 'fieldRevisions'> {
+  const revision = state.draftRevision + 1
+  const fieldRevisions = { ...state.fieldRevisions }
+  for (const field of fields) fieldRevisions[field] = revision
+  return { draftRevision: revision, fieldRevisions }
 }
 
-function parameterValuesEqual(
-  left: Readonly<Record<string, ShaderParameterValue>>,
-  right: Readonly<Record<string, ShaderParameterValue>>,
-): boolean {
-  const leftKeys = Object.keys(left)
-  return leftKeys.length === Object.keys(right).length
-    && leftKeys.every((key) => Object.hasOwn(right, key) && left[key] === right[key])
-}
-
-function portraitsEqual(left: ShaderDefinition['portrait'], right: ShaderDefinition['portrait']): boolean {
-  if (left === undefined || right === undefined) return left === right
-  if (left.kind !== right.kind) return false
-  if (left.kind === 'bundled' && right.kind === 'bundled') return left.url === right.url
-  return left.kind === 'captured' && right.kind === 'captured'
-    && left.blob === right.blob
-    && left.mimeType === right.mimeType
-    && left.width === right.width
-    && left.height === right.height
-}
-
-function dirtyComparedTo(draft: ShaderDefinition, saved: ShaderDefinition) {
+function reconcileSavedDraft(
+  state: WorkspaceState,
+  saved: ShaderDefinition,
+  submitted: WorkspaceFieldRevisions,
+): Pick<WorkspaceState, 'draft' | 'dirty'> {
+  const editedAfterSubmit = {
+    name: state.fieldRevisions.name !== submitted.name,
+    source: state.fieldRevisions.source !== submitted.source,
+    schema: state.fieldRevisions.schema !== submitted.schema,
+    values: state.fieldRevisions.values !== submitted.values,
+    portrait: state.fieldRevisions.portrait !== submitted.portrait,
+  }
+  const savedCopy = cloneShader(saved)
+  const currentCopy = cloneShader(state.draft)
+  const portrait = editedAfterSubmit.portrait ? currentCopy.portrait : savedCopy.portrait
+  const draft: ShaderDefinition = {
+    ...savedCopy,
+    name: editedAfterSubmit.name ? currentCopy.name : savedCopy.name,
+    fragmentSource: editedAfterSubmit.source ? currentCopy.fragmentSource : savedCopy.fragmentSource,
+    parameters: editedAfterSubmit.schema ? currentCopy.parameters : savedCopy.parameters,
+    parameterValues: editedAfterSubmit.values ? currentCopy.parameterValues : savedCopy.parameterValues,
+  }
+  if (portrait === undefined) delete draft.portrait
+  else draft.portrait = portrait
   return {
-    name: draft.name !== saved.name,
-    source: draft.fragmentSource !== saved.fragmentSource,
-    schema: !parameterDefinitionsEqual(draft.parameters, saved.parameters),
-    values: !parameterValuesEqual(draft.parameterValues, saved.parameterValues),
-    portrait: !portraitsEqual(draft.portrait, saved.portrait),
+    draft,
+    dirty: editedAfterSubmit,
   }
 }
 
@@ -165,48 +163,48 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
       if (state.draft.origin === 'builtin') return state
       return {
         ...state,
+        ...reviseFields(state, ['name']),
         draft: { ...state.draft, name: action.name },
-        draftRevision: state.draftRevision + 1,
         dirty: { ...state.dirty, name: true },
       }
     case 'editSource':
       if (state.draft.origin === 'builtin') return state
       return {
         ...state,
+        ...reviseFields(state, ['source']),
         draft: { ...state.draft, fragmentSource: action.source },
-        draftRevision: state.draftRevision + 1,
         dirty: { ...state.dirty, source: true },
       }
     case 'editSchema':
       if (state.draft.origin === 'builtin') return state
       return {
         ...state,
+        ...reviseFields(state, ['schema', 'values']),
         draft: {
           ...state.draft,
           parameters: action.parameters.map((parameter) => ({ ...parameter })),
           parameterValues: { ...action.parameterValues },
         },
-        draftRevision: state.draftRevision + 1,
-        dirty: { ...state.dirty, schema: true },
+        dirty: { ...state.dirty, schema: true, values: true },
         schemaErrors: [],
       }
     case 'editValue':
       if (state.draft.origin === 'builtin') return state
       return {
         ...state,
+        ...reviseFields(state, ['values']),
         draft: {
           ...state.draft,
           parameterValues: { ...state.draft.parameterValues, [action.parameterId]: action.value },
         },
-        draftRevision: state.draftRevision + 1,
         dirty: { ...state.dirty, values: true },
       }
     case 'portraitCaptured':
       if (state.draft.origin === 'builtin') return state
       return {
         ...state,
+        ...reviseFields(state, ['portrait']),
         draft: { ...state.draft, portrait: action.portrait },
-        draftRevision: state.draftRevision + 1,
         dirty: { ...state.dirty, portrait: true },
       }
     case 'compileInvalidated':
@@ -237,15 +235,15 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
       if (action.shader.id !== state.selectedId) {
         return { ...state, persistence: 'idle', locals: replaceLocal(state.locals, action.shader) }
       }
-      if (action.draftRevision === state.draftRevision) {
-        return selectedState({ ...state, persistence: 'idle', locals: replaceLocal(state.locals, action.shader) }, action.shader)
+      if (action.selectionRevision !== state.selectionRevision) {
+        return { ...state, persistence: 'idle', locals: replaceLocal(state.locals, action.shader) }
       }
       return {
         ...state,
         persistence: 'idle',
         locals: replaceLocal(state.locals, action.shader),
         savedSnapshot: cloneShader(action.shader),
-        dirty: dirtyComparedTo(state.draft, action.shader),
+        ...reconcileSavedDraft(state, action.shader, action.submittedRevisions),
       }
     case 'deleteSucceeded': {
       const withoutDeleted = state.locals.filter((shader) => shader.id !== action.id)
