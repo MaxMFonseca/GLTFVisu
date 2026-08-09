@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IndexedDbShaderRepository } from './IndexedDbShaderRepository'
+import * as databaseModule from './database'
 import { openShaderDatabase, StorageError } from './database'
 import type { ShaderDefinition } from '../domain/shader'
 
@@ -27,6 +28,16 @@ function createShader(overrides: Partial<ShaderDefinition> = {}): ShaderDefiniti
     schemaVersion: 1,
     ...overrides,
   }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
 }
 
 function deleteDatabase(name: string): Promise<void> {
@@ -145,6 +156,26 @@ describe('IndexedDbShaderRepository', () => {
       createShader({ id: 'after-close', name: 'Reopened' }),
       createShader({ id: 'before-close' }),
     ])
+  })
+
+  it('retries an open superseded by close instead of returning its closed database', async () => {
+    const name = `shader-repository-${databaseNumber++}`
+    databaseNames.push(name)
+    const staleDatabase = await openShaderDatabase(name)
+    const staleOpen = deferred<IDBDatabase>()
+    const originalOpen = databaseModule.openShaderDatabase
+    vi.spyOn(databaseModule, 'openShaderDatabase')
+      .mockReturnValueOnce(staleOpen.promise)
+      .mockImplementation((databaseName) => originalOpen(databaseName))
+    const repository = new IndexedDbShaderRepository(name)
+    repositories.push(repository)
+
+    const originalList = repository.list()
+    repository.close()
+    const replacementList = repository.list()
+    staleOpen.resolve(staleDatabase)
+
+    await expect(Promise.all([originalList, replacementList])).resolves.toEqual([[], []])
   })
 
   it('preserves a captured Blob portrait', async () => {
