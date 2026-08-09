@@ -1,0 +1,188 @@
+import { forwardRef, useImperativeHandle, useRef } from 'react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { WorkspaceProvider } from '../../application/WorkspaceController'
+import type { ShaderRepository } from '../../application/ShaderRepository'
+import type { CompileResult, ViewerPort } from '../../application/ViewerPort'
+import type { ShaderDefinition } from '../../domain/shader'
+import {
+  ShaderEditorPanel,
+  type ShaderSourceEditorHandle,
+  type ShaderSourceEditorProps,
+} from './ShaderEditorPanel'
+
+function localShader(): ShaderDefinition {
+  return {
+    id: 'local-one',
+    name: 'Local shader',
+    fragmentSource: 'void main() {\n  outColor = vec4(1.0);\n}',
+    origin: 'local',
+    parameters: [],
+    parameterValues: {},
+    createdAt: 1,
+    updatedAt: 1,
+    schemaVersion: 1,
+  }
+}
+
+function repository(): ShaderRepository {
+  return {
+    list: vi.fn(async () => []),
+    get: vi.fn(async () => undefined),
+    save: vi.fn(async () => undefined),
+    delete: vi.fn(async () => undefined),
+  }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((promiseResolve) => { resolve = promiseResolve })
+  return { promise, resolve }
+}
+
+function viewer(result?: Promise<CompileResult>): ViewerPort {
+  return {
+    loadModel: vi.fn(async () => ({ name: 'model.glb', meshCount: 1, animationClips: [] })),
+    fitModel: vi.fn(),
+    compileShader: vi.fn(async () => result === undefined
+      ? { status: 'valid' as const, generation: 1 }
+      : result),
+    updateParameter: vi.fn(),
+    capturePortrait: vi.fn(async () => ({
+      kind: 'captured' as const,
+      blob: new Blob(),
+      mimeType: 'image/png' as const,
+      width: 1,
+      height: 1,
+    })),
+    selectAnimation: vi.fn(),
+    setAnimationPlaying: vi.fn(),
+    dispose: vi.fn(),
+  }
+}
+
+const TestSourceEditor = forwardRef<ShaderSourceEditorHandle, ShaderSourceEditorProps>(
+  function TestSourceEditor({ value, readOnly, onChange }, ref) {
+    const textarea = useRef<HTMLTextAreaElement>(null)
+    useImperativeHandle(ref, () => ({
+      focusLine(line) {
+        textarea.current?.focus()
+        textarea.current?.setAttribute('data-focused-line', String(line))
+      },
+    }), [])
+    return (
+      <textarea
+        ref={textarea}
+        aria-label="Fragment shader source"
+        readOnly={readOnly}
+        value={value}
+        onChange={(event) => onChange(event.currentTarget.value)}
+      />
+    )
+  },
+)
+
+function renderPanel(options: {
+  builtins?: readonly ShaderDefinition[]
+  repository?: ShaderRepository
+  viewer?: ViewerPort
+  idFactory?: () => string
+} = {}) {
+  const repo = options.repository ?? repository()
+  const viewerPort = options.viewer ?? viewer()
+  const builtins = options.builtins ?? [localShader()]
+  return {
+    repo,
+    viewer: viewerPort,
+    ...render(
+      <WorkspaceProvider
+        repository={repo}
+        viewer={viewerPort}
+        builtins={builtins}
+        idFactory={options.idFactory}
+      >
+        <ShaderEditorPanel SourceEditor={TestSourceEditor} />
+      </WorkspaceProvider>,
+    ),
+  }
+}
+
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
+
+describe('ShaderEditorPanel', () => {
+  it('keeps a built-in read only and duplicates it into an editable local shader', async () => {
+    const user = userEvent.setup()
+    const builtin = { ...localShader(), id: 'builtin-one', name: 'Built in', origin: 'builtin' as const }
+    const repo = repository()
+    renderPanel({ builtins: [builtin], repository: repo, idFactory: () => 'copy-one' })
+
+    expect(screen.getByRole('textbox', { name: 'Shader name' })).toHaveAttribute('readonly')
+    expect(screen.getByRole('textbox', { name: 'Fragment shader source' })).toHaveAttribute('readonly')
+    expect(screen.getByRole('button', { name: 'Save shader' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: 'Duplicate shader' }))
+
+    await waitFor(() => expect(repo.save).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'copy-one',
+      name: 'Built in copy',
+      origin: 'local',
+    })))
+    expect(screen.getByRole('textbox', { name: 'Shader name' })).not.toHaveAttribute('readonly')
+  })
+
+  it('shows dirty state and saves a valid local draft only through explicit Save', async () => {
+    const user = userEvent.setup()
+    const repo = repository()
+    renderPanel({ repository: repo })
+    await waitFor(() => expect(screen.getByText('Valid')).toBeVisible())
+
+    expect(screen.getByRole('button', { name: 'Save shader' })).toBeDisabled()
+    await user.clear(screen.getByRole('textbox', { name: 'Shader name' }))
+    expect(screen.getByRole('button', { name: 'Save shader' })).toBeDisabled()
+    expect(screen.getByText('Unsaved changes')).toBeVisible()
+
+    await user.type(screen.getByRole('textbox', { name: 'Shader name' }), 'Edited shader')
+    await user.clear(screen.getByRole('textbox', { name: 'Fragment shader source' }))
+    await user.type(screen.getByRole('textbox', { name: 'Fragment shader source' }), 'updated shader source')
+
+    expect(repo.save).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Save shader' }))
+    await waitFor(() => expect(repo.save).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Edited shader',
+      fragmentSource: 'updated shader source',
+    })))
+    expect(screen.getByText('Saved')).toBeVisible()
+  })
+
+  it('renders textual compile states, diagnostics that focus a line, and canonical contract help', async () => {
+    const user = userEvent.setup()
+    const compile = deferred<CompileResult>()
+    renderPanel({ viewer: viewer(compile.promise) })
+
+    expect(await screen.findByText('Compiling')).toBeVisible()
+    compile.resolve({
+      status: 'error',
+      generation: 1,
+      diagnostics: [{
+        severity: 'error',
+        message: 'Unexpected identifier',
+        editorLine: 2,
+        raw: 'ERROR: 1:2: Unexpected identifier',
+      }],
+    })
+
+    expect(await screen.findByText('Error')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Line 2: Unexpected identifier' }))
+    expect(screen.getByRole('textbox', { name: 'Fragment shader source' })).toHaveFocus()
+    expect(screen.getByRole('textbox', { name: 'Fragment shader source' })).toHaveAttribute('data-focused-line', '2')
+
+    await user.click(screen.getByText('Shader contract'))
+    expect(screen.getByText(/uniform float uTime;/)).toBeVisible()
+    expect(screen.getByText(/out vec4 outColor;/)).toBeVisible()
+    expect(screen.queryByLabelText(/vertex shader/i)).not.toBeInTheDocument()
+  })
+})

@@ -8,18 +8,25 @@ const GLSL_TYPES: Record<ShaderParameterDefinition['type'], string> = {
   boolean: 'bool',
 }
 
-const STABLE_CONTRACT = [
-  'precision highp float;',
-  'precision highp int;',
-  '',
-  'in vec2 vUv;',
-  'in vec3 vWorldPosition;',
-  'in vec3 vWorldNormal;',
-  '',
-  'uniform float uTime;',
-  'uniform vec2 uResolution;',
-  'uniform vec3 uCameraPosition;',
-] as const
+/** Canonical app-owned declarations shown in help and injected around user code. */
+export const SHADER_CONTRACT: Readonly<{
+  preamble: readonly string[]
+  output: string
+}> = Object.freeze({
+  preamble: Object.freeze([
+    'precision highp float;',
+    'precision highp int;',
+    '',
+    'in vec2 vUv;',
+    'in vec3 vWorldPosition;',
+    'in vec3 vWorldNormal;',
+    '',
+    'uniform float uTime;',
+    'uniform vec2 uResolution;',
+    'uniform vec3 uCameraPosition;',
+  ]),
+  output: 'out vec4 outColor;',
+})
 
 export interface BuiltFragmentShader {
   source: string
@@ -48,10 +55,10 @@ export function buildFragmentShader(
   }
 
   const injectedLines = [
-    ...STABLE_CONTRACT,
+    ...SHADER_CONTRACT.preamble,
     ...definitions.map((definition) => `uniform ${GLSL_TYPES[definition.type]} ${definition.uniformName};`),
     '',
-    'out vec4 outColor;',
+    SHADER_CONTRACT.output,
     '',
     `#line ${USER_SOURCE_LINE_MAPPING.lineOffset + 1} ${USER_SOURCE_LINE_MAPPING.sourceId}`,
   ]
