@@ -27,8 +27,8 @@ export type WorkspaceAction =
   | { type: 'compileFinished'; generation: number; result: CompileResult }
   | { type: 'schemaInvalid'; generation: number; errors: readonly ParameterDefinitionValidationError[] }
   | { type: 'saveStarted' }
-  | { type: 'saveSucceeded'; shader: ShaderDefinition }
-  | { type: 'deleteSucceeded'; id: string; fallback: ShaderDefinition }
+  | { type: 'saveSucceeded'; shader: ShaderDefinition; draftRevision: number }
+  | { type: 'deleteSucceeded'; id: string; fallback?: ShaderDefinition }
   | { type: 'modelLoadStarted'; fileName: string }
   | { type: 'modelLoadSucceeded'; info: ModelInfo }
   | { type: 'animationsChanged'; selectedClip?: string; playing: boolean }
@@ -44,6 +44,7 @@ export function createInitialWorkspaceState(builtins: readonly ShaderDefinition[
     selectedId: first.id,
     savedSnapshot: cloneShader(first),
     draft: cloneShader(first),
+    draftRevision: 0,
     dirty: cleanDirtyFields(),
     hydration: 'loading',
     persistence: 'idle',
@@ -61,6 +62,7 @@ function selectedState(state: WorkspaceState, shader: ShaderDefinition): Workspa
     selectedId: shader.id,
     savedSnapshot: cloneShader(shader),
     draft: cloneShader(shader),
+    draftRevision: state.draftRevision + 1,
     dirty: cleanDirtyFields(),
     schemaErrors: [],
     compile: { generation: state.compile.generation, status: 'idle', diagnostics: [] },
@@ -78,10 +80,72 @@ function replaceLocal(locals: readonly ShaderDefinition[], shader: ShaderDefinit
   return locals.map((candidate, candidateIndex) => candidateIndex === index ? snapshot : candidate)
 }
 
+function mergeHydratedLocals(
+  current: readonly ShaderDefinition[],
+  hydrated: readonly ShaderDefinition[],
+): readonly ShaderDefinition[] {
+  const currentIds = new Set(current.map((shader) => shader.id))
+  return [...current.map(cloneShader), ...hydrated.filter((shader) => !currentIds.has(shader.id)).map(cloneShader)]
+}
+
+function parameterDefinitionsEqual(
+  left: readonly ShaderParameterDefinition[],
+  right: readonly ShaderParameterDefinition[],
+): boolean {
+  return left.length === right.length && left.every((parameter, index) => {
+    const candidate = right[index]
+    if (
+      candidate === undefined
+      || parameter.id !== candidate.id
+      || parameter.type !== candidate.type
+      || parameter.uniformName !== candidate.uniformName
+      || parameter.label !== candidate.label
+      || parameter.defaultValue !== candidate.defaultValue
+    ) return false
+    if (parameter.type === 'float' || parameter.type === 'integer') {
+      return (candidate.type === 'float' || candidate.type === 'integer')
+        && parameter.min === candidate.min
+        && parameter.max === candidate.max
+        && parameter.step === candidate.step
+    }
+    return true
+  })
+}
+
+function parameterValuesEqual(
+  left: Readonly<Record<string, ShaderParameterValue>>,
+  right: Readonly<Record<string, ShaderParameterValue>>,
+): boolean {
+  const leftKeys = Object.keys(left)
+  return leftKeys.length === Object.keys(right).length
+    && leftKeys.every((key) => Object.hasOwn(right, key) && left[key] === right[key])
+}
+
+function portraitsEqual(left: ShaderDefinition['portrait'], right: ShaderDefinition['portrait']): boolean {
+  if (left === undefined || right === undefined) return left === right
+  if (left.kind !== right.kind) return false
+  if (left.kind === 'bundled' && right.kind === 'bundled') return left.url === right.url
+  return left.kind === 'captured' && right.kind === 'captured'
+    && left.blob === right.blob
+    && left.mimeType === right.mimeType
+    && left.width === right.width
+    && left.height === right.height
+}
+
+function dirtyComparedTo(draft: ShaderDefinition, saved: ShaderDefinition) {
+  return {
+    name: draft.name !== saved.name,
+    source: draft.fragmentSource !== saved.fragmentSource,
+    schema: !parameterDefinitionsEqual(draft.parameters, saved.parameters),
+    values: !parameterValuesEqual(draft.parameterValues, saved.parameterValues),
+    portrait: !portraitsEqual(draft.portrait, saved.portrait),
+  }
+}
+
 export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): WorkspaceState {
   switch (action.type) {
     case 'hydrateSucceeded':
-      return { ...state, hydration: 'ready', locals: action.locals.map(cloneShader) }
+      return { ...state, hydration: 'ready', locals: mergeHydratedLocals(state.locals, action.locals) }
     case 'hydrateFailed':
       return {
         ...state,
@@ -99,12 +163,18 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
     }
     case 'editName':
       if (state.draft.origin === 'builtin') return state
-      return { ...state, draft: { ...state.draft, name: action.name }, dirty: { ...state.dirty, name: true } }
+      return {
+        ...state,
+        draft: { ...state.draft, name: action.name },
+        draftRevision: state.draftRevision + 1,
+        dirty: { ...state.dirty, name: true },
+      }
     case 'editSource':
       if (state.draft.origin === 'builtin') return state
       return {
         ...state,
         draft: { ...state.draft, fragmentSource: action.source },
+        draftRevision: state.draftRevision + 1,
         dirty: { ...state.dirty, source: true },
       }
     case 'editSchema':
@@ -116,6 +186,7 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
           parameters: action.parameters.map((parameter) => ({ ...parameter })),
           parameterValues: { ...action.parameterValues },
         },
+        draftRevision: state.draftRevision + 1,
         dirty: { ...state.dirty, schema: true },
         schemaErrors: [],
       }
@@ -127,11 +198,17 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
           ...state.draft,
           parameterValues: { ...state.draft.parameterValues, [action.parameterId]: action.value },
         },
+        draftRevision: state.draftRevision + 1,
         dirty: { ...state.dirty, values: true },
       }
     case 'portraitCaptured':
       if (state.draft.origin === 'builtin') return state
-      return { ...state, draft: { ...state.draft, portrait: action.portrait }, dirty: { ...state.dirty, portrait: true } }
+      return {
+        ...state,
+        draft: { ...state.draft, portrait: action.portrait },
+        draftRevision: state.draftRevision + 1,
+        dirty: { ...state.dirty, portrait: true },
+      }
     case 'compileInvalidated':
       return { ...state, compile: { generation: action.generation, status: 'idle', diagnostics: [] } }
     case 'compileStarted':
@@ -157,9 +234,26 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
     case 'saveStarted':
       return { ...state, persistence: 'saving' }
     case 'saveSucceeded':
-      return selectedState({ ...state, persistence: 'idle', locals: replaceLocal(state.locals, action.shader) }, action.shader)
-    case 'deleteSucceeded':
-      return selectedState({ ...state, locals: state.locals.filter((shader) => shader.id !== action.id) }, action.fallback)
+      if (action.shader.id !== state.selectedId) {
+        return { ...state, persistence: 'idle', locals: replaceLocal(state.locals, action.shader) }
+      }
+      if (action.draftRevision === state.draftRevision) {
+        return selectedState({ ...state, persistence: 'idle', locals: replaceLocal(state.locals, action.shader) }, action.shader)
+      }
+      return {
+        ...state,
+        persistence: 'idle',
+        locals: replaceLocal(state.locals, action.shader),
+        savedSnapshot: cloneShader(action.shader),
+        dirty: dirtyComparedTo(state.draft, action.shader),
+      }
+    case 'deleteSucceeded': {
+      const withoutDeleted = state.locals.filter((shader) => shader.id !== action.id)
+      if (action.id !== state.selectedId || action.fallback === undefined) {
+        return { ...state, locals: withoutDeleted }
+      }
+      return selectedState({ ...state, locals: withoutDeleted }, action.fallback)
+    }
     case 'modelLoadStarted':
       return {
         ...state,

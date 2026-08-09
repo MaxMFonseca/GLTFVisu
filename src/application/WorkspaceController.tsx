@@ -174,13 +174,19 @@ export function WorkspaceProvider({
     }
   }, [viewer])
 
-  const scheduleCompile = useCallback((draft: ShaderDraft) => {
+  const scheduleCompile = useCallback((selectedId: string) => {
     cancelScheduledCompile()
     const generation = ++compileGenerationRef.current
     dispatch({ type: 'compileInvalidated', generation })
     compileTimerRef.current = timer.set(() => {
       compileTimerRef.current = undefined
-      void compileDraft(draft)
+      const current = stateRef.current
+      if (
+        !activeRef.current
+        || current.selectedId !== selectedId
+        || current.compile.generation !== generation
+      ) return
+      void compileDraft(current.draft)
     }, COMPILE_DEBOUNCE_MS)
   }, [cancelScheduledCompile, compileDraft, timer])
 
@@ -251,16 +257,14 @@ export function WorkspaceProvider({
     editSource(source) {
       const current = stateRef.current.draft
       if (current.origin === 'builtin') return
-      const draft = { ...cloneShader(current), fragmentSource: source }
       dispatch({ type: 'editSource', source })
-      scheduleCompile(draft)
+      scheduleCompile(current.id)
     },
     editSchema(parameters, parameterValues) {
       const current = stateRef.current.draft
       if (current.origin === 'builtin') return
       const definitions = parameters.map((parameter) => ({ ...parameter }))
       const values = { ...parameterValues }
-      const draft = { ...cloneShader(current), parameters: definitions, parameterValues: values }
       dispatch({ type: 'editSchema', parameters: definitions, parameterValues: values })
       const errors = validateParameterDefinitions(definitions)
       if (errors.length > 0) {
@@ -268,7 +272,7 @@ export function WorkspaceProvider({
         const generation = ++compileGenerationRef.current
         dispatch({ type: 'schemaInvalid', generation, errors })
       } else {
-        scheduleCompile(draft)
+        scheduleCompile(current.id)
       }
     },
     updateValue(parameterId, value) {
@@ -291,6 +295,7 @@ export function WorkspaceProvider({
         return
       }
       let snapshot: ShaderDefinition
+      const draftRevision = stateRef.current.draftRevision
       try {
         snapshot = normalizeForSave(current, now())
       } catch (error) {
@@ -300,13 +305,9 @@ export function WorkspaceProvider({
       dispatch({ type: 'saveStarted' })
       try {
         await repository.save(snapshot)
-        if (activeRef.current && stateRef.current.selectedId === snapshot.id) {
-          dispatch({ type: 'saveSucceeded', shader: snapshot })
-        }
+        if (activeRef.current) dispatch({ type: 'saveSucceeded', shader: snapshot, draftRevision })
       } catch (error) {
-        if (activeRef.current && stateRef.current.selectedId === snapshot.id) {
-          dispatch({ type: 'operationFailed', scope: 'save', message: errorMessage(error) })
-        }
+        if (activeRef.current) dispatch({ type: 'operationFailed', scope: 'save', message: errorMessage(error) })
       }
     },
     async deleteShader(id) {
@@ -317,6 +318,10 @@ export function WorkspaceProvider({
         await repository.delete(targetId)
         if (!activeRef.current) return
         const current = stateRef.current
+        if (current.selectedId !== targetId) {
+          dispatch({ type: 'deleteSucceeded', id: targetId })
+          return
+        }
         const fallback = current.locals.find((shader) => shader.id !== targetId) ?? current.builtins[0]
         if (fallback === undefined) return
         cancelScheduledCompile()
