@@ -279,6 +279,35 @@ describe('WorkspaceProvider', () => {
     expect(workspace.current().state.dirty.values).toBe(false)
   })
 
+  it('merges a Save into the current baseline after selecting away and back to the same shader', async () => {
+    const first = localShader({ id: 'first', name: 'First' })
+    const second = localShader({ id: 'second', name: 'Second' })
+    const repository = createRepository([first, second])
+    const saveGate = deferred<void>()
+    vi.mocked(repository.save).mockImplementationOnce(() => saveGate.promise)
+    const workspace = renderWorkspace({ repository, now: () => 50 })
+    await ready(workspace)
+    await act(async () => workspace.current().commands.selectShader(first.id))
+    act(() => workspace.current().commands.editName('  Persisted name  '))
+
+    let firstSave!: Promise<void>
+    act(() => { firstSave = workspace.current().commands.save() })
+    await act(async () => workspace.current().commands.selectShader(second.id))
+    await act(async () => workspace.current().commands.selectShader(first.id))
+    act(() => workspace.current().commands.editSource('reselected source'))
+    await act(async () => { saveGate.resolve(); await firstSave })
+
+    expect(workspace.current().state.savedSnapshot).toMatchObject({ name: 'Persisted name', updatedAt: 50 })
+    expect(workspace.current().state.draft).toMatchObject({ name: 'Persisted name', fragmentSource: 'reselected source' })
+    expect(workspace.current().state.dirty).toMatchObject({ name: false, source: true })
+
+    await act(async () => workspace.current().commands.save())
+    expect(repository.save).toHaveBeenLastCalledWith(expect.objectContaining({
+      id: 'first', name: 'Persisted name', fragmentSource: 'reselected source',
+    }))
+    expect(workspace.current().state.dirty.source).toBe(false)
+  })
+
   it('merges shaders created while repository hydration is pending', async () => {
     const hydration = deferred<ShaderDefinition[]>()
     const repository = createRepository()

@@ -110,6 +110,26 @@ function reviseFields(
   return { draftRevision: revision, fieldRevisions }
 }
 
+function mergeSavedDraft(
+  saved: ShaderDefinition,
+  current: ShaderDefinition,
+  preserve: Readonly<Record<keyof WorkspaceFieldRevisions, boolean>>,
+): ShaderDefinition {
+  const savedCopy = cloneShader(saved)
+  const currentCopy = cloneShader(current)
+  const portrait = preserve.portrait ? currentCopy.portrait : savedCopy.portrait
+  const draft: ShaderDefinition = {
+    ...savedCopy,
+    name: preserve.name ? currentCopy.name : savedCopy.name,
+    fragmentSource: preserve.source ? currentCopy.fragmentSource : savedCopy.fragmentSource,
+    parameters: preserve.schema ? currentCopy.parameters : savedCopy.parameters,
+    parameterValues: preserve.values ? currentCopy.parameterValues : savedCopy.parameterValues,
+  }
+  if (portrait === undefined) delete draft.portrait
+  else draft.portrait = portrait
+  return draft
+}
+
 function reconcileSavedDraft(
   state: WorkspaceState,
   saved: ShaderDefinition,
@@ -122,20 +142,8 @@ function reconcileSavedDraft(
     values: state.fieldRevisions.values !== submitted.values,
     portrait: state.fieldRevisions.portrait !== submitted.portrait,
   }
-  const savedCopy = cloneShader(saved)
-  const currentCopy = cloneShader(state.draft)
-  const portrait = editedAfterSubmit.portrait ? currentCopy.portrait : savedCopy.portrait
-  const draft: ShaderDefinition = {
-    ...savedCopy,
-    name: editedAfterSubmit.name ? currentCopy.name : savedCopy.name,
-    fragmentSource: editedAfterSubmit.source ? currentCopy.fragmentSource : savedCopy.fragmentSource,
-    parameters: editedAfterSubmit.schema ? currentCopy.parameters : savedCopy.parameters,
-    parameterValues: editedAfterSubmit.values ? currentCopy.parameterValues : savedCopy.parameterValues,
-  }
-  if (portrait === undefined) delete draft.portrait
-  else draft.portrait = portrait
   return {
-    draft,
+    draft: mergeSavedDraft(saved, state.draft, editedAfterSubmit),
     dirty: editedAfterSubmit,
   }
 }
@@ -236,7 +244,13 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
         return { ...state, persistence: 'idle', locals: replaceLocal(state.locals, action.shader) }
       }
       if (action.selectionRevision !== state.selectionRevision) {
-        return { ...state, persistence: 'idle', locals: replaceLocal(state.locals, action.shader) }
+        return {
+          ...state,
+          persistence: 'idle',
+          locals: replaceLocal(state.locals, action.shader),
+          savedSnapshot: cloneShader(action.shader),
+          draft: mergeSavedDraft(action.shader, state.draft, state.dirty),
+        }
       }
       return {
         ...state,
