@@ -9,7 +9,12 @@ import {
 } from 'react'
 import { BUILTIN_SHADERS } from '../domain/builtins'
 import { parseShaderPackage, serializeShader } from '../domain/importExport'
-import { createDefaultValue, normalizeParameterValue, type ShaderParameterValue } from '../domain/parameters'
+import {
+  createDefaultValue,
+  normalizeParameterValue,
+  type ShaderParameterDefinition,
+  type ShaderParameterValue,
+} from '../domain/parameters'
 import type { ShaderDefinition, ShaderDraft } from '../domain/shader'
 import { validateParameterDefinitions } from '../domain/uniformValidation'
 import type { ShaderRepository } from './ShaderRepository'
@@ -73,6 +78,43 @@ function errorMessage(error: unknown): string {
 function safeFilename(name: string): string {
   const stem = name.trim().replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ') || 'shader'
   return `${stem}.shader.json`
+}
+
+function sameParameterDefinition(
+  left: ShaderParameterDefinition,
+  right: ShaderParameterDefinition,
+): boolean {
+  if (
+    left.id !== right.id
+    || left.type !== right.type
+    || left.uniformName !== right.uniformName
+    || left.label !== right.label
+    || left.defaultValue !== right.defaultValue
+  ) return false
+  if (left.type === 'color' || left.type === 'boolean') return true
+  if (right.type === 'color' || right.type === 'boolean') return false
+  return left.min === right.min && left.max === right.max && left.step === right.step
+}
+
+function sameParameterSchema(
+  left: readonly ShaderParameterDefinition[],
+  right: readonly ShaderParameterDefinition[],
+): boolean {
+  return left.length === right.length
+    && left.every((parameter, index) => {
+      const counterpart = right[index]
+      return counterpart !== undefined && sameParameterDefinition(parameter, counterpart)
+    })
+}
+
+function reselectedSaveAdoptsShaderChanges(
+  current: WorkspaceState,
+  saved: ShaderDefinition,
+  submittedSelectionRevision: number,
+): boolean {
+  if (saved.id !== current.selectedId || submittedSelectionRevision === current.selectionRevision) return false
+  return (!current.dirty.source && saved.fragmentSource !== current.draft.fragmentSource)
+    || (!current.dirty.schema && !sameParameterSchema(saved.parameters, current.draft.parameters))
 }
 
 function normalizeForSave(draft: ShaderDraft, timestamp: number): ShaderDefinition {
@@ -307,7 +349,13 @@ export function WorkspaceProvider({
       try {
         await repository.save(snapshot)
         if (activeRef.current) {
+          const shouldRecompile = reselectedSaveAdoptsShaderChanges(
+            stateRef.current,
+            snapshot,
+            selectionRevision,
+          )
           dispatch({ type: 'saveSucceeded', shader: snapshot, submittedRevisions, selectionRevision })
+          if (shouldRecompile) scheduleCompile(snapshot.id)
         }
       } catch (error) {
         if (activeRef.current) dispatch({ type: 'operationFailed', scope: 'save', message: errorMessage(error) })

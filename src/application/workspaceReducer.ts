@@ -1,4 +1,9 @@
-import type { ShaderParameterDefinition, ShaderParameterValue } from '../domain/parameters'
+import {
+  createDefaultValue,
+  normalizeParameterValue,
+  type ShaderParameterDefinition,
+  type ShaderParameterValue,
+} from '../domain/parameters'
 import type { ShaderDefinition, ShaderPortrait } from '../domain/shader'
 import type { ParameterDefinitionValidationError } from '../domain/uniformValidation'
 import type { CompileResult, ModelInfo } from './ViewerPort'
@@ -110,6 +115,39 @@ function reviseFields(
   return { draftRevision: revision, fieldRevisions }
 }
 
+function isCompatibleValue(
+  parameter: ShaderParameterDefinition,
+  value: ShaderParameterValue | undefined,
+): value is ShaderParameterValue {
+  switch (parameter.type) {
+    case 'float':
+    case 'integer':
+      return typeof value === 'number' && Number.isFinite(value)
+    case 'color':
+      return typeof value === 'string'
+    case 'boolean':
+      return typeof value === 'boolean'
+  }
+}
+
+function normalizeValuesForSchema(
+  parameters: readonly ShaderParameterDefinition[],
+  preferred: Readonly<Record<string, ShaderParameterValue>>,
+  fallback: Readonly<Record<string, ShaderParameterValue>>,
+): Record<string, ShaderParameterValue> {
+  const values: Record<string, ShaderParameterValue> = {}
+  for (const parameter of parameters) {
+    const preferredValue = preferred[parameter.id]
+    const fallbackValue = fallback[parameter.id]
+    values[parameter.id] = isCompatibleValue(parameter, preferredValue)
+      ? normalizeParameterValue(parameter, preferredValue)
+      : isCompatibleValue(parameter, fallbackValue)
+        ? normalizeParameterValue(parameter, fallbackValue)
+        : createDefaultValue(parameter)
+  }
+  return values
+}
+
 function mergeSavedDraft(
   saved: ShaderDefinition,
   current: ShaderDefinition,
@@ -118,12 +156,18 @@ function mergeSavedDraft(
   const savedCopy = cloneShader(saved)
   const currentCopy = cloneShader(current)
   const portrait = preserve.portrait ? currentCopy.portrait : savedCopy.portrait
+  const parameters = preserve.schema ? currentCopy.parameters : savedCopy.parameters
+  let parameterValues = preserve.values ? currentCopy.parameterValues : savedCopy.parameterValues
+  if (preserve.schema !== preserve.values) {
+    const adopted = preserve.schema ? currentCopy : savedCopy
+    parameterValues = normalizeValuesForSchema(parameters, parameterValues, adopted.parameterValues)
+  }
   const draft: ShaderDefinition = {
     ...savedCopy,
     name: preserve.name ? currentCopy.name : savedCopy.name,
     fragmentSource: preserve.source ? currentCopy.fragmentSource : savedCopy.fragmentSource,
-    parameters: preserve.schema ? currentCopy.parameters : savedCopy.parameters,
-    parameterValues: preserve.values ? currentCopy.parameterValues : savedCopy.parameterValues,
+    parameters,
+    parameterValues,
   }
   if (portrait === undefined) delete draft.portrait
   else draft.portrait = portrait
