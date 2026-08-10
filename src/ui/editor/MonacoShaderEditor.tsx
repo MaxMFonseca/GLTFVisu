@@ -8,6 +8,7 @@ import {
 } from 'react'
 import type { Monaco, EditorProps, OnMount } from '@monaco-editor/react'
 import type { editor } from 'monaco-editor'
+import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 import { registerGlslLanguage } from '../../editor/glslLanguage'
 import { applyMonacoDiagnostics } from '../../editor/monacoDiagnostics'
 import type { ShaderSourceEditorHandle, ShaderSourceEditorProps } from './ShaderEditorPanel'
@@ -15,7 +16,15 @@ import type { ShaderSourceEditorHandle, ShaderSourceEditorProps } from './Shader
 type MonacoEditorComponent = ComponentType<EditorProps>
 
 async function loadMonacoEditor(): Promise<MonacoEditorComponent> {
-  return (await import('@monaco-editor/react')).default
+  self.MonacoEnvironment = {
+    getWorker: () => new EditorWorker(),
+  }
+  const [reactMonaco, monaco] = await Promise.all([
+    import('@monaco-editor/react'),
+    import('monaco-editor/esm/vs/editor/editor.api.js'),
+  ])
+  reactMonaco.loader.config({ monaco })
+  return reactMonaco.default
 }
 
 function shaderModelPath(shaderId: string): string {

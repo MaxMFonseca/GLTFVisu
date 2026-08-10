@@ -10,6 +10,9 @@ import type { ShaderSourceEditorProps } from './ShaderEditorPanel'
 const editorHarness = vi.hoisted(() => ({
   props: undefined as EditorProps | undefined,
   mount: undefined as ((instance: unknown, monaco: unknown) => void) | undefined,
+  configureLoader: vi.fn(),
+  createWorker: vi.fn(() => ({ kind: 'editor-worker' })),
+  localMonaco: { editor: { create: vi.fn() } },
 }))
 
 vi.mock('@monaco-editor/react', async () => {
@@ -23,8 +26,14 @@ vi.mock('@monaco-editor/react', async () => {
     )
     return React.createElement(React.Fragment, null, props.loading)
   }
-  return { default: TestMonacoEditor }
+  return { default: TestMonacoEditor, loader: { config: editorHarness.configureLoader } }
 })
+
+vi.mock('monaco-editor/esm/vs/editor/editor.api.js', () => editorHarness.localMonaco)
+
+vi.mock('monaco-editor/esm/vs/editor/editor.worker?worker', () => ({
+  default: editorHarness.createWorker,
+}))
 
 function editorProps(
   shaderId: string,
@@ -49,6 +58,17 @@ afterEach(() => {
 })
 
 describe('MonacoShaderEditor', () => {
+  it('configures Monaco from the local package with a bundled editor worker', async () => {
+    render(<MonacoShaderEditor {...editorProps('shader-a', 'initial source')} />)
+
+    await waitFor(() => expect(editorHarness.configureLoader).toHaveBeenCalledWith({
+      monaco: editorHarness.localMonaco,
+    }))
+
+    expect(self.MonacoEnvironment?.getWorker?.('workerMain.js', 'glsl')).toEqual({ kind: 'editor-worker' })
+    expect(editorHarness.createWorker).toHaveBeenCalledOnce()
+  })
+
   it('keeps an editable controlled textarea while Monaco initialization remains pending', async () => {
     const onChange = vi.fn()
     render(<MonacoShaderEditor {...editorProps('shader-a', 'initial source', [], onChange)} />)
