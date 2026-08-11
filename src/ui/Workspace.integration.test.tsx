@@ -69,7 +69,11 @@ function createViewer(): ViewerHarness {
     failCapture: false,
     loadModel: vi.fn(async (_files: File[], root: File): Promise<ModelInfo> => {
       if (viewer.failModel) throw new Error('Model decoder failed')
-      return { name: root.name, meshCount: 2, animationClips: ['Idle', 'Turn'] }
+      return {
+        name: root.name,
+        meshCount: 2,
+        animationClips: [{ id: 'clip-0', label: 'Idle' }, { id: 'clip-1', label: 'Turn' }],
+      }
     }),
     fitModel: vi.fn(),
     resize: vi.fn(),

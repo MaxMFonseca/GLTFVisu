@@ -1,9 +1,10 @@
 import { useWorkspace } from '../../application/WorkspaceController'
+import { hasLoadedModel } from '../../application/workspaceState'
 
 export function ViewerToolbar() {
   const { state, commands } = useWorkspace()
-  const hasModel = state.modelLoad.status === 'loaded'
-  const hasAnimations = hasModel && state.animations.clipNames.length > 0
+  const hasModel = hasLoadedModel(state.modelLoad)
+  const hasAnimations = hasModel && state.animations.clips.length > 0
   const animationLabel = state.animations.playing ? 'Pause animation' : 'Play animation'
 
   return (
@@ -16,11 +17,11 @@ export function ViewerToolbar() {
         <select
           aria-label="Animation clip"
           disabled={!hasAnimations}
-          value={state.animations.selectedClip ?? ''}
+          value={state.animations.selectedClipId ?? ''}
           onChange={(event) => commands.selectAnimation(event.currentTarget.value)}
         >
           {!hasAnimations && <option value="">No animations</option>}
-          {state.animations.clipNames.map((clip) => <option key={clip} value={clip}>{clip}</option>)}
+          {state.animations.clips.map((clip) => <option key={clip.id} value={clip.id}>{clip.label}</option>)}
         </select>
       </label>
       <button

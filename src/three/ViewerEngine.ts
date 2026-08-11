@@ -14,7 +14,7 @@ import {
   type ShaderMaterial,
 } from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import type { CompileDiagnostic, CompileResult, ModelInfo, ViewerPort } from '../application/ViewerPort'
+import type { AnimationClipInfo, CompileDiagnostic, CompileResult, ModelInfo, ViewerPort } from '../application/ViewerPort'
 import type { ShaderParameterDefinition, ShaderParameterValue } from '../domain/parameters'
 import type { ShaderDraft, ShaderPortrait } from '../domain/shader'
 import { AnimationController } from './AnimationController'
@@ -22,7 +22,7 @@ import { calculateCameraFit, type CameraFit } from './cameraFit'
 import { CaptureService, type CapturedImage } from './CaptureService'
 import { disposeObjectTree } from './disposeObject'
 import { GltfAssetLoader, ModelLoadError } from './GltfAssetLoader'
-import { MaterialOverride } from './MaterialOverride'
+import { isMaterialRenderable, MaterialOverride } from './MaterialOverride'
 import {
   ShaderCompiler,
   type PreparedRuntimeMaterial,
@@ -31,8 +31,8 @@ import {
 } from './ShaderCompiler'
 
 export interface AnimationState {
-  clipNames: readonly string[]
-  selectedClip?: string
+  clips: readonly AnimationClipInfo[]
+  selectedClipId?: string
   playing: boolean
 }
 
@@ -88,8 +88,8 @@ export interface CapturePort {
 }
 
 export interface AnimationPort {
-  readonly clipNames: readonly string[]
-  readonly selectedClip?: string
+  readonly clips: readonly AnimationClipInfo[]
+  readonly selectedClipId?: string
   readonly playing: boolean
   select(name: string): void
   setPlaying(playing: boolean): void
@@ -358,8 +358,8 @@ export class ViewerEngine implements ViewerPort {
 
     const info: ModelInfo = {
       name,
-      meshCount: countMeshes(loaded.scene),
-      animationClips: [...nextAnimation.clipNames],
+      meshCount: countMaterialRenderables(loaded.scene),
+      animationClips: nextAnimation.clips.map((clip) => ({ ...clip })),
     }
     notify(this.events.onModelInfo, info)
     this.emitAnimationState()
@@ -369,8 +369,8 @@ export class ViewerEngine implements ViewerPort {
   private emitAnimationState(): void {
     if (this.animation === undefined) return
     notify(this.events.onAnimationState, {
-      clipNames: [...this.animation.clipNames],
-      selectedClip: this.animation.selectedClip,
+      clips: this.animation.clips.map((clip) => ({ ...clip })),
+      selectedClipId: this.animation.selectedClipId,
       playing: this.animation.playing,
     })
   }
@@ -497,10 +497,10 @@ function createRuntimePreparer(override: MaterialOverride, render: () => void): 
   }
 }
 
-function countMeshes(root: Object3D): number {
+function countMaterialRenderables(root: Object3D): number {
   let count = 0
   root.traverse((object) => {
-    if ('isMesh' in object && object.isMesh === true) count += 1
+    if (isMaterialRenderable(object)) count += 1
   })
   return count
 }

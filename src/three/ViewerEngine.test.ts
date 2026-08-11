@@ -2,9 +2,14 @@ import {
   AnimationClip,
   BoxGeometry,
   DoubleSide,
+  BufferGeometry,
   Group,
+  Line,
+  LineBasicMaterial,
   Mesh,
   MeshBasicMaterial,
+  Points,
+  PointsMaterial,
   PerspectiveCamera,
   ShaderMaterial,
   Vector2,
@@ -192,10 +197,12 @@ describe('ViewerEngine', () => {
     await expect(engine.loadModel([firstFile], firstFile)).resolves.toEqual({
       name: 'first.glb',
       meshCount: 1,
-      animationClips: ['Idle'],
+      animationClips: [{ id: 'clip-0', label: 'Idle' }],
     })
     engine.setAnimationPlaying(false)
-    expect(onAnimationState).toHaveBeenLastCalledWith({ clipNames: ['Idle'], selectedClip: 'Idle', playing: false })
+    expect(onAnimationState).toHaveBeenLastCalledWith({
+      clips: [{ id: 'clip-0', label: 'Idle' }], selectedClipId: 'clip-0', playing: false,
+    })
     const failedFile = modelFile('bad.glb')
     await expect(engine.loadModel([failedFile], failedFile)).rejects.toThrow('malformed')
     expect(disposeGeometry).not.toHaveBeenCalled()
@@ -206,8 +213,25 @@ describe('ViewerEngine', () => {
     expect(disposeGeometry).toHaveBeenCalledTimes(1)
     expect(disposeMaterial).toHaveBeenCalledTimes(1)
     expect(onModelInfo).toHaveBeenLastCalledWith({ name: 'second.glb', meshCount: 1, animationClips: [] })
-    expect(onAnimationState).toHaveBeenCalledWith({ clipNames: ['Idle'], selectedClip: 'Idle', playing: true })
+    expect(onAnimationState).toHaveBeenCalledWith({
+      clips: [{ id: 'clip-0', label: 'Idle' }], selectedClipId: 'clip-0', playing: true,
+    })
 
+    engine.dispose()
+  })
+
+  it('reports every shader-compatible GLTF renderable', async () => {
+    const root = new Group().add(
+      new Mesh(new BoxGeometry(), new MeshBasicMaterial()),
+      new Line(new BufferGeometry(), new LineBasicMaterial()),
+      new Points(new BufferGeometry(), new PointsMaterial()),
+    )
+    const loader: ModelLoaderPort = { load: vi.fn(async () => ({ scene: root, animations: [] })) }
+    const harness = createHarness({ loader })
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    const file = modelFile('renderables.glb')
+
+    await expect(engine.loadModel([file], file)).resolves.toMatchObject({ meshCount: 3 })
     engine.dispose()
   })
 

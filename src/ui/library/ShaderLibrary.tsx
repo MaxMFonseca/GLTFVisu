@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type ChangeEvent, type KeyboardEven
 import { createPortal } from 'react-dom'
 import { useWorkspace } from '../../application/WorkspaceController'
 import type { ShaderDefinition } from '../../domain/shader'
+import { hasLoadedModel } from '../../application/workspaceState'
 import { ShaderCard, type PortraitUrlPort } from './ShaderCard'
 
 export interface ShaderLibraryProps {
@@ -47,7 +48,7 @@ export function ShaderLibrary({ portraitUrls }: ShaderLibraryProps) {
   const deleteDescriptionId = useId()
   const selectedIsLocal = state.draft.origin === 'local'
   const canCapture = selectedIsLocal
-    && state.modelLoad.status === 'loaded'
+    && hasLoadedModel(state.modelLoad)
     && state.compile.status === 'valid'
   const locals = selectedDraftInList(state.locals, state.selectedId, state.draft)
 

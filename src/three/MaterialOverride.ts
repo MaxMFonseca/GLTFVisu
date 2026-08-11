@@ -1,6 +1,7 @@
-import { Mesh, type Material, type Object3D, type ShaderMaterial } from 'three'
+import { Line, Mesh, Points, type Material, type Object3D, type ShaderMaterial } from 'three'
 
 type MaterialAssignment = Material | Material[]
+type MaterialRenderable = Mesh | Line | Points
 
 interface MaterialCompatibility {
   side: Material['side']
@@ -20,14 +21,14 @@ export interface PreparedMaterialOverride {
 
 /** Owns app-created material assignments while retaining model-owned originals. */
 export class MaterialOverride {
-  private readonly originals = new Map<Mesh, MaterialAssignment>()
+  private readonly originals = new Map<MaterialRenderable, MaterialAssignment>()
   private overrideMaterials = new Set<ShaderMaterial>()
   private revision = 0
   private disposed = false
 
   constructor(root: Object3D) {
     root.traverse((object) => {
-      if (object instanceof Mesh) this.originals.set(object, object.material)
+      if (isMaterialRenderable(object)) this.originals.set(object, object.material)
     })
   }
 
@@ -49,8 +50,8 @@ export class MaterialOverride {
     if (this.disposed) throw new Error('Material override is disposed')
 
     const variants = new Map<string, ShaderMaterial>()
-    const assignments = new Map<Mesh, MaterialAssignment>()
-    const predecessors = new Map<Mesh, MaterialAssignment>()
+    const assignments = new Map<MaterialRenderable, MaterialAssignment>()
+    const predecessors = new Map<MaterialRenderable, MaterialAssignment>()
     const revision = this.revision
 
     try {
@@ -115,6 +116,10 @@ export class MaterialOverride {
     this.originals.clear()
     this.disposed = true
   }
+}
+
+export function isMaterialRenderable(object: Object3D): object is MaterialRenderable {
+  return object instanceof Mesh || object instanceof Line || object instanceof Points
 }
 
 function variantFor(

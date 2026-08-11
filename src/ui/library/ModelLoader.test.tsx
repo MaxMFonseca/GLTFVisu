@@ -54,7 +54,7 @@ describe('ModelLoader', () => {
 
     await waitFor(() => expect(modelViewer.loadModel).toHaveBeenCalledWith([texture, root], root))
     expect(screen.getByText('2 files selected')).toBeVisible()
-    expect(await screen.findByText('scene.glb · 3 meshes')).toBeVisible()
+    expect(await screen.findByText('scene.glb · 3 renderables')).toBeVisible()
     expect(screen.getByLabelText('Choose model files')).toHaveValue('')
   })
 

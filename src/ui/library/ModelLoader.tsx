@@ -95,7 +95,7 @@ export function ModelLoader() {
       {selectionError !== undefined && <p className="panel-message panel-error" role="alert">{selectionError}</p>}
       {state.modelLoad.status === 'empty' && selectedFiles.length === 0 && <p className="panel-message">No model loaded.</p>}
       {state.modelLoad.status === 'loading' && <p className="panel-message" role="status">Loading {state.modelLoad.fileName}…</p>}
-      {state.modelLoad.status === 'loaded' && <p className="model-summary">{state.modelLoad.name} · {state.modelLoad.meshCount} {state.modelLoad.meshCount === 1 ? 'mesh' : 'meshes'}</p>}
+      {state.modelLoad.status === 'loaded' && <p className="model-summary">{state.modelLoad.name} · {state.modelLoad.meshCount} {state.modelLoad.meshCount === 1 ? 'renderable' : 'renderables'}</p>}
       {state.modelLoad.status === 'error' && <p className="panel-message panel-error" role="alert">{state.modelLoad.message}</p>}
     </section>
   )

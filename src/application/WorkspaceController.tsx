@@ -21,7 +21,7 @@ import type { ShaderRepository } from './ShaderRepository'
 import type { ViewerPort } from './ViewerPort'
 import type { WorkspaceCommands } from './commands'
 import { createInitialWorkspaceState, workspaceReducer } from './workspaceReducer'
-import { cloneShader, type WorkspaceState } from './workspaceState'
+import { cloneShader, hasLoadedModel, type WorkspaceState } from './workspaceState'
 
 const COMPILE_DEBOUNCE_MS = 400
 const DEFAULT_FRAGMENT_SOURCE = `void main() {
@@ -418,7 +418,7 @@ export function WorkspaceProvider({
       const selectedId = stateRef.current.selectedId
       if (
         stateRef.current.draft.origin !== 'local'
-        || stateRef.current.modelLoad.status !== 'loaded'
+        || !hasLoadedModel(stateRef.current.modelLoad)
         || stateRef.current.compile.status !== 'valid'
       ) {
         dispatch({ type: 'operationFailed', scope: 'capture', message: 'Load a model with a valid local shader before capture' })
@@ -457,14 +457,14 @@ export function WorkspaceProvider({
       viewer.resize()
     },
     selectAnimation(name) {
-      if (!stateRef.current.animations.clipNames.includes(name)) return
+      if (!stateRef.current.animations.clips.some((clip) => clip.id === name)) return
       viewer.selectAnimation(name)
-      dispatch({ type: 'animationsChanged', selectedClip: name, playing: stateRef.current.animations.playing })
+      dispatch({ type: 'animationsChanged', selectedClipId: name, playing: stateRef.current.animations.playing })
     },
     setAnimationPlaying(playing) {
-      if (stateRef.current.modelLoad.status !== 'loaded') return
+      if (!hasLoadedModel(stateRef.current.modelLoad)) return
       viewer.setAnimationPlaying(playing)
-      dispatch({ type: 'animationsChanged', selectedClip: stateRef.current.animations.selectedClip, playing })
+      dispatch({ type: 'animationsChanged', selectedClipId: stateRef.current.animations.selectedClipId, playing })
     },
     async compile() {
       cancelScheduledCompile()

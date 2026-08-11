@@ -20,7 +20,9 @@ function repository(): ShaderRepository {
 function createViewer(): ViewerPort {
   return {
     loadModel: vi.fn(async (_files, root) => ({
-      name: root.name, meshCount: 2, animationClips: ['Idle', 'Run'],
+      name: root.name,
+      meshCount: 2,
+      animationClips: [{ id: 'clip-0', label: 'Idle' }, { id: 'clip-1', label: 'Run' }],
     })),
     fitModel: vi.fn(),
     resize: vi.fn(),
@@ -72,11 +74,38 @@ describe('ViewerToolbar', () => {
     await user.click(screen.getByRole('button', { name: 'Reset view' }))
     expect(modelViewer.fitModel).toHaveBeenCalledOnce()
 
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Animation clip' }), 'Run')
-    expect(modelViewer.selectAnimation).toHaveBeenCalledWith('Run')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Animation clip' }), 'clip-1')
+    expect(modelViewer.selectAnimation).toHaveBeenCalledWith('clip-1')
 
     await user.click(screen.getByRole('button', { name: 'Pause animation' }))
     expect(modelViewer.setAnimationPlaying).toHaveBeenCalledWith(false)
     expect(screen.getByRole('button', { name: 'Play animation' })).toBeEnabled()
+  })
+
+  it('renders duplicate animation names as separate selectable options', async () => {
+    const modelViewer = createViewer()
+    vi.mocked(modelViewer.loadModel).mockResolvedValueOnce({
+      name: 'robot.glb',
+      meshCount: 2,
+      animationClips: [
+        { id: 'clip-0', label: 'Idle (1)' },
+        { id: 'clip-1', label: 'Idle (2)' },
+      ],
+    })
+    const user = userEvent.setup()
+    render(
+      <WorkspaceProvider repository={repository()} viewer={modelViewer}>
+        <ModelControl />
+        <ViewerToolbar />
+      </WorkspaceProvider>,
+    )
+    await user.click(screen.getByRole('button', { name: 'Load fixture' }))
+
+    expect(screen.getAllByRole('option').map((option) => [option.getAttribute('value'), option.textContent])).toEqual([
+      ['clip-0', 'Idle (1)'],
+      ['clip-1', 'Idle (2)'],
+    ])
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Animation clip' }), 'clip-1')
+    expect(modelViewer.selectAnimation).toHaveBeenCalledWith('clip-1')
   })
 })

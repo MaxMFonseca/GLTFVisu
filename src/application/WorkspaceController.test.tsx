@@ -42,7 +42,11 @@ function createRepository(locals: ShaderDefinition[] = []): ShaderRepository {
 function createViewer(): ViewerPort {
   let generation = 0
   return {
-    loadModel: vi.fn(async (): Promise<ModelInfo> => ({ name: 'model.glb', meshCount: 2, animationClips: ['Idle', 'Run'] })),
+    loadModel: vi.fn(async (): Promise<ModelInfo> => ({
+      name: 'model.glb',
+      meshCount: 2,
+      animationClips: [{ id: 'clip-0', label: 'Idle' }, { id: 'clip-1', label: 'Run' }],
+    })),
     fitModel: vi.fn(),
     resize: vi.fn(),
     compileShader: vi.fn(async (): Promise<CompileResult> => ({ status: 'valid', generation: ++generation })),
@@ -506,7 +510,21 @@ describe('WorkspaceProvider', () => {
     const root = new File(['model'], 'model.glb')
     await act(async () => workspace.current().commands.loadModel([root], root))
     expect(workspace.current().state.modelLoad).toEqual({ status: 'loaded', name: 'model.glb', meshCount: 2 })
-    expect(workspace.current().state.animations).toEqual({ clipNames: ['Idle', 'Run'], selectedClip: 'Idle', playing: true })
+    expect(workspace.current().state.animations).toEqual({
+      clips: [{ id: 'clip-0', label: 'Idle' }, { id: 'clip-1', label: 'Run' }],
+      selectedClipId: 'clip-0',
+      playing: true,
+    })
+
+    vi.mocked(viewer.loadModel).mockRejectedValueOnce(new Error('replacement malformed'))
+    const brokenRoot = new File(['broken'], 'broken.glb')
+    await act(async () => workspace.current().commands.loadModel([brokenRoot], brokenRoot))
+    expect(workspace.current().state.modelLoad).toEqual({ status: 'loaded', name: 'model.glb', meshCount: 2 })
+    expect(workspace.current().state.animations).toEqual({
+      clips: [{ id: 'clip-0', label: 'Idle' }, { id: 'clip-1', label: 'Run' }],
+      selectedClipId: 'clip-0',
+      playing: true,
+    })
 
     vi.mocked(viewer.compileShader).mockResolvedValueOnce({
       status: 'error', generation: 20, diagnostics: [{ severity: 'error', message: 'invalid shader', raw: 'invalid' }],
@@ -518,10 +536,10 @@ describe('WorkspaceProvider', () => {
     vi.mocked(viewer.compileShader).mockResolvedValueOnce({ status: 'valid', generation: 21 })
     await act(async () => workspace.current().commands.compile())
 
-    act(() => workspace.current().commands.selectAnimation('Run'))
+    act(() => workspace.current().commands.selectAnimation('clip-1'))
     act(() => workspace.current().commands.setAnimationPlaying(false))
     workspace.current().commands.fitModel()
-    expect(viewer.selectAnimation).toHaveBeenCalledWith('Run')
+    expect(viewer.selectAnimation).toHaveBeenCalledWith('clip-1')
     expect(viewer.setAnimationPlaying).toHaveBeenCalledWith(false)
     expect(viewer.fitModel).toHaveBeenCalled()
 

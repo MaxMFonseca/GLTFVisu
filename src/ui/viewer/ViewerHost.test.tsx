@@ -107,7 +107,7 @@ describe('ViewerHost', () => {
 
   it('shows loading and recoverable model errors outside the canvas host', async () => {
     const user = userEvent.setup()
-    const load = deferred<{ name: string; meshCount: number; animationClips: readonly string[] }>()
+    const load = deferred<{ name: string; meshCount: number; animationClips: readonly { id: string; label: string }[] }>()
     const modelViewer = createViewer(vi.fn(() => load.promise))
     const mount: ViewerMountFactory = () => ({ dispose: vi.fn() })
     render(

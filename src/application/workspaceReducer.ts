@@ -43,7 +43,7 @@ export type WorkspaceAction =
   | { type: 'deleteSucceeded'; id: string; fallback?: ShaderDefinition }
   | { type: 'modelLoadStarted'; fileName: string }
   | { type: 'modelLoadSucceeded'; info: ModelInfo }
-  | { type: 'animationsChanged'; selectedClip?: string; playing: boolean }
+  | { type: 'animationsChanged'; selectedClipId?: string; playing: boolean }
   | { type: 'operationSucceeded'; scope: WorkspaceNotice['scope']; message: string }
   | { type: 'operationFailed'; scope: WorkspaceNotice['scope']; message: string }
   | { type: 'clearNotices' }
@@ -66,7 +66,7 @@ export function createInitialWorkspaceState(builtins: readonly ShaderDefinition[
     schemaErrors: [],
     compile: { generation: 0, status: 'idle', diagnostics: [] },
     modelLoad: { status: 'empty' },
-    animations: { clipNames: [], playing: false },
+    animations: { clips: [], playing: false },
     notices: [],
   }
 }
@@ -312,23 +312,33 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
       return selectedState({ ...state, locals: withoutDeleted }, action.fallback)
     }
     case 'modelLoadStarted':
+      {
+        const retained = state.modelLoad.status === 'loaded'
+          ? { name: state.modelLoad.name, meshCount: state.modelLoad.meshCount }
+          : state.modelLoad.status === 'loading'
+            ? state.modelLoad.retained
+            : undefined
       return {
         ...state,
-        modelLoad: { status: 'loading', fileName: action.fileName },
-        animations: { clipNames: [], playing: false },
+        modelLoad: {
+          status: 'loading',
+          fileName: action.fileName,
+          ...(retained === undefined ? {} : { retained }),
+        },
+      }
       }
     case 'modelLoadSucceeded':
       return {
         ...state,
         modelLoad: { status: 'loaded', name: action.info.name, meshCount: action.info.meshCount },
         animations: {
-          clipNames: [...action.info.animationClips],
-          selectedClip: action.info.animationClips[0],
+          clips: action.info.animationClips.map((clip) => ({ ...clip })),
+          selectedClipId: action.info.animationClips[0]?.id,
           playing: action.info.animationClips.length > 0,
         },
       }
     case 'animationsChanged':
-      return { ...state, animations: { ...state.animations, selectedClip: action.selectedClip, playing: action.playing } }
+      return { ...state, animations: { ...state.animations, selectedClipId: action.selectedClipId, playing: action.playing } }
     case 'operationSucceeded':
       return {
         ...state,
@@ -338,7 +348,11 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
       return {
         ...state,
         persistence: action.scope === 'save' ? 'idle' : state.persistence,
-        modelLoad: action.scope === 'model' ? { status: 'error', message: action.message } : state.modelLoad,
+        modelLoad: action.scope === 'model'
+          ? state.modelLoad.status === 'loading' && state.modelLoad.retained !== undefined
+            ? { status: 'loaded', ...state.modelLoad.retained }
+            : { status: 'error', message: action.message }
+          : state.modelLoad,
         notices: appendNotice(state, { kind: 'error', scope: action.scope, message: action.message }),
       }
     case 'clearNotices':
