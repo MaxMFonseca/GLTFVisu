@@ -27,7 +27,7 @@ export function classifyModelFiles(files: readonly File[]): ClassifiedModelFiles
   const names = new Map<string, string[]>()
 
   for (const { file, path } of ordered) {
-    if (resources.has(path)) continue
+    if (resources.has(path)) throw new Error(`Duplicate local resource path: ${path}`)
     resources.set(path, file)
     const paths = names.get(basename(path)) ?? []
     paths.push(path)

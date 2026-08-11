@@ -181,8 +181,9 @@ export type UniformNameValidation = { valid: true } | { valid: false; reason: st
 
 export interface ParameterDefinitionValidationError {
   parameterId: string
-  field: 'uniformName' | 'min' | 'max' | 'step' | 'defaultValue'
+  field: 'label' | 'uniformName' | 'min' | 'max' | 'step' | 'defaultValue'
   code:
+    | 'required'
     | 'identifier'
     | 'reserved-identifier'
     | 'glsl-keyword'
@@ -269,6 +270,9 @@ export function validateParameterDefinitions(
 
   const errors: ParameterDefinitionValidationError[] = []
   for (const definition of definitions) {
+    if (definition.label.trim().length === 0) {
+      errors.push(error(definition.id, 'label', 'required', 'Display label is required'))
+    }
     const nameResult = validateUniformName(definition.uniformName, [])
     if (!nameResult.valid) {
       const code = nameResult.reason === 'Invalid GLSL identifier'

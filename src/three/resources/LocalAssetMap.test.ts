@@ -27,6 +27,13 @@ describe('classifyModelFiles', () => {
       'models/zeta/textures/albedo.png',
     ])
   })
+
+  it('rejects duplicate exact normalized paths instead of keeping the first file', () => {
+    const first = localFile('scene.bin', 'scene.bin')
+    const duplicate = localFile('scene.bin', './scene.bin')
+
+    expect(() => classifyModelFiles([first, duplicate])).toThrow('Duplicate local resource path: scene.bin')
+  })
 })
 
 describe('LocalAssetMap', () => {
