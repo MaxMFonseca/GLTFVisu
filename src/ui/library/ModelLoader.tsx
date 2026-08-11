@@ -37,7 +37,9 @@ export function ModelLoader() {
   }
 
   function chooseFiles(event: ChangeEvent<HTMLInputElement>): void {
-    receiveFiles(Array.from(event.currentTarget.files ?? []))
+    const files = Array.from(event.currentTarget.files ?? [])
+    event.currentTarget.value = ''
+    receiveFiles(files)
   }
 
   function dropFiles(event: DragEvent<HTMLDivElement>): void {

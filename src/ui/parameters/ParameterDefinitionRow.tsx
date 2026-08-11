@@ -15,6 +15,7 @@ export interface ParameterDefinitionRowProps {
 }
 
 const FIELD_NAMES: Record<ParameterDefinitionValidationError['field'], string> = {
+  label: 'Label',
   uniformName: 'Uniform',
   min: 'Minimum',
   max: 'Maximum',
@@ -67,6 +68,7 @@ export function ParameterDefinitionRow({
       <label>
         <span>Label</span>
         <input
+          {...fieldState('label')}
           aria-label={`Parameter ${number} label`}
           readOnly={readOnly}
           value={definition.label}

@@ -126,7 +126,7 @@ export function ShaderLibrary({ portraitUrls }: ShaderLibraryProps) {
       <div className="library-actions" aria-label="Shader actions">
         <button type="button" onClick={() => void commands.duplicateShader()}>Duplicate shader</button>
         <button type="button" onClick={() => importInput.current?.click()}>Import shader</button>
-        <input ref={importInput} className="visually-hidden" type="file" accept="application/json,.json" aria-label="Import shader file" onChange={(event) => void importFile(event)} />
+        <input ref={importInput} className="visually-hidden" type="file" accept="application/json,.json" aria-label="Import shader file" tabIndex={-1} onChange={(event) => void importFile(event)} />
         <button type="button" onClick={() => void commands.exportShader()}>Export shader</button>
         <button
           type="button"

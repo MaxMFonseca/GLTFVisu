@@ -110,14 +110,14 @@ describe('ParameterBuilder', () => {
     await user.clear(uniform)
     await user.type(uniform, 'uExposure')
     await waitFor(() => expect(within(first).queryByText(/Uniform:/)).not.toBeInTheDocument())
-    expect(screen.getByRole('spinbutton', { name: 'Gain value' })).toHaveValue(0.7)
+    expect(screen.getByRole('spinbutton', { name: 'Gain (uExposure) value' })).toHaveValue(0.7)
 
     await user.selectOptions(within(first).getByRole('combobox', { name: 'Parameter 1 type' }), 'integer')
     expect(within(first).getByRole('spinbutton', { name: 'Parameter 1 minimum' })).toHaveValue(0)
     expect(within(first).getByRole('spinbutton', { name: 'Parameter 1 maximum' })).toHaveValue(2)
     expect(within(first).getByRole('spinbutton', { name: 'Parameter 1 step' })).toHaveValue(1)
     expect(within(first).getByRole('spinbutton', { name: 'Parameter 1 default' })).toHaveValue(1)
-    expect(screen.getByRole('spinbutton', { name: 'Gain value' })).toHaveValue(1)
+    expect(screen.getByRole('spinbutton', { name: 'Gain (uExposure) value' })).toHaveValue(1)
   })
 
   it('exposes the correct default fields for color and boolean definitions', () => {
@@ -129,6 +129,20 @@ describe('ParameterBuilder', () => {
 })
 
 describe('ParameterControls', () => {
+  it('disambiguates accessible names when display labels are duplicated', () => {
+    const duplicateLabels = shader()
+    duplicateLabels.parameters = duplicateLabels.parameters.map((parameter) => ({ ...parameter, label: 'Value' }))
+    render(
+      <WorkspaceProvider repository={repository()} viewer={viewer()} builtins={[duplicateLabels]} timer={timer}>
+        <ParameterControls />
+      </WorkspaceProvider>,
+    )
+
+    expect(screen.getByRole('slider', { name: 'Value (uGain) slider' })).toBeVisible()
+    expect(screen.getByRole('slider', { name: 'Value (uBands) slider' })).toBeVisible()
+    expect(screen.getByRole('checkbox', { name: 'Value (uEnabled)' })).toBeVisible()
+  })
+
   it('synchronizes every runtime control through value updates without schema edits or compilation', async () => {
     const user = userEvent.setup()
     const runtime = renderInWorkspace(<ParameterControls />)
@@ -136,20 +150,20 @@ describe('ParameterControls', () => {
     vi.mocked(runtime.viewer.compileShader).mockClear()
     vi.mocked(timer.set).mockClear()
 
-    fireEvent.change(screen.getByRole('slider', { name: 'Gain slider' }), { target: { value: '1.5' } })
-    expect(screen.getByRole('spinbutton', { name: 'Gain value' })).toHaveValue(1.5)
+    fireEvent.change(screen.getByRole('slider', { name: 'Gain (uGain) slider' }), { target: { value: '1.5' } })
+    expect(screen.getByRole('spinbutton', { name: 'Gain (uGain) value' })).toHaveValue(1.5)
 
-    fireEvent.change(screen.getByRole('spinbutton', { name: 'Bands value' }), { target: { value: '3.7' } })
-    expect(screen.getByRole('slider', { name: 'Bands slider' })).toHaveValue('4')
-    expect(screen.getByRole('spinbutton', { name: 'Bands value' })).toHaveValue(4)
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Bands (uBands) value' }), { target: { value: '3.7' } })
+    expect(screen.getByRole('slider', { name: 'Bands (uBands) slider' })).toHaveValue('4')
+    expect(screen.getByRole('spinbutton', { name: 'Bands (uBands) value' })).toHaveValue(4)
 
-    await user.clear(screen.getByRole('textbox', { name: 'Tint hex value' }))
-    await user.type(screen.getByRole('textbox', { name: 'Tint hex value' }), '#AbC123')
-    expect(screen.getByRole('textbox', { name: 'Tint hex value' })).toHaveValue('#abc123')
-    expect(screen.getByLabelText('Tint color picker')).toHaveValue('#abc123')
+    await user.clear(screen.getByRole('textbox', { name: 'Tint (uTint) hex value' }))
+    await user.type(screen.getByRole('textbox', { name: 'Tint (uTint) hex value' }), '#AbC123')
+    expect(screen.getByRole('textbox', { name: 'Tint (uTint) hex value' })).toHaveValue('#abc123')
+    expect(screen.getByLabelText('Tint (uTint) color picker')).toHaveValue('#abc123')
 
-    await user.click(screen.getByRole('checkbox', { name: 'Enabled' }))
-    expect(screen.getByRole('checkbox', { name: 'Enabled' })).not.toBeChecked()
+    await user.click(screen.getByRole('checkbox', { name: 'Enabled (uEnabled)' }))
+    expect(screen.getByRole('checkbox', { name: 'Enabled (uEnabled)' })).not.toBeChecked()
 
     expect(runtime.viewer.updateParameter).toHaveBeenCalledWith(expect.objectContaining({ id: 'gain' }), 1.5)
     expect(runtime.viewer.updateParameter).toHaveBeenCalledWith(expect.objectContaining({ id: 'bands' }), 4)
