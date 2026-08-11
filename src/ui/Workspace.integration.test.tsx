@@ -329,6 +329,23 @@ describe('shader workspace acceptance', () => {
     await user.upload(input, unsupported)
     expect(await screen.findByText('Unsupported shader package version')).toBeVisible()
     expect(repository.records.size).toBe(0)
+
+    const invalidValues = new File([JSON.stringify({
+      format: 'gltf-shader-visualizer',
+      version: 1,
+      shader: {
+        name: 'Invalid values',
+        fragmentSource: 'void main() { outColor = vec4(uGain); }',
+        parameters: [
+          { id: 'gain', type: 'float', uniformName: 'uGain', label: 'Gain', min: 0, max: 2, step: 0.1, defaultValue: 1 },
+        ],
+        parameterValues: {},
+      },
+    })], 'invalid-values.json', { type: 'application/json' })
+    await user.upload(input, invalidValues)
+    expect(await screen.findByText('Invalid shader parameter values')).toBeVisible()
+    expect(input.value).toBe('')
+    expect(repository.records.size).toBe(0)
   })
 
   it('keeps compile, storage, model, and capture failures visible and retryable', async () => {
