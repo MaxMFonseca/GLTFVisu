@@ -19,9 +19,10 @@ function statusDetails(status: WorkspaceCompileState['status']): { icon: string;
 
 export function CompileStatus({ compile, editorRef }: CompileStatusProps) {
   const details = statusDetails(compile.status)
+  const liveRole = compile.status === 'error' || compile.status === 'schema-invalid' ? 'alert' : 'status'
   return (
-    <section className={`compile-status compile-${compile.status}`} aria-label="Compile status">
-      <p role="status"><span aria-hidden="true">{details.icon}</span> {details.text}</p>
+    <section className={`compile-status compile-${compile.status}`} aria-label="Compile status" role={liveRole}>
+      <p><span aria-hidden="true">{details.icon}</span> {details.text}</p>
       {compile.diagnostics.length > 0 && (
         <ul className="compile-diagnostics" aria-label="Compiler diagnostics">
           {compile.diagnostics.map((diagnostic, index) => {

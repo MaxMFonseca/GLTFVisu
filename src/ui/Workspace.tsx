@@ -12,7 +12,7 @@ const LEFT_MIN = 208
 const LEFT_MAX = 420
 const RIGHT_MIN = 288
 const RIGHT_MAX = 620
-const NARROW_QUERY = '(max-width: 52rem)'
+const NARROW_QUERY = '(max-width: 64rem)'
 
 const PANELS = [
   { id: 'library', label: 'Library', tabId: 'workspace-library-tab', panelId: 'shader-library-panel' },
@@ -69,6 +69,7 @@ export function Workspace({ mountViewer, SourceEditor }: WorkspaceProps) {
   }, [activePanel, narrow])
 
   function activateWithKeyboard(event: KeyboardEvent<HTMLButtonElement>, index: number): void {
+    if (event.currentTarget.closest('[inert]') !== null) return
     let nextIndex: number | undefined
     if (event.key === 'ArrowRight') nextIndex = (index + 1) % PANELS.length
     if (event.key === 'ArrowLeft') nextIndex = (index - 1 + PANELS.length) % PANELS.length
@@ -82,7 +83,7 @@ export function Workspace({ mountViewer, SourceEditor }: WorkspaceProps) {
   }
 
   return (
-    <div className="workspace-root">
+    <div className="workspace-root" data-layout={narrow ? 'narrow' : 'desktop'}>
       <StatusRegion notices={state.notices} onDismiss={commands.clearNotices} />
       {narrow && (
         <div className="workspace-tabs" role="tablist" aria-label="Workspace panels">
@@ -95,7 +96,9 @@ export function Workspace({ mountViewer, SourceEditor }: WorkspaceProps) {
               aria-controls={panel.panelId}
               aria-selected={activePanel === panel.id}
               tabIndex={activePanel === panel.id ? 0 : -1}
-              onClick={() => setActivePanel(panel.id)}
+              onClick={(event) => {
+                if (event.currentTarget.closest('[inert]') === null) setActivePanel(panel.id)
+              }}
               onKeyDown={(event) => activateWithKeyboard(event, index)}
             >
               {panel.label}
