@@ -1,5 +1,6 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { StrictMode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceProvider, useWorkspace } from '../../application/WorkspaceController'
 import type { ShaderRepository } from '../../application/ShaderRepository'
@@ -53,7 +54,29 @@ function LoadControl() {
 }
 
 describe('ViewerHost', () => {
-  it('mounts one engine into a canvas-only host and tears it down once', () => {
+  it('keeps one engine through a Strict Mode effect probe and disposes only on final teardown', async () => {
+    const dispose = vi.fn()
+    const mount: ViewerMountFactory = vi.fn((host) => {
+      host.append(document.createElement('canvas'))
+      return { dispose }
+    })
+    const result = render(
+      <StrictMode>
+        <WorkspaceProvider repository={repository()} viewer={createViewer()}>
+          <ViewerHost mountViewer={mount} />
+        </WorkspaceProvider>
+      </StrictMode>,
+    )
+
+    expect(mount).toHaveBeenCalledOnce()
+    expect(dispose).not.toHaveBeenCalled()
+    expect(screen.getByTestId('viewer-canvas').querySelectorAll('canvas')).toHaveLength(1)
+
+    result.unmount()
+    await waitFor(() => expect(dispose).toHaveBeenCalledOnce())
+  })
+
+  it('mounts one engine into a canvas-only host and tears it down once', async () => {
     const dispose = vi.fn()
     const mount: ViewerMountFactory = vi.fn((host) => {
       host.append(document.createElement('canvas'))
@@ -78,7 +101,7 @@ describe('ViewerHost', () => {
     )
     expect(mount).toHaveBeenCalledOnce()
     result.unmount()
-    expect(dispose).toHaveBeenCalledOnce()
+    await waitFor(() => expect(dispose).toHaveBeenCalledOnce())
   })
 
   it('shows loading and recoverable model errors outside the canvas host', async () => {

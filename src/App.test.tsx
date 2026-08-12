@@ -1,4 +1,6 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { StrictMode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ShaderRepository } from './application/ShaderRepository'
 import type { ViewerPort } from './application/ViewerPort'
@@ -7,7 +9,7 @@ import App from './App'
 afterEach(cleanup)
 
 describe('shader workspace shell', () => {
-  it('shows the workspace landmark and empty viewer guidance', () => {
+  it('shows the workspace landmark and empty viewer guidance', async () => {
     const repository: ShaderRepository = {
       list: vi.fn(async () => []),
       get: vi.fn(async () => undefined),
@@ -35,6 +37,36 @@ describe('shader workspace shell', () => {
     expect(createViewer).toHaveBeenCalledOnce()
 
     result.unmount()
-    expect(engine.dispose).toHaveBeenCalledOnce()
+    await waitFor(() => expect(engine.dispose).toHaveBeenCalledOnce())
+  })
+
+  it('hydrates and runs commands with one viewer through a Strict Mode probe', async () => {
+    const user = userEvent.setup()
+    const engine: ViewerPort = {
+      loadModel: vi.fn(async (_files, root) => ({ name: root.name, meshCount: 1, animationClips: [] })),
+      fitModel: vi.fn(),
+      compileShader: vi.fn(async () => ({ status: 'valid' as const, generation: 1 })),
+      updateParameter: vi.fn(),
+      capturePortrait: vi.fn(async () => ({
+        kind: 'captured' as const, blob: new Blob(), mimeType: 'image/png' as const, width: 1, height: 1,
+      })),
+      selectAnimation: vi.fn(),
+      setAnimationPlaying: vi.fn(),
+      dispose: vi.fn(),
+    }
+    const createViewer = vi.fn(() => engine)
+
+    const result = render(
+      <StrictMode><App createViewer={createViewer} /></StrictMode>,
+    )
+    await screen.findByText(/create a shader or duplicate a built-in/i)
+    await user.click(screen.getByRole('button', { name: 'Create shader' }))
+
+    expect(await screen.findByRole('button', { name: 'Untitled shader' })).toHaveAttribute('aria-current', 'true')
+    expect(createViewer).toHaveBeenCalledOnce()
+    expect(engine.dispose).not.toHaveBeenCalled()
+
+    result.unmount()
+    await vi.waitFor(() => expect(engine.dispose).toHaveBeenCalledOnce())
   })
 })
