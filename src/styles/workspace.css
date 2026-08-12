@@ -1,0 +1,121 @@
+.workspace-shell {
+  display: grid;
+  grid-template-columns:
+    var(--left-panel-width)
+    0.5rem
+    minmax(20rem, 1fr)
+    0.5rem
+    var(--right-panel-width);
+  height: 100vh;
+  min-height: 32rem;
+  overflow: hidden;
+}
+
+.workspace-panel {
+  background: var(--color-neutral-50);
+  min-width: 0;
+  overflow: auto;
+  padding: var(--space-3);
+}
+
+.workspace-panel[hidden] {
+  display: none;
+}
+
+.workspace-library {
+  border-right: 1px solid var(--color-neutral-200);
+}
+
+.workspace-editor {
+  border-left: 1px solid var(--color-neutral-200);
+}
+
+.workspace-viewer {
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.panel-divider {
+  background: var(--color-neutral-0);
+  position: relative;
+  z-index: 2;
+}
+
+.panel-resizer {
+  cursor: col-resize;
+  inset: 0;
+  position: absolute;
+}
+
+.panel-resizer::before {
+  background: transparent;
+  content: '';
+  inset: 0 0 0 50%;
+  position: absolute;
+  width: 1px;
+}
+
+.panel-resizer:hover::before,
+.panel-resizer:focus-visible::before {
+  background: var(--color-accent);
+}
+
+.panel-resizer[aria-disabled='true'] {
+  cursor: default;
+}
+
+.panel-collapse-button {
+  align-items: center;
+  background: var(--color-neutral-100);
+  border: 1px solid var(--color-neutral-300);
+  border-radius: 0.25rem;
+  color: var(--color-neutral-700);
+  display: flex;
+  height: 2.25rem;
+  justify-content: center;
+  left: 50%;
+  padding: 0;
+  position: absolute;
+  top: var(--space-3);
+  transform: translateX(-50%);
+  width: 1rem;
+  z-index: 1;
+}
+
+.editor-summary h2 {
+  font-size: var(--font-size-lg);
+  margin: 0;
+}
+
+.editor-summary dl {
+  border-top: 1px solid var(--color-neutral-200);
+  margin: var(--space-3) 0 0;
+}
+
+.editor-summary dl div {
+  display: grid;
+  font-size: var(--font-size-xs);
+  gap: var(--space-2);
+  grid-template-columns: 4rem minmax(0, 1fr);
+  padding: var(--space-2) 0;
+}
+
+.editor-summary dt {
+  color: var(--color-neutral-500);
+}
+
+.editor-summary dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.panel-crash {
+  border: 1px solid var(--color-error);
+  border-radius: 0.35rem;
+  color: var(--color-error);
+  display: grid;
+  font-size: var(--font-size-sm);
+  gap: var(--space-1);
+  padding: var(--space-3);
+}
