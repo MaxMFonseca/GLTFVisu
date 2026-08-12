@@ -134,15 +134,17 @@ describe('IndexedDbShaderRepository', () => {
     repository.close()
   })
 
-  it('wraps a synchronous transaction setup exception in StorageError', async () => {
+  it('reopens storage for commands issued after close', async () => {
     const repository = createRepository()
-    await repository.save(createShader())
+    await repository.save(createShader({ id: 'before-close' }))
     repository.close()
 
-    await expect(repository.save(createShader())).rejects.toMatchObject({
-      name: 'StorageError',
-      message: 'save shader: IndexedDB transaction setup failed',
-    } satisfies Partial<StorageError>)
+    await repository.save(createShader({ id: 'after-close', name: 'Reopened' }))
+
+    await expect(repository.list()).resolves.toEqual([
+      createShader({ id: 'after-close', name: 'Reopened' }),
+      createShader({ id: 'before-close' }),
+    ])
   })
 
   it('preserves a captured Blob portrait', async () => {

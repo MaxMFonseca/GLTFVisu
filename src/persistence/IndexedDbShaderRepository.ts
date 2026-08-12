@@ -31,6 +31,7 @@ function compareShaders(left: ShaderDefinition, right: ShaderDefinition): number
 export class IndexedDbShaderRepository implements ShaderRepository {
   private database?: IDBDatabase
   private opening?: Promise<IDBDatabase>
+  private openGeneration = 0
 
   constructor(private readonly databaseName = DEFAULT_DATABASE_NAME) {}
 
@@ -54,24 +55,27 @@ export class IndexedDbShaderRepository implements ShaderRepository {
   }
 
   close(): void {
+    this.openGeneration += 1
     this.database?.close()
     this.database = undefined
-    void this.opening?.then((database) => {
-      database.close()
-      if (this.database === database) this.database = undefined
-    }).catch(() => undefined)
+    this.opening = undefined
   }
 
   private async getDatabase(): Promise<IDBDatabase> {
     if (this.database !== undefined) return this.database
     if (this.opening === undefined) {
+      const generation = this.openGeneration
       this.opening = openShaderDatabase(this.databaseName)
         .then((database) => {
+          if (generation !== this.openGeneration) {
+            database.close()
+            return database
+          }
           this.database = database
           return database
         })
         .catch((error: unknown) => {
-          this.opening = undefined
+          if (generation === this.openGeneration) this.opening = undefined
           throw error
         })
     }
