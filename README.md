@@ -6,7 +6,7 @@ All model files, shader drafts, parameter values, and captured portraits stay in
 
 ## Requirements
 
-- Node.js 20 or later
+- Node.js 20.19+ or 22.12+
 - npm 10 or later
 - A current browser with WebGL2 and IndexedDB enabled
 
