@@ -6,6 +6,7 @@ import './styles/global.css'
 import './styles/library.css'
 import './styles/viewer.css'
 import './styles/workspace.css'
+import './styles/editor.css'
 
 const rootElement = document.getElementById('root')
 

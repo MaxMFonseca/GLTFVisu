@@ -1,0 +1,126 @@
+.shader-editor-panel {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.editor-heading {
+  align-items: start;
+  display: flex;
+  justify-content: space-between;
+}
+
+.editor-heading h2 {
+  font-size: var(--font-size-lg);
+  margin: 0;
+}
+
+.dirty-state {
+  color: var(--color-neutral-500);
+  font-size: var(--font-size-xs);
+  padding-top: var(--space-1);
+}
+
+.editor-field {
+  display: grid;
+  font-size: var(--font-size-xs);
+  gap: var(--space-1);
+}
+
+.editor-field input,
+.shader-editor-fallback {
+  background: var(--color-neutral-0);
+  border: 1px solid var(--color-neutral-300);
+  border-radius: 0.25rem;
+  color: var(--color-neutral-900);
+}
+
+.editor-field input {
+  min-width: 0;
+  padding: var(--space-2);
+}
+
+.editor-field input[aria-invalid='true'] {
+  border-color: var(--color-error);
+}
+
+.editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.editor-actions button,
+.compile-diagnostics button {
+  background: var(--color-neutral-100);
+  border: 1px solid var(--color-neutral-300);
+  border-radius: 0.25rem;
+  color: var(--color-neutral-700);
+  font-size: var(--font-size-xs);
+  padding: var(--space-1) var(--space-2);
+}
+
+.editor-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.shader-source-editor {
+  border: 1px solid var(--color-neutral-300);
+  min-height: 18rem;
+}
+
+.shader-editor-fallback {
+  border: 0;
+  display: block;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  height: 18rem;
+  padding: var(--space-3);
+  resize: vertical;
+  width: 100%;
+}
+
+.compile-status > p {
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.compile-valid > p { color: var(--color-success); }
+.compile-error > p,
+.compile-schema-invalid > p { color: var(--color-error); }
+.compile-idle > p,
+.compile-pending > p { color: var(--color-warning); }
+
+.compile-diagnostics {
+  display: grid;
+  gap: var(--space-1);
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+}
+
+.compile-diagnostics button {
+  color: var(--color-error);
+  text-align: left;
+  width: 100%;
+}
+
+.shader-contract-help {
+  border-top: 1px solid var(--color-neutral-200);
+  font-size: var(--font-size-xs);
+  padding-top: var(--space-2);
+}
+
+.shader-contract-help summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.shader-contract-help pre {
+  background: var(--color-neutral-0);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: 0.25rem;
+  color: var(--color-neutral-700);
+  overflow: auto;
+  padding: var(--space-2);
+}

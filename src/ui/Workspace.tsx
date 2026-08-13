@@ -1,10 +1,10 @@
 import { useState, type CSSProperties } from 'react'
-import { useWorkspace } from '../application/WorkspaceController'
 import { ErrorBoundary } from './common/ErrorBoundary'
 import { PanelResizer } from './common/PanelResizer'
 import { ModelLoader } from './library/ModelLoader'
 import { ShaderLibrary } from './library/ShaderLibrary'
 import { ViewerHost, type ViewerMountFactory } from './viewer/ViewerHost'
+import { ShaderEditorPanel, type ShaderSourceEditor } from './editor/ShaderEditorPanel'
 
 const LEFT_MIN = 208
 const LEFT_MAX = 420
@@ -18,25 +18,10 @@ interface WorkspaceStyle extends CSSProperties {
 
 export interface WorkspaceProps {
   mountViewer?: ViewerMountFactory
+  SourceEditor?: ShaderSourceEditor
 }
 
-function EditorSummary() {
-  const { state } = useWorkspace()
-  return (
-    <section className="editor-summary" aria-labelledby="editor-heading">
-      <p className="panel-kicker">Workspace</p>
-      <h2 id="editor-heading">Editor</h2>
-      <dl>
-        <div><dt>Shader</dt><dd>{state.draft.name}</dd></div>
-        <div><dt>Origin</dt><dd>{state.draft.origin === 'builtin' ? 'Built-in · read only' : 'Local'}</dd></div>
-        <div><dt>Compile</dt><dd>{state.compile.status}</dd></div>
-      </dl>
-      <p className="panel-message">Source and parameter editing are available in the editor panel.</p>
-    </section>
-  )
-}
-
-export function Workspace({ mountViewer }: WorkspaceProps) {
+export function Workspace({ mountViewer, SourceEditor }: WorkspaceProps) {
   const [leftWidth, setLeftWidth] = useState(260)
   const [rightWidth, setRightWidth] = useState(420)
   const [leftCollapsed, setLeftCollapsed] = useState(false)
@@ -82,7 +67,7 @@ export function Workspace({ mountViewer }: WorkspaceProps) {
         onCollapsedChange={setRightCollapsed}
       />
       <aside id="shader-editor-panel" className="workspace-panel workspace-editor" aria-label="Shader editor panel" hidden={rightCollapsed}>
-        <ErrorBoundary panelName="Editor"><EditorSummary /></ErrorBoundary>
+        <ErrorBoundary panelName="Editor"><ShaderEditorPanel SourceEditor={SourceEditor} /></ErrorBoundary>
       </aside>
     </div>
   )

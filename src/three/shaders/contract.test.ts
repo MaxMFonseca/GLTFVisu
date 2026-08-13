@@ -1,7 +1,7 @@
 import { Color, GLSL3, ShaderMaterial, Vector2, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
 import type { ShaderParameterDefinition } from '../../domain/parameters'
-import { buildFragmentShader } from './contract'
+import { buildFragmentShader, SHADER_CONTRACT } from './contract'
 import { parseShaderDiagnostics } from './diagnostics'
 import * as materialFactory from './materialFactory'
 import { VERTEX_SHADER } from './vertexShader'
@@ -14,6 +14,26 @@ const definitions: ShaderParameterDefinition[] = [
 ]
 
 describe('buildFragmentShader', () => {
+  it('exports the readonly declarations used to assemble the shader contract', () => {
+    expect(SHADER_CONTRACT).toEqual({
+      preamble: [
+        'precision highp float;',
+        'precision highp int;',
+        '',
+        'in vec2 vUv;',
+        'in vec3 vWorldPosition;',
+        'in vec3 vWorldNormal;',
+        '',
+        'uniform float uTime;',
+        'uniform vec2 uResolution;',
+        'uniform vec3 uCameraPosition;',
+      ],
+      output: 'out vec4 outColor;',
+    })
+    expect(Object.isFrozen(SHADER_CONTRACT)).toBe(true)
+    expect(Object.isFrozen(SHADER_CONTRACT.preamble)).toBe(true)
+  })
+
   it('declares the stable contract once and appends the editable program body unchanged', () => {
     const body = `void main() {
   outColor = vec4(vUv, uTime, 1.0);
