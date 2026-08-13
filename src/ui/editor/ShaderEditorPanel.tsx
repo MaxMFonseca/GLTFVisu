@@ -5,6 +5,8 @@ import { useWorkspace } from '../../application/WorkspaceController'
 import { CompileStatus } from './CompileStatus'
 import { MonacoShaderEditor } from './MonacoShaderEditor'
 import { ShaderContractHelp } from './ShaderContractHelp'
+import { ParameterBuilder } from '../parameters/ParameterBuilder'
+import { ParameterControls } from '../parameters/ParameterControls'
 
 export interface ShaderSourceEditorHandle {
   focusLine(line: number): void
@@ -83,6 +85,8 @@ export function ShaderEditorPanel({ SourceEditor = MonacoShaderEditor }: ShaderE
       </div>
       <CompileStatus compile={state.compile} editorRef={editorRef} />
       <ShaderContractHelp />
+      <ParameterBuilder />
+      <ParameterControls />
     </section>
   )
 }

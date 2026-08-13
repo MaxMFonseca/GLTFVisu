@@ -1,0 +1,137 @@
+.parameter-builder,
+.parameter-controls {
+  border-top: 1px solid var(--color-neutral-200);
+  display: grid;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+}
+
+.parameter-builder h3,
+.parameter-controls h3 {
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.parameter-section-heading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.parameter-section-heading button,
+.parameter-row-actions button {
+  background: var(--color-neutral-100);
+  border: 1px solid var(--color-neutral-300);
+  border-radius: 0.25rem;
+  color: var(--color-neutral-700);
+  font-size: var(--font-size-xs);
+  padding: var(--space-1) var(--space-2);
+}
+
+.parameter-definition-row {
+  border: 1px solid var(--color-neutral-300);
+  border-radius: 0.35rem;
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  min-width: 0;
+  padding: var(--space-2);
+}
+
+.parameter-definition-row legend {
+  color: var(--color-neutral-700);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  padding: 0 var(--space-1);
+}
+
+.parameter-definition-row > label,
+.numeric-definition-grid label {
+  display: grid;
+  font-size: var(--font-size-xs);
+  gap: var(--space-1);
+}
+
+.parameter-definition-row input,
+.parameter-definition-row select,
+.parameter-control input[type='number'],
+.parameter-control input[type='text'] {
+  background: var(--color-neutral-0);
+  border: 1px solid var(--color-neutral-300);
+  border-radius: 0.25rem;
+  color: var(--color-neutral-900);
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  width: 100%;
+}
+
+.parameter-definition-row [aria-invalid='true'] {
+  border-color: var(--color-error);
+}
+
+.parameter-row-actions {
+  display: flex;
+  gap: var(--space-1);
+  justify-content: flex-end;
+}
+
+.parameter-row-actions button:disabled,
+.parameter-section-heading button:disabled {
+  opacity: 0.45;
+}
+
+.numeric-definition-grid {
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.checkbox-field {
+  align-items: center;
+  display: flex !important;
+}
+
+.parameter-errors {
+  color: var(--color-error);
+  font-size: var(--font-size-xs);
+  margin: 0;
+  padding-left: var(--space-4);
+}
+
+.parameter-control {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.parameter-control p {
+  color: var(--color-neutral-700);
+  font-size: var(--font-size-xs);
+  margin: 0;
+}
+
+.parameter-control-pair {
+  align-items: center;
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: minmax(0, 1fr) 5.5rem;
+}
+
+.parameter-control input[type='range'] {
+  accent-color: var(--color-accent);
+  width: 100%;
+}
+
+.parameter-control input[type='color'] {
+  background: var(--color-neutral-0);
+  border: 1px solid var(--color-neutral-300);
+  border-radius: 0.25rem;
+  height: 2rem;
+  width: 100%;
+}
+
+.checkbox-control label {
+  align-items: center;
+  display: flex;
+  font-size: var(--font-size-sm);
+  gap: var(--space-2);
+}
