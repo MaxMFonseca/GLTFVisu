@@ -255,7 +255,7 @@ describe('shader workspace acceptance', () => {
 
     const model = new File(['glb'], 'robot.glb', { type: 'model/gltf-binary' })
     await user.upload(within(libraryPanel()).getByLabelText('Choose model files'), model)
-    await within(libraryPanel()).findByText('robot.glb · 2 meshes')
+    await within(libraryPanel()).findByText('robot.glb · 2 renderables')
     const savesBeforeCapture = vi.mocked(repository.save).mock.calls.length
     await user.click(within(editorPanel()).getByRole('button', { name: 'Capture portrait' }))
     expect(await within(libraryPanel()).findByRole('img', { name: 'Studio / Glow preview' })).toHaveAttribute('src', 'blob:portrait-1')
@@ -390,7 +390,7 @@ describe('shader workspace acceptance', () => {
     await user.click(screen.getByRole('button', { name: 'Dismiss workspace notices' }))
     viewer.failModel = false
     await user.upload(within(libraryPanel()).getByLabelText('Choose model files'), new File(['good'], 'good.glb'))
-    await within(libraryPanel()).findByText('good.glb · 2 meshes')
+    await within(libraryPanel()).findByText('good.glb · 2 renderables')
 
     viewer.failCapture = true
     await user.click(within(editorPanel()).getByRole('button', { name: 'Capture portrait' }))
