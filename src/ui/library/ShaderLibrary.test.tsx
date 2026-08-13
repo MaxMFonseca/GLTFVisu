@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceProvider } from '../../application/WorkspaceController'
@@ -96,6 +96,65 @@ describe('ShaderLibrary', () => {
 
     await waitFor(() => expect(shaderRepository.delete).toHaveBeenCalledWith('created-2'))
     expect(screen.queryByRole('button', { name: 'Untitled shader copy' })).not.toBeInTheDocument()
+  })
+
+  it('confirms the captured shader identity even if selection changes underneath it', async () => {
+    const user = userEvent.setup()
+    const first = localShader()
+    const second = localShader({ id: 'local-two', name: 'Local two' })
+    const { shaderRepository } = renderLibrary([first, second])
+    const firstCard = await screen.findByRole('button', { name: 'Local one' })
+    const secondCard = screen.getByRole('button', { name: 'Local two' })
+    await user.click(firstCard)
+    await user.click(screen.getByRole('button', { name: 'Delete shader' }))
+
+    fireEvent.click(secondCard)
+    expect(screen.getByRole('alertdialog', { name: 'Delete Local one?' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Confirm delete' }))
+
+    await waitFor(() => expect(shaderRepository.delete).toHaveBeenCalledWith('local-one'))
+    expect(shaderRepository.delete).not.toHaveBeenCalledWith('local-two')
+  })
+
+  it('gates the background, traps focus, closes on Escape, and restores focus', async () => {
+    const user = userEvent.setup()
+    renderLibrary([localShader()])
+    await user.click(await screen.findByRole('button', { name: 'Local one' }))
+    const background = screen.getByLabelText('Shader library')
+    const deleteButton = screen.getByRole('button', { name: 'Delete shader' })
+
+    await user.click(deleteButton)
+
+    const dialog = screen.getByRole('alertdialog', { name: 'Delete Local one?' })
+    const cancel = screen.getByRole('button', { name: 'Cancel' })
+    const confirm = screen.getByRole('button', { name: 'Confirm delete' })
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
+    expect(background).toHaveAttribute('aria-hidden', 'true')
+    expect(background).toHaveProperty('inert', true)
+    expect(cancel).toHaveFocus()
+
+    await user.tab()
+    expect(confirm).toHaveFocus()
+    await user.tab()
+    expect(cancel).toHaveFocus()
+    await user.keyboard('{Escape}')
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(background).not.toHaveAttribute('aria-hidden')
+    expect(background).toHaveProperty('inert', false)
+    expect(deleteButton).toHaveFocus()
+  })
+
+  it('renders command failures and dismisses them through workspace state', async () => {
+    const user = userEvent.setup()
+    const { shaderRepository } = renderLibrary()
+    vi.mocked(shaderRepository.save).mockRejectedValueOnce(new Error('Storage quota exceeded'))
+
+    await user.click(screen.getByRole('button', { name: 'Create shader' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Storage quota exceeded')
+    await user.click(screen.getByRole('button', { name: 'Dismiss notices' }))
+    expect(screen.queryByText('Storage quota exceeded')).not.toBeInTheDocument()
   })
 
   it('marks a selected local card and gives missing portraits a dedicated placeholder', async () => {
