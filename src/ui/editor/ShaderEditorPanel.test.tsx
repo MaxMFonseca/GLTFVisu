@@ -150,12 +150,36 @@ describe('ShaderEditorPanel', () => {
     await user.type(screen.getByRole('textbox', { name: 'Fragment shader source' }), 'updated shader source')
 
     expect(repo.save).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Save shader' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Compile' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save shader' })).toBeEnabled())
     await user.click(screen.getByRole('button', { name: 'Save shader' }))
     await waitFor(() => expect(repo.save).toHaveBeenCalledWith(expect.objectContaining({
       name: 'Edited shader',
       fragmentSource: 'updated shader source',
     })))
     expect(screen.getByText('Saved')).toBeVisible()
+  })
+
+  it('disables Save until the dirty draft has compiled successfully', async () => {
+    const user = userEvent.setup()
+    const compile = deferred<CompileResult>()
+    const repo = repository()
+    renderPanel({ repository: repo, viewer: viewer(compile.promise) })
+
+    await user.type(screen.getByRole('textbox', { name: 'Shader name' }), ' edited')
+    expect(await screen.findByText('Compiling')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Save shader' })).toBeDisabled()
+
+    compile.resolve({
+      status: 'error',
+      generation: 1,
+      diagnostics: [{ severity: 'error', message: 'Compile failed', raw: 'Compile failed' }],
+    })
+
+    expect(await screen.findByText('Error')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Save shader' })).toBeDisabled()
+    expect(repo.save).not.toHaveBeenCalled()
   })
 
   it('renders textual compile states, diagnostics that focus a line, and canonical contract help', async () => {

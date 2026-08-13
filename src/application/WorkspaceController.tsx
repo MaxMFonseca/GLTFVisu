@@ -328,7 +328,7 @@ export function WorkspaceProvider({
     },
     async save() {
       const current = stateRef.current.draft
-      if (current.origin === 'builtin') return
+      if (current.origin === 'builtin' || stateRef.current.compile.status !== 'valid') return
       const errors = validateParameterDefinitions(current.parameters)
       if (errors.length > 0) {
         cancelScheduledCompile()
