@@ -13,6 +13,7 @@ export interface ShaderSourceEditorHandle {
 }
 
 export interface ShaderSourceEditorProps {
+  shaderId: string
   value: string
   readOnly: boolean
   diagnostics: readonly CompileDiagnostic[]
@@ -78,6 +79,7 @@ export function ShaderEditorPanel({ SourceEditor = MonacoShaderEditor }: ShaderE
       <div className="shader-source-editor">
         <SourceEditor
           ref={editorRef}
+          shaderId={state.selectedId}
           value={state.draft.fragmentSource}
           readOnly={readOnly}
           diagnostics={state.compile.diagnostics}
