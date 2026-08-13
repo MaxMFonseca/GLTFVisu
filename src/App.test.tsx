@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { StrictMode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -60,6 +60,11 @@ describe('shader workspace shell', () => {
       <StrictMode><App createViewer={createViewer} /></StrictMode>,
     )
     await screen.findByText(/create a shader or duplicate a built-in/i)
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 0))
+      await new Promise((resolve) => window.setTimeout(resolve, 0))
+    })
+    expect(screen.queryByText(/indexeddb transaction setup failed/i)).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Create shader' }))
 
     expect(await screen.findByRole('button', { name: 'Untitled shader' })).toHaveAttribute('aria-current', 'true')

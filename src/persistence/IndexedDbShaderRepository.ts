@@ -62,24 +62,29 @@ export class IndexedDbShaderRepository implements ShaderRepository {
   }
 
   private async getDatabase(): Promise<IDBDatabase> {
-    if (this.database !== undefined) return this.database
-    if (this.opening === undefined) {
+    for (;;) {
+      if (this.database !== undefined) return this.database
       const generation = this.openGeneration
-      this.opening = openShaderDatabase(this.databaseName)
-        .then((database) => {
-          if (generation !== this.openGeneration) {
-            database.close()
-            return database
-          }
-          this.database = database
-          return database
-        })
-        .catch((error: unknown) => {
-          if (generation === this.openGeneration) this.opening = undefined
-          throw error
-        })
+      let opening = this.opening
+      if (opening === undefined) {
+        opening = openShaderDatabase(this.databaseName)
+        this.opening = opening
+      }
+      let database: IDBDatabase
+      try {
+        database = await opening
+      } catch (error) {
+        if (generation !== this.openGeneration || this.opening !== opening) continue
+        this.opening = undefined
+        throw error
+      }
+      if (generation !== this.openGeneration || this.opening !== opening) {
+        database.close()
+        continue
+      }
+      this.database = database
+      return database
     }
-    return this.opening
   }
 
   private async runRequest<T>(
