@@ -150,7 +150,11 @@ describe('ShaderCompiler', () => {
     await compiler.compile(draft('working'))
 
     expect(() => compiler.updateParameter(threshold, 0.8)).not.toThrow()
-    const nextDraft = { ...draft('with threshold'), parameters: [gain, threshold] }
+    const nextDraft = {
+      ...draft('working'),
+      fragmentSource: 'with threshold',
+      parameters: [gain, threshold],
+    }
     await compiler.compile(nextDraft)
 
     expect(compiler.material?.uniforms.uThreshold.value).toBe(0.8)
@@ -173,12 +177,30 @@ describe('ShaderCompiler', () => {
     })
     await compiler.compile(draft('working'))
     const renamed = { ...gain, uniformName: 'uRenamedGain' }
-    await compiler.compile({ ...draft('broken'), parameters: [renamed] })
+    await compiler.compile({
+      ...draft('working'),
+      fragmentSource: 'broken',
+      parameters: [renamed],
+    })
 
     expect(() => compiler.updateParameter(renamed, 1.6)).not.toThrow()
-    await compiler.compile({ ...draft('recovered'), parameters: [renamed] })
+    await compiler.compile({
+      ...draft('working'),
+      fragmentSource: 'recovered',
+      parameters: [renamed],
+    })
 
     expect(compiler.material?.uniforms.uRenamedGain.value).toBe(1.6)
+  })
+
+  it('does not carry parameter edits into a different shader with the same uniform name', async () => {
+    const compiler = new ShaderCompiler(unusedRenderer, { validate: async () => [] })
+    await compiler.compile(draft('shader-a'))
+    compiler.updateParameter(gain, 1.75)
+
+    await compiler.compile({ ...draft('shader-b'), parameterValues: { gain: 0.25 } })
+
+    expect(compiler.material?.uniforms.uGain.value).toBe(0.25)
   })
 
   it('captures renderer shader errors and maps user-source lines', async () => {

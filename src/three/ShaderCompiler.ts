@@ -46,6 +46,7 @@ export class ShaderCompiler {
   private disposed = false
   private activeMaterial?: ShaderMaterial
   private readonly pendingMaterials = new Set<ShaderMaterial>()
+  private draftId?: string
   private readonly draftParameterValues = new Map<string, {
     definition: ShaderParameterDefinition
     value: ShaderParameterValue
@@ -86,6 +87,10 @@ export class ShaderCompiler {
 
   async compile(draft: ShaderDraft, prepareRuntime?: RuntimeMaterialPreparer): Promise<CompileResult> {
     const generation = ++this.generation
+    if (draft.id !== this.draftId) {
+      this.draftId = draft.id
+      this.draftParameterValues.clear()
+    }
     let candidate: ShaderMaterial
     try {
       candidate = this.createMaterial(draft.fragmentSource, draft.parameters, draft.parameterValues)
@@ -162,6 +167,7 @@ export class ShaderCompiler {
     this.generation += 1
     this.activeMaterial?.dispose()
     this.activeMaterial = undefined
+    this.draftId = undefined
     this.draftParameterValues.clear()
   }
 }
