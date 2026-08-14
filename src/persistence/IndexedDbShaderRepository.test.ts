@@ -211,10 +211,13 @@ describe('IndexedDbShaderRepository', () => {
 
   it('migrates a raw v1 record when it is read', async () => {
     const name = `shader-repository-${databaseNumber++}`
-    await writeRawV1Record(name, {
-      ...createShader(),
+    const { materialInputProfile: _materialInputProfile, ...storedV1 } = createShader({
       parameters: [{ id: 'tint', type: 'color', uniformName: 'uTint', label: 'Tint', defaultValue: '#AABBCC' }],
       parameterValues: { tint: '#DDEEFF' },
+    })
+    await writeRawV1Record(name, {
+      ...storedV1,
+      schemaVersion: 1,
     })
     const repository = createRepository(name)
 
