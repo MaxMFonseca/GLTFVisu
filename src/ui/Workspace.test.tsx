@@ -6,6 +6,8 @@ import type { ShaderRepository } from '../application/ShaderRepository'
 import type { ViewerPort } from '../application/ViewerPort'
 import { ErrorBoundary } from './common/ErrorBoundary'
 import { Workspace } from './Workspace'
+import '../styles/global.css'
+import '../styles/workspace.css'
 
 afterEach(() => {
   cleanup()
@@ -56,6 +58,20 @@ function viewer(): ViewerPort {
 }
 
 describe('Workspace', () => {
+  it('keeps the document shell from exceeding a short viewport', () => {
+    useViewportWidth(1025)
+    const { container } = render(
+      <WorkspaceProvider repository={repository()} viewer={viewer()}>
+        <Workspace mountViewer={() => ({ dispose: vi.fn() })} />
+      </WorkspaceProvider>,
+    )
+
+    const workspace = container.querySelector('.workspace-root')
+    expect(getComputedStyle(document.body).overflow).toBe('hidden')
+    expect(workspace).not.toBeNull()
+    expect(getComputedStyle(workspace as Element).minHeight).toBe('0')
+  })
+
   it.each([
     [1000, 'narrow', true],
     [1025, 'desktop', false],

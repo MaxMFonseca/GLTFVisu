@@ -2,7 +2,8 @@
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   height: 100vh;
-  min-height: 32rem;
+  height: 100dvh;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -190,7 +191,7 @@
 
 .workspace-root[data-layout='narrow'] {
   grid-template-rows: auto minmax(0, 1fr);
-  min-height: 24rem;
+  min-height: 0;
 }
 
 .workspace-shell[data-layout='narrow'] {
