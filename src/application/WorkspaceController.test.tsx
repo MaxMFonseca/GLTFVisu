@@ -462,6 +462,7 @@ describe('WorkspaceProvider', () => {
     expect(repository.save).toHaveBeenCalledWith(expect.objectContaining({
       id: 'fresh-id', origin: 'local', name: 'Normal copy', createdAt: 100, updatedAt: 100,
     }))
+    expect(workspace.current().state.draft.portrait).toBeUndefined()
     expect(workspace.current().state.selectedId).toBe('fresh-id')
   })
 

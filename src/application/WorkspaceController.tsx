@@ -155,7 +155,7 @@ function createLocal(id: string, timestamp: number): ShaderDefinition {
 }
 
 function duplicateLocal(shader: ShaderDefinition, id: string, timestamp: number): ShaderDefinition {
-  return {
+  const duplicate: ShaderDefinition = {
     ...cloneShader(shader),
     id,
     name: `${shader.name} copy`,
@@ -163,6 +163,8 @@ function duplicateLocal(shader: ShaderDefinition, id: string, timestamp: number)
     createdAt: timestamp,
     updatedAt: timestamp,
   }
+  if (duplicate.portrait?.kind === 'bundled') delete duplicate.portrait
+  return duplicate
 }
 
 export function WorkspaceProvider({
