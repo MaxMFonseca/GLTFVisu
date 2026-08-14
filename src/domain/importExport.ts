@@ -1,10 +1,11 @@
 import type { ShaderParameterDefinition, ShaderParameterValue } from './parameters'
-import type { ShaderDefinition, ShaderPortrait } from './shader'
+import { parseMaterialInputProfile, type MaterialInputProfile } from './materialInput'
+import { SHADER_SCHEMA_VERSION, type ShaderDefinition, type ShaderPortrait } from './shader'
 import { validateParameterDefinitions } from './uniformValidation'
 
 export const SHADER_PACKAGE_FORMAT = 'gltf-shader-visualizer'
 
-const PACKAGE_VERSION = 1
+const PACKAGE_VERSION = 2
 const PORTRAIT_MIME_TYPES = ['image/png', 'image/webp', 'image/jpeg'] as const
 
 type PortablePortrait = {
@@ -17,6 +18,7 @@ type PortablePortrait = {
 type PortableShader = {
   name: string
   fragmentSource: string
+  materialInputProfile: MaterialInputProfile
   parameters: ShaderParameterDefinition[]
   parameterValues: Record<string, ShaderParameterValue>
   portrait?: ShaderPortrait
@@ -167,13 +169,20 @@ function readPortablePortrait(value: unknown): ShaderPortrait {
   return { kind: 'captured', blob: dataUrlToBlob(dataUrl, mimeType), mimeType, width, height }
 }
 
-function readPortableShader(value: unknown): PortableShader {
+function readPortableShader(value: unknown, version: 1 | typeof PACKAGE_VERSION): PortableShader {
   const shader = readRecord(value, 'Invalid shader package')
-  assertExactKeys(shader, ['name', 'fragmentSource', 'parameters', 'parameterValues', 'portrait'], 'Invalid shader package')
+  assertExactKeys(
+    shader,
+    version === 1
+      ? ['name', 'fragmentSource', 'parameters', 'parameterValues', 'portrait']
+      : ['name', 'fragmentSource', 'materialInputProfile', 'parameters', 'parameterValues', 'portrait'],
+    'Invalid shader package',
+  )
   const parameters = readParameters(shader.parameters)
   return {
     name: readString(shader.name, 'Invalid shader package'),
     fragmentSource: readString(shader.fragmentSource, 'Invalid shader package'),
+    materialInputProfile: version === 1 ? 'none' : parseMaterialInputProfile(shader.materialInputProfile),
     parameters,
     parameterValues: readParameterValues(shader.parameterValues, parameters),
     ...(shader.portrait === undefined ? {} : { portrait: readPortablePortrait(shader.portrait) }),
@@ -212,6 +221,7 @@ export async function serializeShader(shader: ShaderDefinition): Promise<string>
     shader: {
       name: shader.name,
       fragmentSource: shader.fragmentSource,
+      materialInputProfile: shader.materialInputProfile,
       parameters: shader.parameters,
       parameterValues: shader.parameterValues,
       ...(portrait === undefined ? {} : { portrait }),
@@ -236,21 +246,23 @@ export function parseShaderPackage(
   if (readString(envelope.format, 'Unsupported shader package format') !== SHADER_PACKAGE_FORMAT) {
     throw new Error('Unsupported shader package format')
   }
-  if (readNumber(envelope.version, 'Unsupported shader package version') !== PACKAGE_VERSION) {
+  const packageVersion = readNumber(envelope.version, 'Unsupported shader package version')
+  if (packageVersion !== 1 && packageVersion !== PACKAGE_VERSION) {
     throw new Error('Unsupported shader package version')
   }
 
-  const shader = readPortableShader(envelope.shader)
+  const shader = readPortableShader(envelope.shader, packageVersion)
   return {
     id: idFactory(),
     name: shader.name,
     fragmentSource: shader.fragmentSource,
     origin: 'local',
+    materialInputProfile: shader.materialInputProfile,
     ...(shader.portrait === undefined ? {} : { portrait: shader.portrait }),
     parameters: shader.parameters,
     parameterValues: shader.parameterValues,
     createdAt: now,
     updatedAt: now,
-    schemaVersion: 1,
+    schemaVersion: SHADER_SCHEMA_VERSION,
   }
 }

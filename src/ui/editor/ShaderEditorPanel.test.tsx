@@ -22,7 +22,8 @@ function localShader(): ShaderDefinition {
     parameterValues: {},
     createdAt: 1,
     updatedAt: 1,
-    schemaVersion: 1,
+    schemaVersion: 2,
+    materialInputProfile: 'none',
   }
 }
 

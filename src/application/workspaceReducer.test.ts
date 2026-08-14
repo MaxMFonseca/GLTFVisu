@@ -19,7 +19,8 @@ function localShader(overrides: Partial<ShaderDefinition> = {}): ShaderDefinitio
     parameterValues: { gain: 1 },
     createdAt: 10,
     updatedAt: 10,
-    schemaVersion: 1,
+    schemaVersion: 2,
+    materialInputProfile: 'none',
     ...overrides,
   }
 }

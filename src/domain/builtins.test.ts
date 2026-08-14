@@ -9,6 +9,8 @@ describe('BUILTIN_SHADERS', () => {
 
     for (const shader of BUILTIN_SHADERS) {
       expect(shader.origin).toBe('builtin')
+      expect(shader.schemaVersion).toBe(2)
+      expect(shader.materialInputProfile).toBe('none')
       expect(shader.portrait).toMatchObject({ kind: 'bundled' })
       expect(Object.isFrozen(shader.portrait)).toBe(true)
       expect(Object.isFrozen(shader.parameters)).toBe(true)

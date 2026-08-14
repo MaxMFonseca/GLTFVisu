@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ColorParameter, FloatParameter } from './parameters'
+import { PROFILE_CONTRACT_IDENTIFIERS, parseMaterialInputProfile } from './materialInput'
 import { validateParameterDefinitions, validateUniformName } from './uniformValidation'
 
 const floatParam = (uniformName: string, overrides: Partial<FloatParameter> = {}): FloatParameter => ({
@@ -23,6 +24,18 @@ const colorParam = (defaultValue: string): ColorParameter => ({
 })
 
 describe('validateUniformName', () => {
+  it.each([
+    ['none', 'none'],
+    ['GLTF surface', 'gltf-surface'],
+    ['GLTF PBR', 'gltf-pbr'],
+  ] as const)('parses the %s material input profile', (_label, value) => {
+    expect(parseMaterialInputProfile(value)).toBe(value)
+  })
+
+  it.each([undefined, 'gltf-physical', 2])('rejects invalid material input profiles', (value) => {
+    expect(() => parseMaterialInputProfile(value)).toThrow('Invalid material input profile')
+  })
+
   it('accepts a valid GLSL identifier', () => {
     expect(validateUniformName('uRoughness', [])).toEqual({ valid: true })
   })
@@ -54,6 +67,16 @@ describe('validateUniformName', () => {
       expect(validateUniformName(uniformName, [])).toEqual({
         valid: false,
         reason: 'Reserved shader contract identifier',
+      })
+    },
+  )
+
+  it.each(PROFILE_CONTRACT_IDENTIFIERS)(
+    'rejects the application-owned profile identifier %s',
+    (uniformName) => {
+      expect(validateUniformName(uniformName, [])).toEqual({
+        valid: false,
+        reason: 'Reserved profile contract identifier',
       })
     },
   )

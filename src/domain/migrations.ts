@@ -1,5 +1,6 @@
 import { normalizeParameterValue, type ShaderParameterDefinition, type ShaderParameterValue } from './parameters'
-import type { ShaderDefinition, ShaderOrigin, ShaderPortrait } from './shader'
+import { parseMaterialInputProfile } from './materialInput'
+import { SHADER_SCHEMA_VERSION, type ShaderDefinition, type ShaderOrigin, type ShaderPortrait } from './shader'
 import { validateParameterDefinitions } from './uniformValidation'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -104,7 +105,8 @@ function readPortrait(value: unknown): ShaderPortrait | undefined {
 
 export function migrateStoredShader(value: unknown): ShaderDefinition {
   const stored = readRecord(value, 'Invalid stored shader')
-  if (readNumber(stored.schemaVersion, 'Unsupported stored shader version') !== 1) {
+  const storedSchemaVersion = readNumber(stored.schemaVersion, 'Unsupported stored shader version')
+  if (storedSchemaVersion !== 1 && storedSchemaVersion !== SHADER_SCHEMA_VERSION) {
     throw new Error('Unsupported stored shader version')
   }
   const origin = readString(stored.origin, 'Invalid stored shader')
@@ -116,11 +118,12 @@ export function migrateStoredShader(value: unknown): ShaderDefinition {
     name: readString(stored.name, 'Invalid stored shader'),
     fragmentSource: readString(stored.fragmentSource, 'Invalid stored shader'),
     origin: origin as ShaderOrigin,
+    materialInputProfile: storedSchemaVersion === 1 ? 'none' : parseMaterialInputProfile(stored.materialInputProfile),
     ...(stored.portrait === undefined ? {} : { portrait: readPortrait(stored.portrait) }),
     parameters,
     parameterValues: readValues(stored.parameterValues, parameters),
     ...(stored.createdAt === undefined ? {} : { createdAt: readNumber(stored.createdAt, 'Invalid stored shader') }),
     ...(stored.updatedAt === undefined ? {} : { updatedAt: readNumber(stored.updatedAt, 'Invalid stored shader') }),
-    schemaVersion: 1,
+    schemaVersion: SHADER_SCHEMA_VERSION,
   }
 }

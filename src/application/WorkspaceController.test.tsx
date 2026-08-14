@@ -25,7 +25,8 @@ function localShader(overrides: Partial<ShaderDefinition> = {}): ShaderDefinitio
     parameterValues: { gain: 1 },
     createdAt: 10,
     updatedAt: 10,
-    schemaVersion: 1,
+    schemaVersion: 2,
+    materialInputProfile: 'none',
     ...overrides,
   }
 }
@@ -486,7 +487,7 @@ describe('WorkspaceProvider', () => {
 
     expect(repository.save).toHaveBeenCalledWith(expect.objectContaining({ id: 'import-id', origin: 'local', createdAt: 75 }))
     const blob = urls.createObjectURL.mock.calls[0][0]
-    expect(JSON.parse(await readBlob(blob))).toMatchObject({ format: 'gltf-shader-visualizer', version: 1 })
+    expect(JSON.parse(await readBlob(blob))).toMatchObject({ format: 'gltf-shader-visualizer', version: 2 })
     expect(download).toHaveBeenCalledWith('blob:shader', 'Imported.shader.json')
     expect(urls.revokeObjectURL).toHaveBeenCalledWith('blob:shader')
     expect(workspace.current().state.notices.at(-1)).toEqual({ kind: 'info', scope: 'export', message: 'Exported Imported' })

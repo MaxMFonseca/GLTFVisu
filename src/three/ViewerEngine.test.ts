@@ -48,7 +48,8 @@ function shader(source = 'void main() { outColor = vec4(uGain); }'): ShaderDraft
     fragmentSource: source,
     parameters: [gain],
     parameterValues: { gain: 1 },
-    schemaVersion: 1,
+    schemaVersion: 2,
+    materialInputProfile: 'none',
   }
 }
 
