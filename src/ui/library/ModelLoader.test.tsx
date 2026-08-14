@@ -21,6 +21,7 @@ function createViewer(): ViewerPort {
   return {
     loadModel: vi.fn(async (_files, root) => ({ name: root.name, meshCount: 3, animationClips: [] })),
     fitModel: vi.fn(),
+    resize: vi.fn(),
     compileShader: vi.fn(async () => ({ status: 'valid' as const, generation: 1 })),
     updateParameter: vi.fn(),
     capturePortrait: vi.fn(async () => ({

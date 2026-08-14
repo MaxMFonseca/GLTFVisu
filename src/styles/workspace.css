@@ -1,3 +1,11 @@
+.workspace-root {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  height: 100vh;
+  min-height: 32rem;
+  overflow: hidden;
+}
+
 .workspace-shell {
   display: grid;
   grid-template-columns:
@@ -6,9 +14,69 @@
     minmax(20rem, 1fr)
     0.5rem
     var(--right-panel-width);
-  height: 100vh;
-  min-height: 32rem;
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
+}
+
+.workspace-tabs {
+  background: var(--color-neutral-50);
+  border-bottom: 1px solid var(--color-neutral-200);
+  display: grid;
+  gap: var(--space-1);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: var(--space-2);
+}
+
+.workspace-tabs button {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.3rem;
+  color: var(--color-neutral-500);
+  min-height: 2.5rem;
+  padding: var(--space-1) var(--space-2);
+}
+
+.workspace-tabs button[aria-selected='true'] {
+  background: var(--color-neutral-100);
+  border-color: var(--color-accent);
+  color: var(--color-neutral-900);
+}
+
+.workspace-status-region {
+  background: var(--color-neutral-100);
+  border: 1px solid var(--color-neutral-300);
+  border-radius: 0.35rem;
+  bottom: var(--space-3);
+  box-shadow: 0 0.35rem 1.5rem rgb(0 0 0 / 35%);
+  display: grid;
+  font-size: var(--font-size-xs);
+  gap: var(--space-1);
+  left: 50%;
+  max-width: min(32rem, calc(100% - 2rem));
+  padding: var(--space-2);
+  position: fixed;
+  transform: translateX(-50%);
+  width: max-content;
+  z-index: 90;
+}
+
+.workspace-status-region p {
+  color: var(--color-neutral-700);
+  margin: 0;
+}
+
+.workspace-status-region .workspace-status-error,
+.workspace-status-region .workspace-status-error strong {
+  color: var(--color-error);
+}
+
+.workspace-status-region button {
+  background: transparent;
+  border: 0;
+  color: var(--color-accent);
+  justify-self: end;
+  padding: var(--space-1);
 }
 
 .workspace-panel {
@@ -118,4 +186,26 @@
   font-size: var(--font-size-sm);
   gap: var(--space-1);
   padding: var(--space-3);
+}
+
+@media (max-width: 52rem) {
+  .workspace-root {
+    grid-template-rows: auto minmax(0, 1fr);
+    min-height: 24rem;
+  }
+
+  .workspace-shell[data-layout='narrow'] {
+    display: block;
+  }
+
+  .workspace-shell[data-layout='narrow'] > .workspace-panel,
+  .workspace-shell[data-layout='narrow'] > .workspace-viewer {
+    border: 0;
+    height: 100%;
+    width: 100%;
+  }
+
+  .workspace-shell[data-layout='narrow'] > .workspace-viewer {
+    min-height: 0;
+  }
 }

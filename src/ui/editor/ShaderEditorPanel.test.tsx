@@ -45,6 +45,7 @@ function viewer(result?: Promise<CompileResult>): ViewerPort {
   return {
     loadModel: vi.fn(async () => ({ name: 'model.glb', meshCount: 1, animationClips: [] })),
     fitModel: vi.fn(),
+    resize: vi.fn(),
     compileShader: vi.fn(async () => result === undefined
       ? { status: 'valid' as const, generation: 1 }
       : result),

@@ -34,6 +34,7 @@ function createViewer(loadModel: ViewerPort['loadModel'] = vi.fn(async (_files, 
   return {
     loadModel,
     fitModel: vi.fn(),
+    resize: vi.fn(),
     compileShader: vi.fn(async () => ({ status: 'valid' as const, generation: 1 })),
     updateParameter: vi.fn(),
     capturePortrait: vi.fn(async () => ({

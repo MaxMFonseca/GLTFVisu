@@ -179,39 +179,6 @@ button:disabled {
   color: var(--color-error);
 }
 
-.workspace-notices {
-  background: var(--color-neutral-100);
-  border: 1px solid var(--color-neutral-300);
-  border-radius: 0.3rem;
-  margin-bottom: var(--space-3);
-  padding: var(--space-2);
-}
-
-.workspace-notices ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.workspace-notices p {
-  color: var(--color-neutral-700);
-  font-size: var(--font-size-xs);
-  margin: 0 0 var(--space-1);
-}
-
-.workspace-notices .notice-error {
-  color: var(--color-error);
-}
-
-.workspace-notices button {
-  background: transparent;
-  border: 0;
-  color: var(--color-accent);
-  cursor: pointer;
-  font-size: var(--font-size-xs);
-  padding: 0;
-}
-
 .model-loader {
   border-bottom: 1px solid var(--color-neutral-200);
   padding-bottom: var(--space-4);

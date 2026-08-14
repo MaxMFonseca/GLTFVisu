@@ -1,12 +1,13 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { WorkspaceProvider } from '../../application/WorkspaceController'
+import { WorkspaceProvider, useWorkspace } from '../../application/WorkspaceController'
 import type { ShaderRepository } from '../../application/ShaderRepository'
 import type { ViewerPort } from '../../application/ViewerPort'
 import type { ShaderDefinition } from '../../domain/shader'
 import { ShaderCard } from './ShaderCard'
 import { ShaderLibrary } from './ShaderLibrary'
+import { StatusRegion } from '../common/StatusRegion'
 
 afterEach(cleanup)
 
@@ -38,6 +39,7 @@ function viewer(): ViewerPort {
   return {
     loadModel: vi.fn(async (_files, root) => ({ name: root.name, meshCount: 1, animationClips: [] })),
     fitModel: vi.fn(),
+    resize: vi.fn(),
     compileShader: vi.fn(async () => ({ status: 'valid' as const, generation: 1 })),
     updateParameter: vi.fn(),
     capturePortrait: vi.fn(async () => ({
@@ -59,10 +61,16 @@ function renderLibrary(locals: ShaderDefinition[] = []) {
       idFactory={() => `created-${++nextId}`}
       now={() => 10}
     >
+      <LibraryNotices />
       <ShaderLibrary />
     </WorkspaceProvider>,
   )
   return { ...result, shaderRepository }
+}
+
+function LibraryNotices() {
+  const { state, commands } = useWorkspace()
+  return <StatusRegion notices={state.notices} onDismiss={commands.clearNotices} />
 }
 
 describe('ShaderLibrary', () => {
@@ -153,7 +161,7 @@ describe('ShaderLibrary', () => {
     await user.click(screen.getByRole('button', { name: 'Create shader' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Storage quota exceeded')
-    await user.click(screen.getByRole('button', { name: 'Dismiss notices' }))
+    await user.click(screen.getByRole('button', { name: 'Dismiss workspace notices' }))
     expect(screen.queryByText('Storage quota exceeded')).not.toBeInTheDocument()
   })
 

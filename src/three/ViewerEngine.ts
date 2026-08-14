@@ -252,7 +252,7 @@ export class ViewerEngine implements ViewerPort {
     this.renderer.domElement.remove()
   }
 
-  private readonly resize = (): void => {
+  readonly resize = (): void => {
     if (this.disposed) return
     const width = Math.max(1, Math.floor(this.host.clientWidth))
     const height = Math.max(1, Math.floor(this.host.clientHeight))
