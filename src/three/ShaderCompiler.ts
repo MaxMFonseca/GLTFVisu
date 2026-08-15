@@ -46,6 +46,10 @@ export class ShaderCompiler {
   private disposed = false
   private activeMaterial?: ShaderMaterial
   private readonly pendingMaterials = new Set<ShaderMaterial>()
+  private readonly draftParameterValues = new Map<string, {
+    definition: ShaderParameterDefinition
+    value: ShaderParameterValue
+  }>()
   private readonly renderer: ShaderValidationRenderer
   private readonly createMaterial: typeof createShaderMaterial
   private readonly validate: (material: ShaderMaterial) => Promise<CompileDiagnostic[]>
@@ -85,6 +89,11 @@ export class ShaderCompiler {
     let candidate: ShaderMaterial
     try {
       candidate = this.createMaterial(draft.fragmentSource, draft.parameters, draft.parameterValues)
+      for (const { definition, value } of this.draftParameterValues.values()) {
+        if (candidate.uniforms[definition.uniformName] !== undefined) {
+          updateUniformValue(candidate.uniforms, definition, value)
+        }
+      }
     } catch (error) {
       return errorResult(generation, error)
     }
@@ -137,18 +146,13 @@ export class ShaderCompiler {
   }
 
   updateParameter(definition: ShaderParameterDefinition, value: ShaderParameterValue): void {
-    let updated = false
+    this.draftParameterValues.set(definition.uniformName, { definition, value })
     if (this.activeMaterial?.uniforms[definition.uniformName] !== undefined) {
       updateUniformValue(this.activeMaterial.uniforms, definition, value)
-      updated = true
     }
     for (const material of this.pendingMaterials) {
       if (material.uniforms[definition.uniformName] === undefined) continue
       updateUniformValue(material.uniforms, definition, value)
-      updated = true
-    }
-    if (!updated && this.activeMaterial !== undefined && this.pendingMaterials.size === 0) {
-      updateUniformValue(this.activeMaterial.uniforms, definition, value)
     }
   }
 
@@ -158,6 +162,7 @@ export class ShaderCompiler {
     this.generation += 1
     this.activeMaterial?.dispose()
     this.activeMaterial = undefined
+    this.draftParameterValues.clear()
   }
 }
 

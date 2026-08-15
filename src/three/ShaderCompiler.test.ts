@@ -1,4 +1,4 @@
-import type { ShaderMaterial } from 'three'
+import { ShaderMaterial } from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import type { ShaderParameterDefinition } from '../domain/parameters'
 import type { ShaderDraft } from '../domain/shader'
@@ -17,6 +17,17 @@ const gain: ShaderParameterDefinition = {
   max: 2,
   step: 0.1,
   defaultValue: 1,
+}
+
+const threshold: ShaderParameterDefinition = {
+  id: 'threshold',
+  type: 'float',
+  uniformName: 'uThreshold',
+  label: 'Threshold',
+  min: 0,
+  max: 1,
+  step: 0.01,
+  defaultValue: 0.5,
 }
 
 function draft(source: string): ShaderDraft {
@@ -132,6 +143,42 @@ describe('ShaderCompiler', () => {
     validation.resolve([])
     await expect(compiling).resolves.toEqual({ status: 'valid', generation: 1 })
     expect(compiler.material?.uniforms.uGain.value).toBe(1.75)
+  })
+
+  it('retains an immediate value edit for a newly added uniform until its candidate exists', async () => {
+    const compiler = new ShaderCompiler(unusedRenderer, { validate: async () => [] })
+    await compiler.compile(draft('working'))
+
+    expect(() => compiler.updateParameter(threshold, 0.8)).not.toThrow()
+    const nextDraft = { ...draft('with threshold'), parameters: [gain, threshold] }
+    await compiler.compile(nextDraft)
+
+    expect(compiler.material?.uniforms.uThreshold.value).toBe(0.8)
+  })
+
+  it('retains a renamed uniform value after a failed candidate compile', async () => {
+    const syntaxError: CompileDiagnostic = { severity: 'error', message: 'broken', raw: 'broken' }
+    const compiler = new ShaderCompiler(unusedRenderer, {
+      validate: async (material) => material.name === 'broken' ? [syntaxError] : [],
+      createMaterial: (source, parameters, values) => {
+        const material = new ShaderMaterial({
+          uniforms: Object.fromEntries(parameters.map((parameter) => [
+            parameter.uniformName,
+            { value: values?.[parameter.id] ?? parameter.defaultValue },
+          ])),
+        })
+        material.name = source
+        return material
+      },
+    })
+    await compiler.compile(draft('working'))
+    const renamed = { ...gain, uniformName: 'uRenamedGain' }
+    await compiler.compile({ ...draft('broken'), parameters: [renamed] })
+
+    expect(() => compiler.updateParameter(renamed, 1.6)).not.toThrow()
+    await compiler.compile({ ...draft('recovered'), parameters: [renamed] })
+
+    expect(compiler.material?.uniforms.uRenamedGain.value).toBe(1.6)
   })
 
   it('captures renderer shader errors and maps user-source lines', async () => {
