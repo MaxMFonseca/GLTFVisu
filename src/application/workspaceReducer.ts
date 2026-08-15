@@ -10,14 +10,16 @@ import type { CompileResult, ModelInfo } from './ViewerPort'
 import {
   cleanDirtyFields,
   cloneShader,
+  cloneShaderWithBuiltinParameterValues,
   initialFieldRevisions,
+  type BuiltinParameterValues,
   type WorkspaceFieldRevisions,
   type WorkspaceNotice,
   type WorkspaceState,
 } from './workspaceState'
 
 export { hasDirtyFields } from './workspaceState'
-export type { WorkspaceDirtyFields, WorkspaceFieldRevisions, WorkspaceState } from './workspaceState'
+export type { BuiltinParameterValues, WorkspaceDirtyFields, WorkspaceFieldRevisions, WorkspaceState } from './workspaceState'
 
 export type WorkspaceAction =
   | { type: 'hydrateSucceeded'; locals: readonly ShaderDefinition[] }
@@ -53,6 +55,7 @@ export function createInitialWorkspaceState(builtins: readonly ShaderDefinition[
   if (first === undefined) throw new Error('Workspace requires at least one built-in shader')
   return {
     builtins,
+    builtinParameterValues: createBuiltinParameterValues(builtins),
     locals: [],
     selectedId: first.id,
     savedSnapshot: cloneShader(first),
@@ -71,13 +74,20 @@ export function createInitialWorkspaceState(builtins: readonly ShaderDefinition[
   }
 }
 
+function createBuiltinParameterValues(builtins: readonly ShaderDefinition[]): BuiltinParameterValues {
+  const values: Record<string, Readonly<Record<string, ShaderParameterValue>>> = {}
+  for (const builtin of builtins) values[builtin.id] = { ...builtin.parameterValues }
+  return values
+}
+
 function selectedState(state: WorkspaceState, shader: ShaderDefinition): WorkspaceState {
   const revision = state.draftRevision + 1
+  const draft = cloneShaderWithBuiltinParameterValues(shader, state.builtinParameterValues)
   return {
     ...state,
     selectedId: shader.id,
     savedSnapshot: cloneShader(shader),
-    draft: cloneShader(shader),
+    draft,
     draftRevision: revision,
     selectionRevision: state.selectionRevision + 1,
     fieldRevisions: initialFieldRevisions(revision),
@@ -242,7 +252,17 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
         schemaErrors: [],
       }
     case 'editValue':
-      if (state.draft.origin === 'builtin') return state
+      if (state.draft.origin === 'builtin') {
+        const parameterValues = { ...state.draft.parameterValues, [action.parameterId]: action.value }
+        return {
+          ...state,
+          builtinParameterValues: {
+            ...state.builtinParameterValues,
+            [state.draft.id]: { ...parameterValues },
+          },
+          draft: { ...state.draft, parameterValues },
+        }
+      }
       return {
         ...state,
         ...reviseFields(state, ['values']),
