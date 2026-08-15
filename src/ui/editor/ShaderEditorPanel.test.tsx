@@ -188,7 +188,7 @@ describe('ShaderEditorPanel', () => {
     const compile = deferred<CompileResult>()
     renderPanel({ viewer: viewer(compile.promise) })
 
-    expect(await screen.findByText('Compiling')).toBeVisible()
+    expect(await screen.findByRole('status', { name: 'Compile status' })).toHaveTextContent('Compiling')
     compile.resolve({
       status: 'error',
       generation: 1,
@@ -200,7 +200,10 @@ describe('ShaderEditorPanel', () => {
       }],
     })
 
-    expect(await screen.findByText('Error')).toBeVisible()
+    const compileAlert = await screen.findByRole('alert', { name: 'Compile status' })
+    expect(compileAlert).toHaveTextContent('Error')
+    expect(compileAlert).toHaveTextContent('Unexpected identifier')
+    expect(screen.queryByRole('status', { name: 'Compile status' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Line 2: Unexpected identifier' }))
     expect(screen.getByRole('textbox', { name: 'Fragment shader source' })).toHaveFocus()
     expect(screen.getByRole('textbox', { name: 'Fragment shader source' })).toHaveAttribute('data-focused-line', '2')

@@ -425,4 +425,38 @@ describe('shader workspace acceptance', () => {
     expect(editor).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByRole('tabpanel', { name: 'Editor' })).toBeVisible()
   })
+
+  it('keeps narrow workspace tabs inert while the delete dialog is modal', async () => {
+    useNarrowViewport()
+    const user = userEvent.setup()
+    installPortraitUrlFake()
+    const repository = createRepository()
+    const viewer = createViewer()
+    const { container } = renderWorkspace({ repository, viewer })
+    const tabs = screen.getByRole('tablist', { name: 'Workspace panels' })
+    const library = within(tabs).getByRole('tab', { name: 'Library' })
+    const editor = within(tabs).getByRole('tab', { name: 'Editor' })
+
+    await user.click(library)
+    await user.click(within(screen.getByRole('tabpanel', { name: 'Library' })).getByRole('button', { name: 'Duplicate shader' }))
+    await screen.findByRole('button', { name: 'Normal copy' })
+    const deleteButton = within(screen.getByRole('tabpanel', { name: 'Library' })).getByRole('button', { name: 'Delete shader' })
+    await user.click(deleteButton)
+
+    const workspace = container.querySelector('.workspace-root')
+    const dialog = screen.getByRole('alertdialog', { name: 'Delete Normal copy?' })
+    expect(workspace).toHaveProperty('inert', true)
+    expect(workspace).toHaveAttribute('aria-hidden', 'true')
+    expect(workspace).not.toContainElement(dialog)
+
+    await user.click(editor)
+    expect(library).toHaveAttribute('aria-selected', 'true')
+    expect(editor).toHaveAttribute('aria-selected', 'false')
+    expect(dialog).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(workspace).toHaveProperty('inert', false)
+    expect(workspace).not.toHaveAttribute('aria-hidden')
+    expect(deleteButton).toHaveFocus()
+  })
 })

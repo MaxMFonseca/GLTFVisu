@@ -54,7 +54,7 @@ export function ShaderLibrary({ portraitUrls }: ShaderLibraryProps) {
   useEffect(() => {
     if (deleteConfirmation === undefined) return
     const root = libraryRoot.current
-    const background = root?.closest<HTMLElement>('.workspace-shell') ?? root
+    const background = root?.closest<HTMLElement>('.workspace-root') ?? root
     const previousAriaHidden = background?.getAttribute('aria-hidden') ?? null
     const previouslyInert = background?.inert ?? false
     const hadInertAttribute = background?.hasAttribute('inert') ?? false

@@ -13,9 +13,9 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function useNarrowViewport(): void {
+function useViewportWidth(width: number): void {
   vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
-    matches: true,
+    matches: width <= Number(query.match(/max-width:\s*([\d.]+)rem/)?.[1]) * 16,
     media: query,
     onchange: null,
     addEventListener: vi.fn(),
@@ -24,6 +24,10 @@ function useNarrowViewport(): void {
     removeListener: vi.fn(),
     dispatchEvent: vi.fn(),
   })))
+}
+
+function useNarrowViewport(): void {
+  useViewportWidth(800)
 }
 
 function repository(): ShaderRepository {
@@ -52,6 +56,21 @@ function viewer(): ViewerPort {
 }
 
 describe('Workspace', () => {
+  it.each([
+    [1000, 'narrow', true],
+    [1025, 'desktop', false],
+  ] as const)('uses the %s px viewport without overflowing desktop tracks', (width, layout, hasTabs) => {
+    useViewportWidth(width)
+    const { container } = render(
+      <WorkspaceProvider repository={repository()} viewer={viewer()}>
+        <Workspace mountViewer={() => ({ dispose: vi.fn() })} />
+      </WorkspaceProvider>,
+    )
+
+    expect(container.querySelector('.workspace-root')).toHaveAttribute('data-layout', layout)
+    expect(screen.queryByRole('tablist', { name: 'Workspace panels' }) !== null).toBe(hasTabs)
+  })
+
   it('collapses both panels and resizes them with semantic keyboard separators', async () => {
     const user = userEvent.setup()
     render(
