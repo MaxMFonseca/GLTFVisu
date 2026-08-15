@@ -70,6 +70,12 @@ describe('validateUniformName', () => {
 })
 
 describe('validateParameterDefinitions', () => {
+  it('rejects blank display labels', () => {
+    expect(validateParameterDefinitions([floatParam('uGain', { label: '   ' })])).toContainEqual(
+      expect.objectContaining({ field: 'label', code: 'required' }),
+    )
+  })
+
   it('reports duplicate uniform names', () => {
     expect(validateParameterDefinitions([floatParam('uBand'), floatParam('uBand')])).toContainEqual(
       expect.objectContaining({ field: 'uniformName', code: 'duplicate' }),

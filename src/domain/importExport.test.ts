@@ -24,8 +24,6 @@ function envelope(overrides: Record<string, unknown> = {}): Record<string, unkno
     format: SHADER_PACKAGE_FORMAT,
     version: 1,
     shader: {
-      id: 'untrusted-id',
-      origin: 'builtin',
       name: shader.name,
       fragmentSource: shader.fragmentSource,
       parameters: shader.parameters,
@@ -97,14 +95,20 @@ describe('parseShaderPackage', () => {
     expect(() => parseShaderPackage(JSON.stringify({ ...envelope(), version: 2 }), idFactory, 1234)).toThrow('Unsupported shader package version')
   })
 
-  it('ignores unknown fields but rejects invalid parameter metadata', () => {
-    const accepted = parseShaderPackage(JSON.stringify(envelope({ futureField: true })), idFactory, 1234)
-    expect(accepted.name).toBe('Soft glow')
-
+  it('rejects invalid parameter metadata', () => {
     const invalid = envelope({
       parameters: [{ id: 'bad', type: 'float', uniformName: 'uBad', label: 'Bad', min: 2, max: 1, step: 0.1, defaultValue: 1 }],
     })
     expect(() => parseShaderPackage(JSON.stringify(invalid), idFactory, 1234)).toThrow('Invalid shader parameter definitions')
+  })
+
+  it.each([
+    ['envelope', { ...envelope(), extra: true }],
+    ['shader', envelope({ extra: true })],
+    ['parameter', envelope({ parameters: [{ ...shader.parameters[0], extra: true }, shader.parameters[1]] })],
+    ['portrait', envelope({ portrait: { mimeType: 'image/png', dataUrl: 'data:image/png;base64,eA==', extra: true } })],
+  ])('rejects unknown keys in the %s object', (_location, value) => {
+    expect(() => parseShaderPackage(JSON.stringify(value), idFactory, 1234)).toThrow('Invalid shader package')
   })
 
   it('rejects reserved and duplicate imported uniforms', () => {

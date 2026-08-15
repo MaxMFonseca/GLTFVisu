@@ -46,6 +46,15 @@ function readRecord(value: unknown, message: string): Record<string, unknown> {
   return value
 }
 
+function assertExactKeys(
+  value: Record<string, unknown>,
+  allowed: readonly string[],
+  message: string,
+): void {
+  const allowedKeys = new Set(allowed)
+  if (Object.keys(value).some((key) => !allowedKeys.has(key))) throw new Error(message)
+}
+
 function readPortraitMimeType(value: unknown): (typeof PORTRAIT_MIME_TYPES)[number] {
   const mimeType = readString(value, 'Invalid shader portrait')
   if (!PORTRAIT_MIME_TYPES.includes(mimeType as (typeof PORTRAIT_MIME_TYPES)[number])) {
@@ -71,7 +80,8 @@ function readParameter(value: unknown): ShaderParameterDefinition {
 
   switch (type) {
     case 'float':
-    case 'integer':
+    case 'integer': {
+      assertExactKeys(parameter, ['id', 'uniformName', 'label', 'type', 'min', 'max', 'step', 'defaultValue'], 'Invalid shader package')
       return {
         ...base,
         type,
@@ -80,9 +90,12 @@ function readParameter(value: unknown): ShaderParameterDefinition {
         step: readNumber(parameter.step, 'Invalid shader parameter definitions'),
         defaultValue: readNumber(parameter.defaultValue, 'Invalid shader parameter definitions'),
       }
+    }
     case 'color':
+      assertExactKeys(parameter, ['id', 'uniformName', 'label', 'type', 'defaultValue'], 'Invalid shader package')
       return { ...base, type, defaultValue: readColor(parameter.defaultValue, 'Invalid shader parameter definitions') }
     case 'boolean':
+      assertExactKeys(parameter, ['id', 'uniformName', 'label', 'type', 'defaultValue'], 'Invalid shader package')
       return { ...base, type, defaultValue: readBoolean(parameter.defaultValue, 'Invalid shader parameter definitions') }
     default:
       throw new Error('Invalid shader parameter definitions')
@@ -142,6 +155,7 @@ function readParameterValues(
 
 function readPortablePortrait(value: unknown): ShaderPortrait {
   const portrait = readRecord(value, 'Invalid shader portrait')
+  assertExactKeys(portrait, ['mimeType', 'dataUrl', 'width', 'height'], 'Invalid shader package')
   const mimeType = readPortraitMimeType(portrait.mimeType)
   const dataUrl = readString(portrait.dataUrl, 'Invalid shader portrait')
   if (!dataUrl.startsWith(`data:${mimeType};base64,`)) throw new Error('Invalid shader portrait')
@@ -155,6 +169,7 @@ function readPortablePortrait(value: unknown): ShaderPortrait {
 
 function readPortableShader(value: unknown): PortableShader {
   const shader = readRecord(value, 'Invalid shader package')
+  assertExactKeys(shader, ['name', 'fragmentSource', 'parameters', 'parameterValues', 'portrait'], 'Invalid shader package')
   const parameters = readParameters(shader.parameters)
   return {
     name: readString(shader.name, 'Invalid shader package'),
@@ -217,6 +232,7 @@ export function parseShaderPackage(
   }
 
   const envelope = readRecord(value, 'Invalid shader package')
+  assertExactKeys(envelope, ['format', 'version', 'shader'], 'Invalid shader package')
   if (readString(envelope.format, 'Unsupported shader package format') !== SHADER_PACKAGE_FORMAT) {
     throw new Error('Unsupported shader package format')
   }
