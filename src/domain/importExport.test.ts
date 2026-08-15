@@ -122,6 +122,30 @@ describe('parseShaderPackage', () => {
     expect(() => parseShaderPackage(JSON.stringify(duplicate), idFactory, 1234)).toThrow('Invalid shader parameter definitions')
   })
 
+  it.each([
+    ['a missing value', { gain: 1.5, bands: 2, tint: '#112233' }],
+    ['an extra value', { gain: 1.5, bands: 2, tint: '#112233', enabled: true, extra: 1 }],
+    ['a numeric string', { gain: '1.5', bands: 2, tint: '#112233', enabled: true }],
+    ['an out-of-range float', { gain: 3, bands: 2, tint: '#112233', enabled: true }],
+    ['a fractional integer', { gain: 1.5, bands: 2.5, tint: '#112233', enabled: true }],
+    ['an out-of-range integer', { gain: 1.5, bands: 9, tint: '#112233', enabled: true }],
+    ['a noncanonical color', { gain: 1.5, bands: 2, tint: '#AABBCC', enabled: true }],
+    ['an invalid color', { gain: 1.5, bands: 2, tint: 'blue', enabled: true }],
+    ['a non-boolean', { gain: 1.5, bands: 2, tint: '#112233', enabled: 1 }],
+  ])('rejects parameter values containing %s', (_case, parameterValues) => {
+    const invalid = envelope({
+      parameters: [
+        { id: 'gain', type: 'float', uniformName: 'uGain', label: 'Gain', min: 0, max: 2, step: 0.1, defaultValue: 1 },
+        { id: 'bands', type: 'integer', uniformName: 'uBands', label: 'Bands', min: 1, max: 8, step: 1, defaultValue: 3 },
+        { id: 'tint', type: 'color', uniformName: 'uTint', label: 'Tint', defaultValue: '#aabbcc' },
+        { id: 'enabled', type: 'boolean', uniformName: 'uEnabled', label: 'Enabled', defaultValue: true },
+      ],
+      parameterValues,
+    })
+
+    expect(() => parseShaderPackage(JSON.stringify(invalid), idFactory, 1234)).toThrow('Invalid shader parameter values')
+  })
+
   it('rejects portraits with an unsupported MIME type or data URL', () => {
     const unsupported = envelope({ portrait: { mimeType: 'image/gif', dataUrl: 'data:image/gif;base64,R0lG' } })
     expect(() => parseShaderPackage(JSON.stringify(unsupported), idFactory, 1234)).toThrow('Invalid shader portrait')

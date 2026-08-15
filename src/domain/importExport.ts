@@ -1,4 +1,4 @@
-import { normalizeParameterValue, type ShaderParameterDefinition, type ShaderParameterValue } from './parameters'
+import type { ShaderParameterDefinition, ShaderParameterValue } from './parameters'
 import type { ShaderDefinition, ShaderPortrait } from './shader'
 import { validateParameterDefinitions } from './uniformValidation'
 
@@ -56,8 +56,8 @@ function readPortraitMimeType(value: unknown): (typeof PORTRAIT_MIME_TYPES)[numb
 
 function readColor(value: unknown, message: string): string {
   const color = readString(value, message)
-  if (!/^#[0-9a-fA-F]{6}$/.test(color)) throw new Error(message)
-  return color.toLowerCase()
+  if (!/^#[0-9a-f]{6}$/.test(color)) throw new Error(message)
+  return color
 }
 
 function readParameter(value: unknown): ShaderParameterDefinition {
@@ -103,13 +103,22 @@ function readParameterValue(
   value: unknown,
 ): ShaderParameterValue {
   switch (definition.type) {
-    case 'float':
-    case 'integer':
-      return normalizeParameterValue(definition, readNumber(value, 'Invalid shader parameter values'))
+    case 'float': {
+      const number = readNumber(value, 'Invalid shader parameter values')
+      if (number < definition.min || number > definition.max) throw new Error('Invalid shader parameter values')
+      return number
+    }
+    case 'integer': {
+      const number = readNumber(value, 'Invalid shader parameter values')
+      if (!Number.isInteger(number) || number < definition.min || number > definition.max) {
+        throw new Error('Invalid shader parameter values')
+      }
+      return number
+    }
     case 'color':
-      return normalizeParameterValue(definition, readColor(value, 'Invalid shader parameter values'))
+      return readColor(value, 'Invalid shader parameter values')
     case 'boolean':
-      return normalizeParameterValue(definition, readBoolean(value, 'Invalid shader parameter values'))
+      return readBoolean(value, 'Invalid shader parameter values')
   }
 }
 
@@ -118,13 +127,17 @@ function readParameterValues(
   parameters: readonly ShaderParameterDefinition[],
 ): Record<string, ShaderParameterValue> {
   const values = readRecord(value, 'Invalid shader parameter values')
-  const normalized: Record<string, ShaderParameterValue> = {}
-  for (const parameter of parameters) {
-    normalized[parameter.id] = Object.hasOwn(values, parameter.id)
-      ? readParameterValue(parameter, values[parameter.id])
-      : normalizeParameterValue(parameter, parameter.defaultValue)
+  if (
+    Object.keys(values).length !== parameters.length
+    || parameters.some((parameter) => !Object.hasOwn(values, parameter.id))
+  ) {
+    throw new Error('Invalid shader parameter values')
   }
-  return normalized
+  const parsed: Record<string, ShaderParameterValue> = {}
+  for (const parameter of parameters) {
+    parsed[parameter.id] = readParameterValue(parameter, values[parameter.id])
+  }
+  return parsed
 }
 
 function readPortablePortrait(value: unknown): ShaderPortrait {
