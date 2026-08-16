@@ -32,12 +32,26 @@ export interface ShaderEditorPanelProps {
 export function ShaderEditorPanel({ SourceEditor = MonacoShaderEditor }: ShaderEditorPanelProps) {
   const { state, commands } = useWorkspace()
   const editorRef = useRef<ShaderSourceEditorHandle>(null)
-  const readOnly = state.draft.origin === 'builtin'
+
+  if (state.draft.origin === 'builtin') {
+    return (
+      <section className="shader-editor-panel builtin-controls-panel" aria-labelledby="shader-controls-heading">
+        <header className="editor-heading">
+          <div>
+            <p className="panel-kicker">Built-in shader</p>
+            <h2 id="shader-controls-heading">Shader controls</h2>
+          </div>
+        </header>
+        <ParameterControls />
+      </section>
+    )
+  }
+
   const dirty = hasDirtyFields(state.dirty)
   const invalid = state.draft.name.trim().length === 0 || state.schemaErrors.length > 0
   const saving = state.persistence === 'saving'
-  const canSave = !readOnly && dirty && !invalid && !saving && state.compile.status === 'valid'
-  const canCapture = !readOnly && hasLoadedModel(state.modelLoad) && state.compile.status === 'valid'
+  const canSave = dirty && !invalid && !saving && state.compile.status === 'valid'
+  const canCapture = hasLoadedModel(state.modelLoad) && state.compile.status === 'valid'
 
   return (
     <section className="shader-editor-panel" aria-labelledby="editor-heading">
@@ -53,7 +67,6 @@ export function ShaderEditorPanel({ SourceEditor = MonacoShaderEditor }: ShaderE
         <span>Shader name</span>
         <input
           type="text"
-          readOnly={readOnly}
           aria-invalid={state.draft.name.trim().length === 0}
           value={state.draft.name}
           onChange={(event) => commands.editName(event.currentTarget.value)}
@@ -82,7 +95,7 @@ export function ShaderEditorPanel({ SourceEditor = MonacoShaderEditor }: ShaderE
           ref={editorRef}
           shaderId={state.selectedId}
           value={state.draft.fragmentSource}
-          readOnly={readOnly}
+          readOnly={false}
           diagnostics={state.compile.diagnostics}
           onChange={commands.editSource}
         />
