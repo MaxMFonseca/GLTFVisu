@@ -2,6 +2,7 @@ import { act, render, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BUILTIN_SHADERS } from '../domain/builtins'
+import { validateRemoteEnvironmentUrl, type EnvironmentDefinition } from '../domain/environment'
 import type { ShaderParameterDefinition } from '../domain/parameters'
 import type { ShaderDefinition, ShaderPortrait } from '../domain/shader'
 import type { ShaderRepository } from './ShaderRepository'
@@ -52,6 +53,8 @@ function createViewer(): ViewerPort {
     resize: vi.fn(),
     compileShader: vi.fn(async (): Promise<CompileResult> => ({ status: 'valid', generation: ++generation })),
     updateParameter: vi.fn(),
+    loadEnvironment: vi.fn(async () => undefined),
+    updateEnvironment: vi.fn(),
     capturePortrait: vi.fn(async (): Promise<ShaderPortrait> => ({
       kind: 'captured', blob: new Blob(['portrait']), mimeType: 'image/png', width: 4, height: 4,
     })),
@@ -115,6 +118,116 @@ afterEach(() => {
 })
 
 describe('WorkspaceProvider', () => {
+  it('validates remote HDR URLs and loads valid sources through the viewer', async () => {
+    expect(validateRemoteEnvironmentUrl('http://example.com/a.hdr')).toEqual({
+      valid: false,
+      message: 'Environment URL must use HTTPS',
+    })
+    expect(validateRemoteEnvironmentUrl('https://example.com/a.hdr')).toEqual({ valid: true })
+
+    const viewer = createViewer()
+    const workspace = renderWorkspace({ viewer })
+    await ready(workspace)
+
+    await act(async () => workspace.current().commands.loadRemoteEnvironment('https://example.com/city.hdr'))
+
+    expect(viewer.loadEnvironment).toHaveBeenCalledWith({ kind: 'remote', url: 'https://example.com/city.hdr' })
+    expect(workspace.current().state.environment.status).toBe('ready')
+  })
+
+  it('uses the injected catalog for bundled environments and rejects mismatched URLs', async () => {
+    const catalog: readonly EnvironmentDefinition[] = [{
+      id: 'studio', name: 'Studio', hdrUrl: '/assets/studio.hdr', license: 'CC0-1.0',
+      sourceUrl: 'https://example.com/studio', author: 'Example',
+    }]
+    const viewer = createViewer()
+    const workspace = renderWorkspace({ viewer, environmentCatalog: catalog })
+    await ready(workspace)
+
+    await act(async () => workspace.current().commands.selectBundledEnvironment('studio', '/assets/studio.hdr'))
+    await act(async () => workspace.current().commands.selectBundledEnvironment('studio', '/assets/other.hdr'))
+
+    expect(viewer.loadEnvironment).toHaveBeenCalledTimes(1)
+    expect(viewer.loadEnvironment).toHaveBeenCalledWith({ kind: 'bundled', id: 'studio', url: '/assets/studio.hdr' })
+    expect(workspace.current().state.notices.at(-1)).toEqual({
+      kind: 'error', scope: 'environment', message: 'Bundled environment URL does not match the catalog',
+    })
+  })
+
+  it('does not let a stale environment result replace the newest active source', async () => {
+    const viewer = createViewer()
+    const first = deferred<void>()
+    const second = deferred<void>()
+    vi.mocked(viewer.loadEnvironment).mockImplementationOnce(() => first.promise).mockImplementationOnce(() => second.promise)
+    const workspace = renderWorkspace({ viewer })
+    await ready(workspace)
+
+    let firstLoad!: Promise<void>
+    let secondLoad!: Promise<void>
+    act(() => { firstLoad = workspace.current().commands.loadRemoteEnvironment('https://example.com/first.hdr') })
+    act(() => { secondLoad = workspace.current().commands.loadRemoteEnvironment('https://example.com/second.hdr') })
+    await act(async () => { second.resolve(); await secondLoad })
+    await act(async () => { first.resolve(); await firstLoad })
+
+    expect(workspace.current().state.environment).toMatchObject({
+      status: 'ready', activeSource: { kind: 'remote', url: 'https://example.com/second.hdr' },
+    })
+  })
+
+  it('keeps the active environment settings when a replacement load fails', async () => {
+    const viewer = createViewer()
+    const workspace = renderWorkspace({ viewer })
+    await ready(workspace)
+    await act(async () => workspace.current().commands.loadRemoteEnvironment('https://example.com/active.hdr'))
+    act(() => workspace.current().commands.setEnvironmentIntensity(2))
+    vi.mocked(viewer.loadEnvironment).mockRejectedValueOnce(new Error('decoder detail'))
+
+    await act(async () => workspace.current().commands.loadRemoteEnvironment('https://example.com/broken.hdr'))
+
+    expect(workspace.current().state.environment).toEqual({
+      status: 'error',
+      activeSource: { kind: 'remote', url: 'https://example.com/active.hdr' },
+      error: 'Unable to load environment',
+      settings: { backgroundMode: 'skybox', clearColor: '#17191d', rotation: 0, intensity: 2 },
+    })
+    expect(workspace.current().state.notices.at(-1)).toEqual({
+      kind: 'error', scope: 'environment', message: 'Unable to load environment',
+    })
+  })
+
+  it('normalizes display settings and forwards each update without persisting it', async () => {
+    const viewer = createViewer()
+    const workspace = renderWorkspace({ viewer })
+    await ready(workspace)
+
+    act(() => workspace.current().commands.setEnvironmentClearColor('#ABCDEF'))
+    act(() => workspace.current().commands.setEnvironmentRotation(-90))
+    act(() => workspace.current().commands.setEnvironmentIntensity(8))
+
+    expect(workspace.current().state.environment.settings).toEqual({
+      backgroundMode: 'skybox', clearColor: '#abcdef', rotation: 270, intensity: 4,
+    })
+    expect(viewer.updateEnvironment).toHaveBeenLastCalledWith({
+      backgroundMode: 'skybox', clearColor: '#abcdef', rotation: 270, intensity: 4,
+    })
+    expect(workspace.current().state.dirty).toEqual({ name: false, source: false, schema: false, values: false, portrait: false })
+  })
+
+  it('composes environment settings commands issued in one batched turn', async () => {
+    const viewer = createViewer()
+    const workspace = renderWorkspace({ viewer })
+    await ready(workspace)
+
+    act(() => {
+      workspace.current().commands.setEnvironmentRotation(90)
+      workspace.current().commands.setEnvironmentIntensity(2)
+      workspace.current().commands.setEnvironmentClearColor('#ABCDEF')
+    })
+
+    const expected = { backgroundMode: 'skybox' as const, clearColor: '#abcdef', rotation: 90, intensity: 2 }
+    expect(workspace.current().state.environment.settings).toEqual(expected)
+    expect(viewer.updateEnvironment).toHaveBeenLastCalledWith(expected)
+  })
   it('shows the initial built-in, hydrates locals, and compiles without persisting', async () => {
     const repository = createRepository([localShader()])
     const viewer = createViewer()

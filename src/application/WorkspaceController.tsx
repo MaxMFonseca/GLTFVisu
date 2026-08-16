@@ -17,6 +17,17 @@ import {
 } from '../domain/parameters'
 import type { ShaderDefinition, ShaderDraft } from '../domain/shader'
 import { validateParameterDefinitions } from '../domain/uniformValidation'
+import {
+  ENVIRONMENT_LOAD_ERROR_MESSAGE,
+  EnvironmentLoadError,
+  normalizeEnvironmentClearColor,
+  normalizeEnvironmentIntensity,
+  normalizeEnvironmentRotation,
+  validateRemoteEnvironmentUrl,
+  type EnvironmentDefinition,
+  type EnvironmentDisplaySettings,
+  type EnvironmentLoadSource,
+} from '../domain/environment'
 import type { ShaderRepository } from './ShaderRepository'
 import type { ViewerPort } from './ViewerPort'
 import type { WorkspaceCommands } from './commands'
@@ -49,6 +60,7 @@ export interface WorkspaceProviderProps {
   repository: ShaderRepository
   viewer: ViewerPort
   builtins?: readonly ShaderDefinition[]
+  environmentCatalog?: readonly EnvironmentDefinition[]
   idFactory?: () => string
   now?: () => number
   timer?: TimerPort
@@ -177,6 +189,7 @@ export function WorkspaceProvider({
   repository,
   viewer,
   builtins = BUILTIN_SHADERS,
+  environmentCatalog = [],
   idFactory = () => crypto.randomUUID(),
   now = () => Date.now(),
   timer = DEFAULT_TIMER,
@@ -184,13 +197,21 @@ export function WorkspaceProvider({
   download = defaultDownload,
   children,
 }: WorkspaceProviderProps) {
-  const [state, dispatch] = useReducer(workspaceReducer, builtins, createInitialWorkspaceState)
+  const [state, dispatch] = useReducer(
+    workspaceReducer,
+    { builtins, environmentCatalog },
+    ({ builtins: initialBuiltins, environmentCatalog: initialEnvironmentCatalog }) =>
+      createInitialWorkspaceState(initialBuiltins, initialEnvironmentCatalog),
+  )
   const stateRef = useRef(state)
   const activeRef = useRef(true)
   const compileTimerRef = useRef<unknown>(undefined)
   const compileGenerationRef = useRef(0)
   const loadGenerationRef = useRef(0)
+  const environmentLoadGenerationRef = useRef(0)
+  const environmentSettingsRef = useRef(state.environment.settings)
   stateRef.current = state
+  environmentSettingsRef.current = state.environment.settings
 
   const cancelScheduledCompile = useCallback(() => {
     if (compileTimerRef.current === undefined) return
@@ -271,8 +292,35 @@ export function WorkspaceProvider({
       cancelScheduledCompile()
       compileGenerationRef.current += 1
       loadGenerationRef.current += 1
+      environmentLoadGenerationRef.current += 1
     }
   }, [cancelScheduledCompile, compileDraft, repository])
+
+  const loadEnvironment = async (source: EnvironmentLoadSource, label: string): Promise<void> => {
+    const generation = ++environmentLoadGenerationRef.current
+    dispatch({ type: 'environmentLoadStarted', generation, label })
+    try {
+      await viewer.loadEnvironment(source)
+      if (activeRef.current && generation === environmentLoadGenerationRef.current) {
+        dispatch({ type: 'environmentLoadSucceeded', generation, source })
+      }
+    } catch (error) {
+      if (activeRef.current && generation === environmentLoadGenerationRef.current) {
+        dispatch({
+          type: 'environmentLoadFailed',
+          generation,
+          message: error instanceof EnvironmentLoadError ? error.message : ENVIRONMENT_LOAD_ERROR_MESSAGE,
+        })
+      }
+    }
+  }
+
+  const updateEnvironmentSettings = (changes: Partial<EnvironmentDisplaySettings>): void => {
+    const settings = { ...environmentSettingsRef.current, ...changes }
+    environmentSettingsRef.current = settings
+    viewer.updateEnvironment(settings)
+    dispatch({ type: 'environmentSettingsChanged', settings })
+  }
 
   const commands: WorkspaceCommands = {
     selectShader(id) {
@@ -467,6 +515,48 @@ export function WorkspaceProvider({
           dispatch({ type: 'operationFailed', scope: 'model', message: errorMessage(error) })
         }
       }
+    },
+    async selectBundledEnvironment(id, url) {
+      const definition = stateRef.current.environmentCatalog.find((candidate) => candidate.id === id)
+      if (definition === undefined) {
+        dispatch({ type: 'operationFailed', scope: 'environment', message: 'Unknown bundled environment' })
+        return
+      }
+      if (definition.hdrUrl !== url) {
+        dispatch({ type: 'operationFailed', scope: 'environment', message: 'Bundled environment URL does not match the catalog' })
+        return
+      }
+      await loadEnvironment({ kind: 'bundled', id: definition.id, url: definition.hdrUrl }, definition.name)
+    },
+    async loadLocalEnvironment(file) {
+      if (!file.name.toLowerCase().endsWith('.hdr')) {
+        dispatch({ type: 'operationFailed', scope: 'environment', message: 'Environment file must be an HDR file' })
+        return
+      }
+      await loadEnvironment({ kind: 'local', file }, file.name)
+    },
+    async loadRemoteEnvironment(url) {
+      const validation = validateRemoteEnvironmentUrl(url)
+      if (!validation.valid) {
+        dispatch({ type: 'operationFailed', scope: 'environment', message: validation.message })
+        return
+      }
+      await loadEnvironment({ kind: 'remote', url }, url)
+    },
+    setBackgroundMode(backgroundMode) {
+      updateEnvironmentSettings({ backgroundMode })
+    },
+    setEnvironmentClearColor(clearColor) {
+      const normalized = normalizeEnvironmentClearColor(clearColor)
+      if (normalized !== undefined) updateEnvironmentSettings({ clearColor: normalized })
+    },
+    setEnvironmentRotation(rotation) {
+      const normalized = normalizeEnvironmentRotation(rotation)
+      if (normalized !== undefined) updateEnvironmentSettings({ rotation: normalized })
+    },
+    setEnvironmentIntensity(intensity) {
+      const normalized = normalizeEnvironmentIntensity(intensity)
+      if (normalized !== undefined) updateEnvironmentSettings({ intensity: normalized })
     },
     fitModel() {
       viewer.fitModel()

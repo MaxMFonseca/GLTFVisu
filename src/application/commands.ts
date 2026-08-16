@@ -1,4 +1,5 @@
 import type { ShaderParameterDefinition, ShaderParameterValue } from '../domain/parameters'
+import type { EnvironmentDisplaySettings } from '../domain/environment'
 
 export interface WorkspaceCommands {
   selectShader(id: string): void
@@ -17,6 +18,13 @@ export interface WorkspaceCommands {
   exportShader(id?: string): Promise<void>
   capturePortrait(): Promise<void>
   loadModel(files: File[], root: File): Promise<void>
+  selectBundledEnvironment(id: string, url: string): Promise<void>
+  loadLocalEnvironment(file: File): Promise<void>
+  loadRemoteEnvironment(url: string): Promise<void>
+  setBackgroundMode(mode: EnvironmentDisplaySettings['backgroundMode']): void
+  setEnvironmentClearColor(color: string): void
+  setEnvironmentRotation(rotation: number): void
+  setEnvironmentIntensity(intensity: number): void
   fitModel(): void
   resizeViewer(): void
   selectAnimation(name: string): void

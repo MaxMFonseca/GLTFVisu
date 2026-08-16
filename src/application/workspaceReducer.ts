@@ -8,6 +8,12 @@ import type { ShaderDefinition, ShaderPortrait } from '../domain/shader'
 import type { ParameterDefinitionValidationError } from '../domain/uniformValidation'
 import type { CompileResult, ModelInfo } from './ViewerPort'
 import {
+  DEFAULT_ENVIRONMENT_DISPLAY_SETTINGS,
+  type EnvironmentDefinition,
+  type EnvironmentDisplaySettings,
+  type EnvironmentLoadSource,
+} from '../domain/environment'
+import {
   cleanDirtyFields,
   cloneShader,
   cloneShaderWithBuiltinParameterValues,
@@ -45,16 +51,26 @@ export type WorkspaceAction =
   | { type: 'deleteSucceeded'; id: string; fallback?: ShaderDefinition }
   | { type: 'modelLoadStarted'; fileName: string }
   | { type: 'modelLoadSucceeded'; info: ModelInfo }
+  | { type: 'environmentLoadStarted'; generation: number; label: string }
+  | { type: 'environmentLoadSucceeded'; generation: number; source: EnvironmentLoadSource }
+  | { type: 'environmentLoadFailed'; generation: number; message: string }
+  | { type: 'environmentSettingsChanged'; settings: EnvironmentDisplaySettings }
   | { type: 'animationsChanged'; selectedClipId?: string; playing: boolean }
   | { type: 'operationSucceeded'; scope: WorkspaceNotice['scope']; message: string }
   | { type: 'operationFailed'; scope: WorkspaceNotice['scope']; message: string }
   | { type: 'clearNotices' }
 
-export function createInitialWorkspaceState(builtins: readonly ShaderDefinition[]): WorkspaceState {
+export function createInitialWorkspaceState(
+  builtins: readonly ShaderDefinition[],
+  environmentCatalog: readonly EnvironmentDefinition[] = [],
+): WorkspaceState {
   const first = builtins[0]
   if (first === undefined) throw new Error('Workspace requires at least one built-in shader')
   return {
     builtins,
+    environmentCatalog,
+    environment: { status: 'idle', settings: { ...DEFAULT_ENVIRONMENT_DISPLAY_SETTINGS } },
+    environmentLoadGeneration: 0,
     builtinParameterValues: createBuiltinParameterValues(builtins),
     locals: [],
     selectedId: first.id,
@@ -357,6 +373,43 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
           playing: action.info.animationClips.length > 0,
         },
       }
+    case 'environmentLoadStarted':
+      return {
+        ...state,
+        environmentLoadGeneration: action.generation,
+        environment: {
+          status: 'loading',
+          ...(state.environment.activeSource === undefined ? {} : { activeSource: state.environment.activeSource }),
+          pendingLabel: action.label,
+          settings: state.environment.settings,
+        },
+      }
+    case 'environmentLoadSucceeded':
+      if (action.generation !== state.environmentLoadGeneration) return state
+      return {
+        ...state,
+        environment: {
+          status: 'ready',
+          activeSource: action.source,
+          settings: state.environment.settings,
+        },
+      }
+    case 'environmentLoadFailed':
+      if (action.generation !== state.environmentLoadGeneration) return state
+      return {
+        ...state,
+        environment: state.environment.activeSource === undefined
+          ? { status: 'error', error: action.message, settings: state.environment.settings }
+          : {
+              status: 'error',
+              activeSource: state.environment.activeSource,
+              error: action.message,
+              settings: state.environment.settings,
+            },
+        notices: appendNotice(state, { kind: 'error', scope: 'environment', message: action.message }),
+      }
+    case 'environmentSettingsChanged':
+      return { ...state, environment: { ...state.environment, settings: action.settings } }
     case 'animationsChanged':
       return { ...state, animations: { ...state.animations, selectedClipId: action.selectedClipId, playing: action.playing } }
     case 'operationSucceeded':

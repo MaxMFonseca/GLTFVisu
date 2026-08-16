@@ -17,6 +17,12 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import type { AnimationClipInfo, CompileDiagnostic, CompileResult, ModelInfo, ViewerPort } from '../application/ViewerPort'
 import type { ShaderParameterDefinition, ShaderParameterValue } from '../domain/parameters'
 import type { ShaderDraft, ShaderPortrait } from '../domain/shader'
+import {
+  ENVIRONMENT_LOAD_ERROR_MESSAGE,
+  EnvironmentLoadError,
+  type EnvironmentDisplaySettings,
+  type EnvironmentLoadSource,
+} from '../domain/environment'
 import { AnimationController } from './AnimationController'
 import { calculateCameraFit, type CameraFit } from './cameraFit'
 import { CaptureService, type CapturedImage } from './CaptureService'
@@ -213,6 +219,21 @@ export class ViewerEngine implements ViewerPort {
 
   updateParameter(definition: ShaderParameterDefinition, value: ShaderParameterValue): void {
     if (!this.disposed) this.compiler.updateParameter(definition, value)
+  }
+
+  async loadEnvironment(source: EnvironmentLoadSource): Promise<void> {
+    void source
+    try {
+      this.assertActive()
+    } catch (error) {
+      throw new EnvironmentLoadError(ENVIRONMENT_LOAD_ERROR_MESSAGE, error)
+    }
+    throw new EnvironmentLoadError()
+  }
+
+  updateEnvironment(settings: EnvironmentDisplaySettings): void {
+    void settings
+    // Environment resources are installed by the dedicated service in the next task.
   }
 
   async capturePortrait(): Promise<ShaderPortrait> {

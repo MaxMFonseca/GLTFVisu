@@ -2,6 +2,7 @@ import type { ParameterDefinitionValidationError } from '../domain/uniformValida
 import type { ShaderParameterValue } from '../domain/parameters'
 import type { ShaderDefinition, ShaderDraft } from '../domain/shader'
 import type { AnimationClipInfo, CompileDiagnostic } from './ViewerPort'
+import type { EnvironmentDefinition, WorkspaceEnvironmentState } from '../domain/environment'
 
 export interface WorkspaceDirtyFields {
   name: boolean
@@ -39,7 +40,7 @@ export interface WorkspaceAnimationState {
 
 export interface WorkspaceNotice {
   kind: 'info' | 'error'
-  scope: 'hydrate' | 'save' | 'delete' | 'import' | 'export' | 'capture' | 'model'
+  scope: 'hydrate' | 'save' | 'delete' | 'import' | 'export' | 'capture' | 'model' | 'environment'
   message: string
 }
 
@@ -50,6 +51,9 @@ export type BuiltinParameterValues = Readonly<Record<
 
 export interface WorkspaceState {
   builtins: readonly ShaderDefinition[]
+  environmentCatalog: readonly EnvironmentDefinition[]
+  environment: WorkspaceEnvironmentState
+  environmentLoadGeneration: number
   builtinParameterValues: BuiltinParameterValues
   locals: readonly ShaderDefinition[]
   selectedId: string

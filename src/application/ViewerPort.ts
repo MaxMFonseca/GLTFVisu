@@ -1,5 +1,6 @@
 import type { ShaderParameterDefinition, ShaderParameterValue } from '../domain/parameters'
 import type { ShaderDraft, ShaderPortrait } from '../domain/shader'
+import type { EnvironmentDisplaySettings, EnvironmentLoadSource } from '../domain/environment'
 
 export interface CompileDiagnostic {
   severity: 'error' | 'warning'
@@ -30,6 +31,8 @@ export interface ViewerPort {
   resize(): void
   compileShader(draft: ShaderDraft): Promise<CompileResult>
   updateParameter(definition: ShaderParameterDefinition, value: ShaderParameterValue): void
+  loadEnvironment(source: EnvironmentLoadSource): Promise<void>
+  updateEnvironment(settings: EnvironmentDisplaySettings): void
   capturePortrait(): Promise<ShaderPortrait>
   selectAnimation(name: string): void
   setAnimationPlaying(playing: boolean): void

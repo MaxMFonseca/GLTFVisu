@@ -20,6 +20,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ShaderParameterDefinition } from '../domain/parameters'
 import type { ShaderDraft } from '../domain/shader'
 import type { CompileDiagnostic, ViewerPort } from '../application/ViewerPort'
+import { ENVIRONMENT_LOAD_ERROR_MESSAGE, EnvironmentLoadError } from '../domain/environment'
 import { ShaderCompiler } from './ShaderCompiler'
 import {
   ViewerEngine,
@@ -140,6 +141,20 @@ function createHarness(
 }
 
 describe('ViewerEngine', () => {
+  it('maps disposed-environment loads to the typed boundary error with their lifecycle cause', async () => {
+    const harness = createHarness()
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    engine.dispose()
+
+    const rejection = await engine.loadEnvironment({ kind: 'remote', url: 'https://example.com/studio.hdr' }).catch((error: unknown) => error)
+
+    expect(rejection).toBeInstanceOf(EnvironmentLoadError)
+    expect(rejection).toMatchObject({
+      message: ENVIRONMENT_LOAD_ERROR_MESSAGE,
+      cause: expect.objectContaining({ message: 'Viewer engine is disposed' }),
+    })
+  })
+
   it('keeps one RAF pending, resizes imperatively, and tears down idempotently across remounts', () => {
     const first = createHarness()
     const engine: ViewerPort = new ViewerEngine(first.host, {}, first.dependencies)

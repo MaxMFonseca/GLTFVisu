@@ -65,6 +65,8 @@ function viewer(result?: Promise<CompileResult>): ViewerPort {
       ? { status: 'valid' as const, generation: 1 }
       : result),
     updateParameter: vi.fn(),
+    loadEnvironment: vi.fn(async () => undefined),
+    updateEnvironment: vi.fn(),
     capturePortrait: vi.fn(async () => ({
       kind: 'captured' as const,
       blob: new Blob(),
