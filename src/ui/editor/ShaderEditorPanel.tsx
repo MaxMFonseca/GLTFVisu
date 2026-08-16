@@ -2,6 +2,7 @@ import { useRef, type ComponentType, type RefAttributes } from 'react'
 import type { CompileDiagnostic } from '../../application/ViewerPort'
 import { hasDirtyFields } from '../../application/workspaceState'
 import { useWorkspace } from '../../application/WorkspaceController'
+import { hasLoadedModel } from '../../application/workspaceState'
 import { CompileStatus } from './CompileStatus'
 import { MonacoShaderEditor } from './MonacoShaderEditor'
 import { ShaderContractHelp } from './ShaderContractHelp'
@@ -36,7 +37,7 @@ export function ShaderEditorPanel({ SourceEditor = MonacoShaderEditor }: ShaderE
   const invalid = state.draft.name.trim().length === 0 || state.schemaErrors.length > 0
   const saving = state.persistence === 'saving'
   const canSave = !readOnly && dirty && !invalid && !saving && state.compile.status === 'valid'
-  const canCapture = !readOnly && state.modelLoad.status === 'loaded' && state.compile.status === 'valid'
+  const canCapture = !readOnly && hasLoadedModel(state.modelLoad) && state.compile.status === 'valid'
 
   return (
     <section className="shader-editor-panel" aria-labelledby="editor-heading">

@@ -12,10 +12,15 @@ export type CompileResult =
   | { status: 'valid'; generation: number }
   | { status: 'error'; generation: number; diagnostics: CompileDiagnostic[] }
 
+export interface AnimationClipInfo {
+  id: string
+  label: string
+}
+
 export interface ModelInfo {
   name: string
   meshCount: number
-  animationClips: readonly string[]
+  animationClips: readonly AnimationClipInfo[]
 }
 
 /** Application-facing boundary for the imperative viewer runtime. */

@@ -1,6 +1,6 @@
 import type { ParameterDefinitionValidationError } from '../domain/uniformValidation'
 import type { ShaderDefinition, ShaderDraft } from '../domain/shader'
-import type { CompileDiagnostic } from './ViewerPort'
+import type { AnimationClipInfo, CompileDiagnostic } from './ViewerPort'
 
 export interface WorkspaceDirtyFields {
   name: boolean
@@ -26,13 +26,13 @@ export interface WorkspaceCompileState {
 
 export type WorkspaceModelLoadState =
   | { status: 'empty' }
-  | { status: 'loading'; fileName: string }
+  | { status: 'loading'; fileName: string; retained?: { name: string; meshCount: number } }
   | { status: 'loaded'; name: string; meshCount: number }
   | { status: 'error'; message: string }
 
 export interface WorkspaceAnimationState {
-  clipNames: readonly string[]
-  selectedClip?: string
+  clips: readonly AnimationClipInfo[]
+  selectedClipId?: string
   playing: boolean
 }
 
@@ -84,4 +84,8 @@ export function initialFieldRevisions(revision: number): WorkspaceFieldRevisions
 
 export function hasDirtyFields(dirty: WorkspaceDirtyFields): boolean {
   return dirty.name || dirty.source || dirty.schema || dirty.values || dirty.portrait
+}
+
+export function hasLoadedModel(modelLoad: WorkspaceModelLoadState): boolean {
+  return modelLoad.status === 'loaded' || modelLoad.status === 'loading' && modelLoad.retained !== undefined
 }

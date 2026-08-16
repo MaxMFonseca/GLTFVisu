@@ -25,6 +25,29 @@ function localShader(overrides: Partial<ShaderDefinition> = {}): ShaderDefinitio
 }
 
 describe('workspaceReducer', () => {
+  it('restores the committed animated model snapshot when a replacement load fails', () => {
+    const loaded = workspaceReducer(createInitialWorkspaceState(BUILTIN_SHADERS), {
+      type: 'modelLoadSucceeded',
+      info: {
+        name: 'robot.glb',
+        meshCount: 2,
+        animationClips: [{ id: 'clip-0', label: 'Idle' }],
+      },
+    })
+    const paused = workspaceReducer(loaded, { type: 'animationsChanged', selectedClipId: 'clip-0', playing: false })
+    const loading = workspaceReducer(paused, { type: 'modelLoadStarted', fileName: 'broken.glb' })
+    const failed = workspaceReducer(loading, { type: 'operationFailed', scope: 'model', message: 'Malformed model' })
+
+    expect(loading.modelLoad).toEqual({
+      status: 'loading',
+      fileName: 'broken.glb',
+      retained: { name: 'robot.glb', meshCount: 2 },
+    })
+    expect(loading.animations).toEqual(paused.animations)
+    expect(failed.modelLoad).toEqual({ status: 'loaded', name: 'robot.glb', meshCount: 2 })
+    expect(failed.animations).toEqual(paused.animations)
+  })
+
   it('starts from the first built-in while repository hydration remains pending', () => {
     const state = createInitialWorkspaceState(BUILTIN_SHADERS)
 

@@ -1,10 +1,15 @@
 import {
   BackSide,
   BoxGeometry,
+  BufferGeometry,
   FrontSide,
   Group,
+  Line,
+  LineBasicMaterial,
   Mesh,
   MeshBasicMaterial,
+  Points,
+  PointsMaterial,
   ShaderMaterial,
 } from 'three'
 import { describe, expect, it, vi } from 'vitest'
@@ -52,5 +57,24 @@ describe('MaterialOverride', () => {
     expect(disposeInstalled).toHaveBeenCalledTimes(1)
     expect(disposeOriginal).not.toHaveBeenCalled()
     expect(disposeTemplate).not.toHaveBeenCalled()
+  })
+
+  it('overrides and restores mesh, line, and point renderables', () => {
+    const mesh = new Mesh(new BoxGeometry(), new MeshBasicMaterial())
+    const line = new Line(new BufferGeometry(), new LineBasicMaterial())
+    const points = new Points(new BufferGeometry(), new PointsMaterial())
+    const originals = [mesh.material, line.material, points.material]
+    const root = new Group().add(mesh, line, points)
+    const override = new MaterialOverride(root)
+
+    override.apply(new ShaderMaterial())
+
+    expect([mesh.material, line.material, points.material]).toEqual([
+      expect.any(ShaderMaterial),
+      expect.any(ShaderMaterial),
+      expect.any(ShaderMaterial),
+    ])
+    override.dispose()
+    expect([mesh.material, line.material, points.material]).toEqual(originals)
   })
 })
