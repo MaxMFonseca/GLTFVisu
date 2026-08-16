@@ -224,8 +224,8 @@ describe('shader workspace acceptance', () => {
     await waitForValidCompile()
 
     const compileCountBeforeValues = vi.mocked(viewer.compileShader).mock.calls.length
-    fireEvent.change(within(editorPanel()).getByRole('spinbutton', { name: 'Gain value' }), { target: { value: '0.8' } })
-    fireEvent.change(within(editorPanel()).getByLabelText('Tint color picker'), { target: { value: '#336699' } })
+    fireEvent.change(within(editorPanel()).getByRole('spinbutton', { name: 'Gain (uParameter1) value' }), { target: { value: '0.8' } })
+    fireEvent.change(within(editorPanel()).getByLabelText('Tint (uParameter2) color picker'), { target: { value: '#336699' } })
     await act(async () => { await new Promise((resolve) => window.setTimeout(resolve, 450)) })
     expect(viewer.updateParameter).toHaveBeenCalledTimes(2)
     expect(viewer.compileShader).toHaveBeenCalledTimes(compileCountBeforeValues)

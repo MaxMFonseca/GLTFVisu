@@ -10,6 +10,7 @@ export interface ParameterControlProps {
 
 export function ParameterControl({ definition, value, readOnly, onChange }: ParameterControlProps) {
   const [colorText, setColorText] = useState(typeof value === 'string' ? value.toLowerCase() : '#000000')
+  const accessibleName = `${definition.label} (${definition.uniformName})`
 
   useEffect(() => {
     if (definition.type === 'color' && typeof value === 'string') setColorText(value.toLowerCase())
@@ -23,9 +24,9 @@ export function ParameterControl({ definition, value, readOnly, onChange }: Para
         <p>{definition.label}</p>
         <div className="parameter-control-pair">
           <label>
-            <span className="visually-hidden">{definition.label} slider</span>
+            <span className="visually-hidden">{accessibleName} slider</span>
             <input
-              aria-label={`${definition.label} slider`}
+              aria-label={`${accessibleName} slider`}
               type="range"
               min={definition.min}
               max={definition.max}
@@ -36,9 +37,9 @@ export function ParameterControl({ definition, value, readOnly, onChange }: Para
             />
           </label>
           <label>
-            <span className="visually-hidden">{definition.label} value</span>
+            <span className="visually-hidden">{accessibleName} value</span>
             <input
-              aria-label={`${definition.label} value`}
+              aria-label={`${accessibleName} value`}
               type="number"
               min={definition.min}
               max={definition.max}
@@ -60,9 +61,9 @@ export function ParameterControl({ definition, value, readOnly, onChange }: Para
         <p>{definition.label}</p>
         <div className="parameter-control-pair">
           <label>
-            <span className="visually-hidden">{definition.label} color picker</span>
+            <span className="visually-hidden">{accessibleName} color picker</span>
             <input
-              aria-label={`${definition.label} color picker`}
+              aria-label={`${accessibleName} color picker`}
               type="color"
               disabled={readOnly}
               value={colorValue}
@@ -70,9 +71,9 @@ export function ParameterControl({ definition, value, readOnly, onChange }: Para
             />
           </label>
           <label>
-            <span className="visually-hidden">{definition.label} hex value</span>
+            <span className="visually-hidden">{accessibleName} hex value</span>
             <input
-              aria-label={`${definition.label} hex value`}
+              aria-label={`${accessibleName} hex value`}
               type="text"
               readOnly={readOnly}
               value={colorText}
@@ -92,6 +93,7 @@ export function ParameterControl({ definition, value, readOnly, onChange }: Para
     <div className="parameter-control checkbox-control" data-parameter-id={definition.id}>
       <label>
         <input
+          aria-label={accessibleName}
           type="checkbox"
           disabled={readOnly}
           checked={typeof value === 'boolean' ? value : definition.defaultValue}
