@@ -1,11 +1,19 @@
 import { Line, Mesh, Points, type Material, type Object3D, type ShaderMaterial } from 'three'
-import type { MaterialVariantFactory } from './materialBindings/types'
+import type {
+  MaterialVariantCacheKey,
+  MaterialVariantContext,
+  MaterialVariantFactory,
+} from './materialBindings/types'
 import { getMaterialInputProfile, setMaterialInputProfile } from './shaders/materialFactory'
 
 export type { MaterialVariantFactory } from './materialBindings/types'
 
 type MaterialAssignment = Material | Material[]
 type MaterialRenderable = Mesh | Line | Points
+
+const DEFAULT_VARIANT_CACHE_KEY = Symbol('default material variant')
+const UV0_VARIANT_CONTEXT: Readonly<MaterialVariantContext> = Object.freeze({ hasUv1: false })
+const UV1_VARIANT_CONTEXT: Readonly<MaterialVariantContext> = Object.freeze({ hasUv1: true })
 
 interface MaterialCompatibility {
   side: Material['side']
@@ -65,7 +73,7 @@ export class MaterialOverride {
     if (this.disposed) throw new Error('Material override is disposed')
 
     const variants = new Set<ShaderMaterial>()
-    const variantsByOriginal = new Map<Material, ShaderMaterial>()
+    const variantsByOriginal = new Map<Material, Map<MaterialVariantCacheKey, ShaderMaterial>>()
     const compatibilityVariants = new Map<string, ShaderMaterial>()
     const assignments = new Map<MaterialRenderable, MaterialAssignment>()
     const predecessors = new Map<MaterialRenderable, MaterialAssignment>()
@@ -74,6 +82,7 @@ export class MaterialOverride {
     try {
       for (const [mesh, original] of this.originals) {
         predecessors.set(mesh, mesh.material)
+        const context = variantContextFor(mesh)
         assignments.set(
           mesh,
           Array.isArray(original)
@@ -83,8 +92,16 @@ export class MaterialOverride {
                 variants,
                 variantsByOriginal,
                 compatibilityVariants,
+                context,
               ))
-            : this.variantFor(original, template, variants, variantsByOriginal, compatibilityVariants),
+            : this.variantFor(
+                original,
+                template,
+                variants,
+                variantsByOriginal,
+                compatibilityVariants,
+                context,
+              ),
         )
       }
     } catch (error) {
@@ -148,15 +165,18 @@ export class MaterialOverride {
     original: Material,
     template: ShaderMaterial,
     variants: Set<ShaderMaterial>,
-    variantsByOriginal: Map<Material, ShaderMaterial>,
+    variantsByOriginal: Map<Material, Map<MaterialVariantCacheKey, ShaderMaterial>>,
     compatibilityVariants: Map<string, ShaderMaterial>,
+    context: MaterialVariantContext,
   ): ShaderMaterial {
-    const existing = variantsByOriginal.get(original)
+    const cacheKey = this.createVariant?.getCacheKey?.(original, context) ?? DEFAULT_VARIANT_CACHE_KEY
+    const cachedVariants = variantsByOriginal.get(original)
+    const existing = cachedVariants?.get(cacheKey)
     if (existing !== undefined) return existing
 
     const variant = this.createVariant === undefined
       ? defaultVariantFor(original, template, compatibilityVariants)
-      : this.createVariant(original, template)
+      : this.createVariant(original, template, context)
     if (
       variant === template
       || this.originalMaterials.has(variant)
@@ -172,7 +192,11 @@ export class MaterialOverride {
     setMaterialInputProfile(variant, getMaterialInputProfile(template))
     variants.add(variant)
     if (this.createVariant !== undefined) this.reservedVariants.add(variant)
-    variantsByOriginal.set(original, variant)
+    if (cachedVariants === undefined) {
+      variantsByOriginal.set(original, new Map([[cacheKey, variant]]))
+    } else {
+      cachedVariants.set(cacheKey, variant)
+    }
     return variant
   }
 
@@ -213,6 +237,12 @@ function compatibilityOf(material: Material): MaterialCompatibility {
     blending: material.blending,
     alphaTest: material.alphaTest,
   }
+}
+
+function variantContextFor(renderable: MaterialRenderable): Readonly<MaterialVariantContext> {
+  return renderable.geometry.getAttribute('uv1') === undefined
+    ? UV0_VARIANT_CONTEXT
+    : UV1_VARIANT_CONTEXT
 }
 
 function assignMaterials(

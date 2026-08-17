@@ -1,5 +1,7 @@
+import type { MaterialInputProfile } from '../../domain/materialInput'
 import type { ShaderParameterDefinition } from '../../domain/parameters'
 import { validateParameterDefinitions } from '../../domain/uniformValidation'
+import { profileContractSource } from './profileContract'
 
 const GLSL_TYPES: Record<ShaderParameterDefinition['type'], string> = {
   float: 'float',
@@ -48,15 +50,18 @@ export const USER_SOURCE_LINE_MAPPING: Readonly<ShaderLineMapping> = Object.free
 export function buildFragmentShader(
   source: string,
   definitions: readonly ShaderParameterDefinition[],
+  profile: MaterialInputProfile = 'none',
 ): BuiltFragmentShader {
   const errors = validateParameterDefinitions(definitions)
   if (errors.length > 0) {
     throw new Error(`Invalid shader parameter definitions: ${errors.map((error) => error.message).join(', ')}`)
   }
 
+  const profileSource = profileContractSource(profile)
   const injectedLines = [
     ...SHADER_CONTRACT.preamble,
     ...definitions.map((definition) => `uniform ${GLSL_TYPES[definition.type]} ${definition.uniformName};`),
+    ...(profileSource.length > 0 ? ['', ...profileSource.split('\n')] : []),
     '',
     SHADER_CONTRACT.output,
     '',

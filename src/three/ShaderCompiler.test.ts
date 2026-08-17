@@ -1,11 +1,24 @@
-import { ShaderMaterial } from 'three'
+import {
+  BoxGeometry,
+  Camera,
+  Group,
+  Mesh,
+  MeshStandardMaterial,
+  type Object3D,
+  ShaderMaterial,
+  Texture,
+} from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import type { ShaderParameterDefinition } from '../domain/parameters'
 import type { ShaderDraft } from '../domain/shader'
 import type { CompileDiagnostic } from '../application/ViewerPort'
+import { BUILTIN_SHADERS } from '../domain/builtins'
 import type { MaterialInputProfile } from '../domain/materialInput'
+import { createGltfSurfaceBindingOwner } from './materialBindings/GltfSurfaceBinding'
+import { MaterialOverride } from './MaterialOverride'
 import {
   ShaderCompiler,
+  type RuntimeMaterialPreparer,
   type ShaderValidationRenderer,
 } from './ShaderCompiler'
 import { getMaterialInputProfile } from './shaders/materialFactory'
@@ -54,6 +67,18 @@ function deferred<T>() {
 const unusedRenderer: ShaderValidationRenderer = {
   debug: { checkShaderErrors: true, onShaderError: null },
   render: vi.fn(),
+}
+
+function shaderMaterialsIn(root: Object3D): ShaderMaterial[] {
+  const materials = new Set<ShaderMaterial>()
+  root.traverse((object) => {
+    if (!(object instanceof Mesh)) return
+    const assignment = object.material
+    for (const material of Array.isArray(assignment) ? assignment : [assignment]) {
+      if (material instanceof ShaderMaterial) materials.add(material)
+    }
+  })
+  return [...materials]
 }
 
 describe('ShaderCompiler', () => {
@@ -247,5 +272,68 @@ describe('ShaderCompiler', () => {
     })
     expect(renderer.debug.onShaderError).toBe(previousErrorHandler)
     expect(compiler.material).toBeUndefined()
+  })
+
+  it('validates real Toon source and UV0/UV1 surface variants through default compiler boundaries', async () => {
+    const toon = BUILTIN_SHADERS.find((shader) => shader.id === 'builtin-toon')
+    expect(toon).toBeDefined()
+    if (toon === undefined) return
+
+    const channel0Map = new Texture()
+    const channel1Map = new Texture()
+    channel1Map.channel = 1
+    const channel0 = new Mesh(new BoxGeometry(), new MeshStandardMaterial({ map: channel0Map }))
+    const channel1Geometry = new BoxGeometry()
+    channel1Geometry.setAttribute('uv1', channel1Geometry.getAttribute('uv').clone())
+    const channel1 = new Mesh(channel1Geometry, new MeshStandardMaterial({ map: channel1Map }))
+    const root = new Group().add(channel0, channel1)
+    const camera = new Camera()
+    const validationPasses: Array<{
+      checking: boolean
+      handlerInstalled: boolean
+      materials: ShaderMaterial[]
+    }> = []
+    const renderer: ShaderValidationRenderer = {
+      debug: { checkShaderErrors: false, onShaderError: null },
+      render: (renderRoot) => {
+        validationPasses.push({
+          checking: renderer.debug.checkShaderErrors,
+          handlerInstalled: renderer.debug.onShaderError !== null,
+          materials: shaderMaterialsIn(renderRoot),
+        })
+      },
+    }
+    const owner = createGltfSurfaceBindingOwner()
+    const override = new MaterialOverride(root, owner.createVariant)
+    const prepareRuntime: RuntimeMaterialPreparer = (material) => {
+      const prepared = override.prepare(material)
+      return {
+        validate: (validateRender) => prepared.run(
+          () => validateRender(() => renderer.render(root, camera)),
+        ),
+        commit: () => prepared.commit(),
+        dispose: () => prepared.dispose(),
+      }
+    }
+    const compiler = new ShaderCompiler(renderer)
+
+    const result = await compiler.compile(toon, prepareRuntime)
+
+    expect(result).toEqual({ status: 'valid', generation: 1 })
+    expect(validationPasses).toHaveLength(2)
+    expect(validationPasses.every(({ checking, handlerInstalled }) => checking && handlerInstalled)).toBe(true)
+    expect(validationPasses[0].materials).toHaveLength(1)
+    expect(validationPasses[0].materials[0].fragmentShader).toContain('vec4 sampleGltfBaseColor()')
+    expect(validationPasses[0].materials[0].fragmentShader.endsWith(toon.fragmentSource)).toBe(true)
+    expect(validationPasses[0].materials[0].fragmentShader).not.toContain('gltfSrgbToLinear')
+    expect(validationPasses[1].materials).toHaveLength(2)
+    const channel0Variant = channel0.material as unknown as ShaderMaterial
+    const channel1Variant = channel1.material as unknown as ShaderMaterial
+    expect(channel0Variant.uniforms.uGltfBaseColorUvChannel.value).toBe(0)
+    expect(channel1Variant.uniforms.uGltfBaseColorUvChannel.value).toBe(1)
+    expect(channel0Variant.uniforms.uGltfBaseColorMap.value).toBe(channel0Map)
+    expect(channel1Variant.uniforms.uGltfBaseColorMap.value).toBe(channel1Map)
+    expect(getMaterialInputProfile(channel0Variant)).toBe('gltf-surface')
+    expect(getMaterialInputProfile(channel1Variant)).toBe('gltf-surface')
   })
 })
