@@ -1,4 +1,8 @@
 import { Line, Mesh, Points, type Material, type Object3D, type ShaderMaterial } from 'three'
+import type { MaterialVariantFactory } from './materialBindings/types'
+import { getMaterialInputProfile, setMaterialInputProfile } from './shaders/materialFactory'
+
+export type { MaterialVariantFactory } from './materialBindings/types'
 
 type MaterialAssignment = Material | Material[]
 type MaterialRenderable = Mesh | Line | Points
@@ -22,13 +26,24 @@ export interface PreparedMaterialOverride {
 /** Owns app-created material assignments while retaining model-owned originals. */
 export class MaterialOverride {
   private readonly originals = new Map<MaterialRenderable, MaterialAssignment>()
+  private readonly originalMaterials = new Set<Material>()
+  private readonly reservedVariants = new Set<ShaderMaterial>()
   private overrideMaterials = new Set<ShaderMaterial>()
   private revision = 0
   private disposed = false
 
-  constructor(root: Object3D) {
+  constructor(
+    root: Object3D,
+    private readonly createVariant?: MaterialVariantFactory,
+  ) {
     root.traverse((object) => {
-      if (isMaterialRenderable(object)) this.originals.set(object, object.material)
+      if (!isMaterialRenderable(object)) return
+      this.originals.set(object, object.material)
+      if (Array.isArray(object.material)) {
+        for (const material of object.material) this.originalMaterials.add(material)
+      } else {
+        this.originalMaterials.add(object.material)
+      }
     })
   }
 
@@ -49,7 +64,9 @@ export class MaterialOverride {
   prepare(template: ShaderMaterial): PreparedMaterialOverride {
     if (this.disposed) throw new Error('Material override is disposed')
 
-    const variants = new Map<string, ShaderMaterial>()
+    const variants = new Set<ShaderMaterial>()
+    const variantsByOriginal = new Map<Material, ShaderMaterial>()
+    const compatibilityVariants = new Map<string, ShaderMaterial>()
     const assignments = new Map<MaterialRenderable, MaterialAssignment>()
     const predecessors = new Map<MaterialRenderable, MaterialAssignment>()
     const revision = this.revision
@@ -60,12 +77,19 @@ export class MaterialOverride {
         assignments.set(
           mesh,
           Array.isArray(original)
-            ? original.map((material) => variantFor(material, template, variants))
-            : variantFor(original, template, variants),
+            ? original.map((material) => this.variantFor(
+                material,
+                template,
+                variants,
+                variantsByOriginal,
+                compatibilityVariants,
+              ))
+            : this.variantFor(original, template, variants, variantsByOriginal, compatibilityVariants),
         )
       }
     } catch (error) {
-      for (const material of variants.values()) material.dispose()
+      this.releaseReservations(variants)
+      for (const material of variants) material.dispose()
       throw error
     }
 
@@ -78,26 +102,28 @@ export class MaterialOverride {
     return {
       run: <T>(operation: () => T): T => {
         assertCurrent()
-        for (const [mesh, assignment] of assignments) mesh.material = assignment
+        const changed = assignMaterials(assignments, predecessors)
         try {
           return operation()
         } finally {
-          for (const [mesh, assignment] of predecessors) mesh.material = assignment
+          restoreMaterials(changed, predecessors)
         }
       },
       commit: () => {
         assertCurrent()
         const previousMaterials = this.overrideMaterials
-        for (const [mesh, assignment] of assignments) mesh.material = assignment
-        this.overrideMaterials = new Set(variants.values())
+        assignMaterials(assignments, predecessors)
+        this.overrideMaterials = variants
         this.revision += 1
         completed = true
+        this.releaseReservations(variants)
         for (const material of previousMaterials) material.dispose()
       },
       dispose: () => {
         if (completed) return
         completed = true
-        for (const material of variants.values()) material.dispose()
+        this.releaseReservations(variants)
+        for (const material of variants) material.dispose()
       },
     }
   }
@@ -114,7 +140,44 @@ export class MaterialOverride {
     if (this.disposed) return
     this.restore()
     this.originals.clear()
+    this.originalMaterials.clear()
     this.disposed = true
+  }
+
+  private variantFor(
+    original: Material,
+    template: ShaderMaterial,
+    variants: Set<ShaderMaterial>,
+    variantsByOriginal: Map<Material, ShaderMaterial>,
+    compatibilityVariants: Map<string, ShaderMaterial>,
+  ): ShaderMaterial {
+    const existing = variantsByOriginal.get(original)
+    if (existing !== undefined) return existing
+
+    const variant = this.createVariant === undefined
+      ? defaultVariantFor(original, template, compatibilityVariants)
+      : this.createVariant(original, template)
+    if (
+      variant === template
+      || this.originalMaterials.has(variant)
+      || this.overrideMaterials.has(variant)
+      || (this.createVariant !== undefined && (
+        variants.has(variant)
+        || this.reservedVariants.has(variant)
+      ))
+    ) {
+      throw new Error('Material variant factory must return a fresh app-owned ShaderMaterial')
+    }
+
+    setMaterialInputProfile(variant, getMaterialInputProfile(template))
+    variants.add(variant)
+    if (this.createVariant !== undefined) this.reservedVariants.add(variant)
+    variantsByOriginal.set(original, variant)
+    return variant
+  }
+
+  private releaseReservations(variants: ReadonlySet<ShaderMaterial>): void {
+    for (const variant of variants) this.reservedVariants.delete(variant)
   }
 }
 
@@ -122,7 +185,7 @@ export function isMaterialRenderable(object: Object3D): object is MaterialRender
   return object instanceof Mesh || object instanceof Line || object instanceof Points
 }
 
-function variantFor(
+function defaultVariantFor(
   original: Material,
   template: ShaderMaterial,
   variants: Map<string, ShaderMaterial>,
@@ -149,5 +212,33 @@ function compatibilityOf(material: Material): MaterialCompatibility {
     colorWrite: material.colorWrite,
     blending: material.blending,
     alphaTest: material.alphaTest,
+  }
+}
+
+function assignMaterials(
+  assignments: ReadonlyMap<MaterialRenderable, MaterialAssignment>,
+  predecessors: ReadonlyMap<MaterialRenderable, MaterialAssignment>,
+): MaterialRenderable[] {
+  const changed: MaterialRenderable[] = []
+  try {
+    for (const [renderable, assignment] of assignments) {
+      renderable.material = assignment
+      changed.push(renderable)
+    }
+    return changed
+  } catch (error) {
+    restoreMaterials(changed, predecessors)
+    throw error
+  }
+}
+
+function restoreMaterials(
+  changed: readonly MaterialRenderable[],
+  predecessors: ReadonlyMap<MaterialRenderable, MaterialAssignment>,
+): void {
+  for (let index = changed.length - 1; index >= 0; index -= 1) {
+    const renderable = changed[index]
+    const predecessor = predecessors.get(renderable)
+    if (predecessor !== undefined) renderable.material = predecessor
   }
 }
