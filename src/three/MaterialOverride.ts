@@ -12,8 +12,22 @@ type MaterialAssignment = Material | Material[]
 type MaterialRenderable = Mesh | Line | Points
 
 const DEFAULT_VARIANT_CACHE_KEY = Symbol('default material variant')
-const UV0_VARIANT_CONTEXT: Readonly<MaterialVariantContext> = Object.freeze({ hasUv1: false })
-const UV1_VARIANT_CONTEXT: Readonly<MaterialVariantContext> = Object.freeze({ hasUv1: true })
+const UV0_DERIVATIVE_CONTEXT: Readonly<MaterialVariantContext> = Object.freeze({
+  hasUv1: false,
+  hasTangent: false,
+})
+const UV0_TANGENT_CONTEXT: Readonly<MaterialVariantContext> = Object.freeze({
+  hasUv1: false,
+  hasTangent: true,
+})
+const UV1_DERIVATIVE_CONTEXT: Readonly<MaterialVariantContext> = Object.freeze({
+  hasUv1: true,
+  hasTangent: false,
+})
+const UV1_TANGENT_CONTEXT: Readonly<MaterialVariantContext> = Object.freeze({
+  hasUv1: true,
+  hasTangent: true,
+})
 
 interface MaterialCompatibility {
   side: Material['side']
@@ -240,9 +254,10 @@ function compatibilityOf(material: Material): MaterialCompatibility {
 }
 
 function variantContextFor(renderable: MaterialRenderable): Readonly<MaterialVariantContext> {
-  return renderable.geometry.getAttribute('uv1') === undefined
-    ? UV0_VARIANT_CONTEXT
-    : UV1_VARIANT_CONTEXT
+  const hasUv1 = renderable.geometry.getAttribute('uv1') !== undefined
+  const hasTangent = renderable.geometry.getAttribute('tangent') !== undefined
+  if (hasUv1) return hasTangent ? UV1_TANGENT_CONTEXT : UV1_DERIVATIVE_CONTEXT
+  return hasTangent ? UV0_TANGENT_CONTEXT : UV0_DERIVATIVE_CONTEXT
 }
 
 function assignMaterials(

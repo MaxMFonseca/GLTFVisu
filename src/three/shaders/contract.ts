@@ -46,7 +46,7 @@ export const USER_SOURCE_LINE_MAPPING: Readonly<ShaderLineMapping> = Object.free
   lineOffset: 0,
 })
 
-/** Composes the app-owned GLSL contract around an editable fragment program body. */
+/** Composes the base and selected profile contracts around an editable fragment program body. */
 export function buildFragmentShader(
   source: string,
   definitions: readonly ShaderParameterDefinition[],

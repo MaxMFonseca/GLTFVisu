@@ -1,12 +1,16 @@
 import { Color, GLSL3, ShaderMaterial, Vector2, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
 import { BUILTIN_SHADERS } from '../../domain/builtins'
-import { GLTF_SURFACE_CONTRACT_IDENTIFIERS } from '../../domain/materialInput'
+import {
+  GLTF_PBR_CONTRACT_IDENTIFIERS,
+  GLTF_SURFACE_CONTRACT_IDENTIFIERS,
+} from '../../domain/materialInput'
 import type { ShaderParameterDefinition } from '../../domain/parameters'
 import { buildFragmentShader, SHADER_CONTRACT } from './contract'
 import { parseShaderDiagnostics } from './diagnostics'
 import * as materialFactory from './materialFactory'
-import { surfaceProfileContract } from './profileContract'
+import { PBR_FRAGMENT_SOURCE } from './pbrFragment'
+import { pbrProfileContract, surfaceProfileContract } from './profileContract'
 import { VERTEX_SHADER } from './vertexShader'
 
 const definitions: ShaderParameterDefinition[] = [
@@ -169,6 +173,99 @@ describe('buildFragmentShader', () => {
     }
     expect(built.source).not.toContain('vGltfUv1')
     expect(built.source).not.toContain('sampleGltfBaseColor')
+  })
+
+  it('extends the surface contract once with the canonical GLTF PBR declarations', () => {
+    const pbrDefinitions: ShaderParameterDefinition[] = [
+      { id: 'base-color-tint', type: 'color', uniformName: 'uBaseColorTint', label: 'Base color tint', defaultValue: '#ffffff' },
+      { id: 'use-base-color-map', type: 'boolean', uniformName: 'uUseBaseColorMap', label: 'Use base color map', defaultValue: true },
+      { id: 'metallic-multiplier', type: 'float', uniformName: 'uMetallicMultiplier', label: 'Metallic multiplier', min: 0, max: 2, step: 0.01, defaultValue: 1 },
+      { id: 'roughness-multiplier', type: 'float', uniformName: 'uRoughnessMultiplier', label: 'Roughness multiplier', min: 0, max: 2, step: 0.01, defaultValue: 1 },
+      { id: 'use-metallic-roughness-map', type: 'boolean', uniformName: 'uUseMetallicRoughnessMap', label: 'Use metallic roughness map', defaultValue: true },
+      { id: 'normal-strength', type: 'float', uniformName: 'uNormalStrength', label: 'Normal strength', min: 0, max: 2, step: 0.01, defaultValue: 1 },
+      { id: 'use-normal-map', type: 'boolean', uniformName: 'uUseNormalMap', label: 'Use normal map', defaultValue: true },
+      { id: 'environment-contribution', type: 'float', uniformName: 'uEnvironmentContribution', label: 'Environment contribution', min: 0, max: 4, step: 0.01, defaultValue: 1 },
+    ]
+
+    const built = buildFragmentShader(PBR_FRAGMENT_SOURCE, pbrDefinitions, 'gltf-pbr')
+    const pbrOnlyDeclarations = [
+      'uniform float uGltfMetallicFactor;',
+      'uniform float uGltfRoughnessFactor;',
+      'uniform sampler2D uGltfMetallicMap;',
+      'uniform sampler2D uGltfRoughnessMap;',
+      'uniform bool uGltfHasMetallicMap;',
+      'uniform bool uGltfHasRoughnessMap;',
+      'uniform int uGltfMetallicUvChannel;',
+      'uniform int uGltfRoughnessUvChannel;',
+      'uniform mat3 uGltfMetallicUvTransform;',
+      'uniform mat3 uGltfRoughnessUvTransform;',
+      'uniform sampler2D uGltfNormalMap;',
+      'uniform bool uGltfHasNormalMap;',
+      'uniform int uGltfNormalUvChannel;',
+      'uniform mat3 uGltfNormalUvTransform;',
+      'uniform vec2 uGltfNormalScale;',
+      'uniform sampler2D uEnvironmentMap;',
+      'uniform mat3 uEnvironmentRotation;',
+      'uniform float uEnvironmentIntensity;',
+    ]
+
+    expect(pbrProfileContract.identifiers).toBe(GLTF_PBR_CONTRACT_IDENTIFIERS)
+    expect(pbrProfileContract.declarations).toEqual(pbrOnlyDeclarations)
+    for (const identifier of GLTF_PBR_CONTRACT_IDENTIFIERS) {
+      const declarationPattern = new RegExp(`uniform\\s+\\w+\\s+${identifier};`, 'g')
+      expect(built.source.match(declarationPattern)).toHaveLength(1)
+    }
+    for (const declaration of surfaceProfileContract.declarations) {
+      expect(built.source.split(declaration)).toHaveLength(2)
+    }
+    expect(built.source).toContain('#define ENVMAP_TYPE_CUBE_UV')
+    expect(built.source).toContain('#include <cube_uv_reflection_fragment>')
+    expect(built.source.split('uniform float uEnvironmentContribution;')).toHaveLength(2)
+    expect(built.source.endsWith(PBR_FRAGMENT_SOURCE)).toBe(true)
+  })
+
+  it('keeps the editable PBR body responsible for metallic-roughness BRDF, normals, IBL, and output conversion', () => {
+    expect(PBR_FRAGMENT_SOURCE).toContain('distributionGGX')
+    expect(PBR_FRAGMENT_SOURCE).toContain('visibilitySmithGGXCorrelated')
+    expect(PBR_FRAGMENT_SOURCE).toContain('fresnelSchlick')
+    expect(PBR_FRAGMENT_SOURCE).toContain('diffuseLambert')
+    expect(PBR_FRAGMENT_SOURCE).toContain('dFdx(vWorldPosition)')
+    expect(PBR_FRAGMENT_SOURCE).toContain('uGltfNormalScale * uNormalStrength')
+    expect(PBR_FRAGMENT_SOURCE).toMatch(/texture\(uGltfRoughnessMap,[^)]+\)\.g/)
+    expect(PBR_FRAGMENT_SOURCE).toMatch(/texture\(uGltfMetallicMap,[^)]+\)\.b/)
+    expect(PBR_FRAGMENT_SOURCE).toContain('clamp(metallic, 0.0, 1.0)')
+    expect(PBR_FRAGMENT_SOURCE).toContain('clamp(roughness, 0.04, 1.0)')
+    expect(PBR_FRAGMENT_SOURCE).toMatch(/textureCubeUV\(uEnvironmentMap,\s*diffuseDirection,\s*1\.0\)/)
+    expect(PBR_FRAGMENT_SOURCE).toMatch(/textureCubeUV\(uEnvironmentMap,\s*specularDirection,\s*roughness\)/)
+    expect(PBR_FRAGMENT_SOURCE).toContain('uEnvironmentIntensity * uEnvironmentContribution')
+    expect(PBR_FRAGMENT_SOURCE).toContain('toneMapping(linearColor)')
+    expect(PBR_FRAGMENT_SOURCE).toContain('linearToOutputTexel')
+    expect(PBR_FRAGMENT_SOURCE).toContain('outColor =')
+  })
+
+  it('uses source tangents when available and Three-style face direction for non-flat back-face normals', () => {
+    expect(VERTEX_SHADER).toContain('#ifdef USE_TANGENT')
+    expect(VERTEX_SHADER).toContain('out vec4 vGltfWorldTangent;')
+    expect(VERTEX_SHADER).toContain('transformedTangent')
+    expect(VERTEX_SHADER).toContain('tangent.w')
+    expect(PBR_FRAGMENT_SOURCE).toContain('#ifdef USE_TANGENT')
+    expect(PBR_FRAGMENT_SOURCE).toContain('vGltfWorldTangent.xyz')
+    expect(PBR_FRAGMENT_SOURCE).toContain('cross(unflippedNormal, tangent) * vGltfWorldTangent.w')
+    expect(PBR_FRAGMENT_SOURCE).toContain('float faceDirection = gl_FrontFacing ? 1.0 : -1.0;')
+    expect(PBR_FRAGMENT_SOURCE).toContain('tangentFrame[0] *= faceDirection;')
+    expect(PBR_FRAGMENT_SOURCE).toContain('tangentFrame[1] *= faceDirection;')
+    expect(PBR_FRAGMENT_SOURCE.indexOf('normal *= faceDirection;'))
+      .toBeLessThan(PBR_FRAGMENT_SOURCE.indexOf('derivativeTangentFrame(normal, normalUv'))
+    expect(PBR_FRAGMENT_SOURCE.indexOf('derivativeTangentFrame(normal, normalUv'))
+      .toBeLessThan(PBR_FRAGMENT_SOURCE.indexOf('tangentFrame[0] *= faceDirection;'))
+  })
+
+  it('returns the geometric normal for zero-area UV derivatives and zero mapped vectors', () => {
+    expect(PBR_FRAGMENT_SOURCE).toContain('out mat3 tangentFrame')
+    expect(PBR_FRAGMENT_SOURCE).toContain('float uvDeterminant =')
+    expect(PBR_FRAGMENT_SOURCE).toContain('if (!pbrFiniteLengthSquared(abs(uvDeterminant))) return false;')
+    expect(PBR_FRAGMENT_SOURCE).toContain('if (!derivativeTangentFrame(normal, normalUv, tangentFrame)) return normal;')
+    expect(PBR_FRAGMENT_SOURCE).toContain('if (!pbrFiniteLengthSquared(mappedLengthSquared)) return normal;')
   })
 })
 

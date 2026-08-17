@@ -30,7 +30,7 @@ export function createGltfSurfaceVariant(
   original: Material,
   template: ShaderMaterial,
   whiteFallback: Texture,
-  context: MaterialVariantContext = { hasUv1: false },
+  context: MaterialVariantContext = { hasUv1: false, hasTangent: false },
 ): ShaderMaterial {
   const inputs = extractGltfSurfaceInputs(original)
   const uvChannel = inputs.uvChannel === 1 && context.hasUv1 ? 1 : 0

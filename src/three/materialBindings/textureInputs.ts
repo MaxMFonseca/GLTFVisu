@@ -1,4 +1,4 @@
-import { Color, DataTexture, Matrix3, Texture } from 'three'
+import { Color, DataTexture, Matrix3, Texture, Vector2 } from 'three'
 
 export interface TextureInput {
   readonly texture: Texture | null
@@ -12,6 +12,15 @@ export interface GltfSurfaceInputs extends TextureInput {
   readonly alphaCutoff: number
 }
 
+export interface GltfPbrInputs {
+  readonly metallicFactor: number
+  readonly roughnessFactor: number
+  readonly metallic: TextureInput
+  readonly roughness: TextureInput
+  readonly normal: TextureInput
+  readonly normalScale: Vector2
+}
+
 interface SurfaceMaterialCapabilities {
   color?: unknown
   map?: unknown
@@ -23,10 +32,27 @@ interface PrimitiveMaterialCapabilities {
   isPointsMaterial?: unknown
 }
 
+interface PbrMaterialCapabilities {
+  metalness?: unknown
+  roughness?: unknown
+  metalnessMap?: unknown
+  roughnessMap?: unknown
+  normalMap?: unknown
+  normalScale?: unknown
+}
+
 /** Creates the binding owner's neutral texture resource. */
 export function createWhiteFallbackTexture(): DataTexture {
   const texture = new DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1)
   texture.name = 'GLTF surface white fallback'
+  texture.needsUpdate = true
+  return texture
+}
+
+/** Creates a tangent-space +Z normal for missing or incompatible normal inputs. */
+export function createNeutralNormalFallbackTexture(): DataTexture {
+  const texture = new DataTexture(new Uint8Array([128, 128, 255, 255]), 1, 1)
+  texture.name = 'GLTF PBR neutral normal fallback'
   texture.needsUpdate = true
   return texture
 }
@@ -66,6 +92,21 @@ export function extractGltfSurfaceInputs(material: object): GltfSurfaceInputs {
   }
 }
 
+/** Extracts metallic/roughness capabilities while preserving borrowed texture metadata. */
+export function extractGltfPbrInputs(material: object): GltfPbrInputs {
+  const capabilities = material as PbrMaterialCapabilities
+  const hasPbrInputs = !isLineOrPointMaterial(material) && hasAnyPbrCapability(material)
+
+  return {
+    metallicFactor: hasPbrInputs ? finiteNumber(capabilities.metalness, 0) : 0,
+    roughnessFactor: hasPbrInputs ? finiteNumber(capabilities.roughness, 1) : 1,
+    metallic: extractTextureInput(hasPbrInputs ? capabilities.metalnessMap : null),
+    roughness: extractTextureInput(hasPbrInputs ? capabilities.roughnessMap : null),
+    normal: extractTextureInput(hasPbrInputs ? capabilities.normalMap : null),
+    normalScale: hasPbrInputs ? finiteVector2(capabilities.normalScale) : new Vector2(1, 1),
+  }
+}
+
 function isColor(value: unknown): value is Color {
   return typeof value === 'object'
     && value !== null
@@ -76,6 +117,29 @@ function isTexture(value: unknown): value is Texture {
   return typeof value === 'object'
     && value !== null
     && (value as { isTexture?: unknown }).isTexture === true
+}
+
+function isVector2(value: unknown): value is Vector2 {
+  return typeof value === 'object'
+    && value !== null
+    && (value as { isVector2?: unknown }).isVector2 === true
+}
+
+function finiteVector2(value: unknown): Vector2 {
+  return isVector2(value) && Number.isFinite(value.x) && Number.isFinite(value.y)
+    ? value.clone()
+    : new Vector2(1, 1)
+}
+
+function hasAnyPbrCapability(material: object): boolean {
+  return [
+    'metalness',
+    'roughness',
+    'metalnessMap',
+    'roughnessMap',
+    'normalMap',
+    'normalScale',
+  ].some((property) => property in material)
 }
 
 function isLineOrPointMaterial(material: object): boolean {
