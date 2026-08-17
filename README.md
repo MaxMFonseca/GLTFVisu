@@ -47,6 +47,8 @@ Built-in shaders are read-only. Select one and choose **Duplicate shader** to cr
 
 Source and parameter-schema edits compile after a 400 ms debounce. A failed compile leaves the last valid runtime material active and reports diagnostics in the editor. Runtime parameter value changes update uniforms immediately and do not recompile the shader.
 
+Built-in control values last for the current browser session. Switching shaders preserves each built-in's current values, but reloading resets them to their defaults. Duplicate a built-in to keep its current values and material-input behavior in an editable local shader that can be saved, exported, and imported.
+
 Changes remain a draft until **Save** is selected. Save stores the shader source, parameter definitions, current values, and portrait in IndexedDB. Reloading the page restores saved local shaders; unsaved changes are intentionally discarded.
 
 ### GLSL ES 3.00 contract
@@ -91,21 +93,36 @@ Each parameter definition requires a unique valid GLSL uniform name. The editor 
 
 Float and integer definitions also include minimum, maximum, step, and default values. Reordering parameters changes their editor order, not their uniform names. Invalid or duplicate uniform definitions block compilation and saving until corrected.
 
+## Environment lighting
+
+Open **Environment** in the viewer toolbar to choose one of four bundled 1K CC0 HDR environments: Starfield (Rogland Clear Night), City (Urban Street 01), Desert (Goegap), or Studio (Poly Haven Studio). They work offline after the application has loaded. Authors, source pages, licenses, and vendored checksums are recorded in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+
+You can also choose a local `.hdr` file; it stays in browser memory and is not uploaded or saved. A remote environment must be a direct `https://` HDR URL whose server permits cross-origin requests (CORS). An `http://` URL is rejected, and an HTTPS page cannot load insecure HTTP content. Failed replacements leave the previous environment active.
+
+**Skybox** displays the HDR behind the model. **Clear color** displays the selected solid color while keeping the active HDR for PBR reflections. Rotation and intensity update the active environment at runtime without recompiling the shader.
+
+## Texture-aware built-ins
+
+**PBR** starts from each GLTF material's base-color factor and texture, metallic/roughness factors and packed map, and normal map. Its tint, map toggles, metallic and roughness multipliers, normal strength, and environment contribution are runtime controls; changing them does not compile GLSL again.
+
+**Toon** keeps each material's original base-color factor, opacity, texture, UV channel, and texture transform, then applies the selected shadow/light tints and banding. Missing maps use neutral fallbacks.
+
 ## Save portraits
 
 With a model loaded and a valid local shader selected, choose **Capture portrait**. Capture reads only the WebGL canvas—not the surrounding interface—and creates a bounded WebP or PNG preview. The shader card updates immediately and the draft becomes unsaved. Choose **Save** to persist the portrait; leaving or reloading before saving discards it.
 
 ## Import and export
 
-**Export shader** downloads a sanitized `*.shader.json` file through a temporary Blob URL. The current package envelope is version 1:
+**Export shader** downloads a sanitized `*.shader.json` file through a temporary Blob URL. The current package envelope is version 2:
 
 ```json
 {
   "format": "gltf-shader-visualizer",
-  "version": 1,
+  "version": 2,
   "shader": {
     "name": "Example",
     "fragmentSource": "void main() { outColor = vec4(1.0); }",
+    "materialInputProfile": "none",
     "parameters": [],
     "parameterValues": {},
     "portrait": {
@@ -128,6 +145,8 @@ Imported shaders execute locally on the GPU through WebGL2. Review shader source
 
 ## Static hosting
 
-`npm run build` writes a static site to `dist/`. Vite is configured with the relative base `./`, so generated HTML, JavaScript, CSS, bundled portraits, and Monaco worker assets resolve beneath the directory where the site is hosted instead of from the domain root.
+`npm run build` writes a static site to `dist/`. Vite is configured with the relative base `./`, so generated HTML, JavaScript, CSS, bundled HDRs and portraits, and Monaco worker assets resolve beneath the directory where the site is hosted instead of from the domain root.
 
 For GitHub Pages, publish the contents of `dist/` under the repository subpath, such as `/GLTFvisu/`. The same build can be hosted under another subpath without changing source code. Use `npm run preview` to inspect the production build locally before publishing.
+
+After building, `npm run verify:static` serves and crawls the output under a simulated `/GLTFVisu/` repository path. It rejects root-relative `/assets` requests and checks the four HDRs, all bundled portraits, Monaco worker, and JavaScript/CSS chunks.

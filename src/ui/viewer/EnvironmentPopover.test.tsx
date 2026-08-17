@@ -118,7 +118,7 @@ describe('EnvironmentPopover', () => {
     expect(screen.getByRole('slider', { name: 'Environment intensity' })).toHaveValue('3.2')
   })
 
-  it('shows loading and error feedback while keeping display controls usable', async () => {
+  it('shows loading feedback while allowing a newer environment request to supersede it', async () => {
     const loadingViewer = viewer()
     let completeLoad: (() => void) | undefined
     vi.mocked(loadingViewer.loadEnvironment).mockImplementation(() => new Promise<void>((resolve) => {
@@ -135,7 +135,12 @@ describe('EnvironmentPopover', () => {
     await user.selectOptions(screen.getByLabelText('Bundled environment'), 'goegap')
 
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Loading Desert — Goegap'))
-    expect(screen.getByRole('button', { name: 'Load HDR URL' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Load HDR URL' })).toBeEnabled()
+    await user.type(screen.getByLabelText('HDR URL'), 'https://assets.example/newer.hdr')
+    await user.click(screen.getByRole('button', { name: 'Load HDR URL' }))
+    expect(loadingViewer.loadEnvironment).toHaveBeenLastCalledWith({
+      kind: 'remote', url: 'https://assets.example/newer.hdr',
+    })
     await user.click(screen.getByRole('radio', { name: 'Clear color' }))
     expect(loadingViewer.updateEnvironment).toHaveBeenLastCalledWith(expect.objectContaining({ backgroundMode: 'clear-color' }))
     completeLoad?.()
