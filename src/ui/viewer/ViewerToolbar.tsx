@@ -1,5 +1,6 @@
 import { useWorkspace } from '../../application/WorkspaceController'
 import { hasLoadedModel } from '../../application/workspaceState'
+import { EnvironmentPopover } from './EnvironmentPopover'
 
 export function ViewerToolbar() {
   const { state, commands } = useWorkspace()
@@ -34,6 +35,11 @@ export function ViewerToolbar() {
       >
         {state.animations.playing ? 'Pause' : 'Play'}
       </button>
+      <EnvironmentPopover
+        environment={state.environment}
+        environmentCatalog={state.environmentCatalog}
+        commands={commands}
+      />
     </div>
   )
 }
