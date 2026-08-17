@@ -45,6 +45,10 @@ export interface PreparedMaterialOverride {
   dispose(): void
 }
 
+export interface MaterialOverrideDisposeOptions {
+  readonly restoreAssignments?: boolean
+}
+
 /** Owns app-created material assignments while retaining model-owned originals. */
 export class MaterialOverride {
   private readonly originals = new Map<MaterialRenderable, MaterialAssignment>()
@@ -120,7 +124,7 @@ export class MaterialOverride {
       }
     } catch (error) {
       this.releaseReservations(variants)
-      for (const material of variants) material.dispose()
+      disposeMaterials(variants)
       throw error
     }
 
@@ -148,13 +152,13 @@ export class MaterialOverride {
         this.revision += 1
         completed = true
         this.releaseReservations(variants)
-        for (const material of previousMaterials) material.dispose()
+        disposeMaterials(previousMaterials)
       },
       dispose: () => {
         if (completed) return
         completed = true
         this.releaseReservations(variants)
-        for (const material of variants) material.dispose()
+        disposeMaterials(variants)
       },
     }
   }
@@ -162,17 +166,25 @@ export class MaterialOverride {
   restore(): void {
     if (this.disposed) return
     for (const [mesh, original] of this.originals) mesh.material = original
-    for (const material of this.overrideMaterials) material.dispose()
-    this.overrideMaterials.clear()
+    const materials = this.overrideMaterials
+    this.overrideMaterials = new Set()
     this.revision += 1
+    disposeMaterials(materials)
   }
 
-  dispose(): void {
+  /** Releases owned variants, optionally preserving assignments already transferred to a successor. */
+  dispose(options: MaterialOverrideDisposeOptions = {}): void {
     if (this.disposed) return
-    this.restore()
+    if (options.restoreAssignments !== false) {
+      for (const [mesh, original] of this.originals) mesh.material = original
+    }
+    const materials = this.overrideMaterials
+    this.overrideMaterials = new Set()
+    this.revision += 1
     this.originals.clear()
     this.originalMaterials.clear()
     this.disposed = true
+    disposeMaterials(materials)
   }
 
   private variantFor(
@@ -285,5 +297,15 @@ function restoreMaterials(
     const renderable = changed[index]
     const predecessor = predecessors.get(renderable)
     if (predecessor !== undefined) renderable.material = predecessor
+  }
+}
+
+function disposeMaterials(materials: Iterable<ShaderMaterial>): void {
+  for (const material of materials) {
+    try {
+      material.dispose()
+    } catch {
+      // Disposal listeners cannot invalidate an ownership transition.
+    }
   }
 }

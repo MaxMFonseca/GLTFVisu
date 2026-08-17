@@ -39,10 +39,18 @@ export function collectOwnedResources(root: Object3D, exclusions: ResourceExclus
 /** Disposes model-owned GPU resources while preserving explicitly excluded app resources. */
 export function disposeObjectTree(root: Object3D, exclusions: ResourceExclusions = new Set()): void {
   const resources = collectOwnedResources(root, exclusions)
-  for (const geometry of resources.geometries) geometry.dispose()
-  for (const material of resources.materials) material.dispose()
-  for (const texture of resources.textures) texture.dispose()
-  for (const skeleton of resources.skeletons) skeleton.dispose()
+  for (const geometry of resources.geometries) disposeBestEffort(geometry)
+  for (const material of resources.materials) disposeBestEffort(material)
+  for (const texture of resources.textures) disposeBestEffort(texture)
+  for (const skeleton of resources.skeletons) disposeBestEffort(skeleton)
+}
+
+function disposeBestEffort(resource: { dispose(): void }): void {
+  try {
+    resource.dispose()
+  } catch {
+    // Model cleanup is terminal; one callback cannot retain later owned resources.
+  }
 }
 
 function asMaterials(material: Material | Material[] | undefined): Material[] {
