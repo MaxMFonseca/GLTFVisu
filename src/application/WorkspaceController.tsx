@@ -61,6 +61,7 @@ export interface WorkspaceProviderProps {
   viewer: ViewerPort
   builtins?: readonly ShaderDefinition[]
   environmentCatalog?: readonly EnvironmentDefinition[]
+  defaultEnvironmentId?: string
   idFactory?: () => string
   now?: () => number
   timer?: TimerPort
@@ -190,6 +191,7 @@ export function WorkspaceProvider({
   viewer,
   builtins = BUILTIN_SHADERS,
   environmentCatalog = [],
+  defaultEnvironmentId,
   idFactory = () => crypto.randomUUID(),
   now = () => Date.now(),
   timer = DEFAULT_TIMER,
@@ -209,6 +211,11 @@ export function WorkspaceProvider({
   const compileGenerationRef = useRef(0)
   const loadGenerationRef = useRef(0)
   const environmentLoadGenerationRef = useRef(0)
+  const defaultEnvironmentRequestRef = useRef<{
+    source: Extract<EnvironmentLoadSource, { kind: 'bundled' }>
+    label: string
+    promise: Promise<void>
+  } | undefined>(undefined)
   const environmentSettingsRef = useRef(state.environment.settings)
   stateRef.current = state
   environmentSettingsRef.current = state.environment.settings
@@ -287,6 +294,40 @@ export function WorkspaceProvider({
       },
     )
     void compileDraft(stateRef.current.draft)
+    const defaultEnvironment = stateRef.current.environmentCatalog.find(
+      (environment) => environment.id === defaultEnvironmentId,
+    )
+    if (defaultEnvironment !== undefined) {
+      const source = {
+        kind: 'bundled' as const,
+        id: defaultEnvironment.id,
+        url: defaultEnvironment.hdrUrl,
+      }
+      const request = defaultEnvironmentRequestRef.current ?? {
+        source,
+        label: defaultEnvironment.name,
+        promise: viewer.loadEnvironment(source),
+      }
+      defaultEnvironmentRequestRef.current = request
+      const generation = ++environmentLoadGenerationRef.current
+      dispatch({ type: 'environmentLoadStarted', generation, label: request.label })
+      void request.promise.then(
+        () => {
+          if (activeRef.current && generation === environmentLoadGenerationRef.current) {
+            dispatch({ type: 'environmentLoadSucceeded', generation, source: request.source })
+          }
+        },
+        (error: unknown) => {
+          if (activeRef.current && generation === environmentLoadGenerationRef.current) {
+            dispatch({
+              type: 'environmentLoadFailed',
+              generation,
+              message: error instanceof EnvironmentLoadError ? error.message : ENVIRONMENT_LOAD_ERROR_MESSAGE,
+            })
+          }
+        },
+      )
+    }
     return () => {
       activeRef.current = false
       cancelScheduledCompile()
@@ -294,7 +335,7 @@ export function WorkspaceProvider({
       loadGenerationRef.current += 1
       environmentLoadGenerationRef.current += 1
     }
-  }, [cancelScheduledCompile, compileDraft, repository])
+  }, [cancelScheduledCompile, compileDraft, defaultEnvironmentId, repository, viewer])
 
   const loadEnvironment = async (source: EnvironmentLoadSource, label: string): Promise<void> => {
     const generation = ++environmentLoadGenerationRef.current
