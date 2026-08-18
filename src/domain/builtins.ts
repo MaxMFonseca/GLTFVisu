@@ -24,7 +24,7 @@ const builtins: ShaderDefinition[] = [
     fragmentSource: `void main() {
   outColor = vec4(normalize(vWorldNormal) * 0.5 + 0.5, 1.0);
 }`,
-    parameters: [], parameterValues: {}, schemaVersion: 1,
+    materialInputProfile: 'none', parameters: [], parameterValues: {}, schemaVersion: 2,
   },
   {
     id: 'builtin-uv-grid', name: 'UV Grid', origin: 'builtin', portrait: { kind: 'bundled', url: uvGridPortrait },
@@ -33,7 +33,7 @@ const builtins: ShaderDefinition[] = [
   float line = 1.0 - min(min(grid.x, grid.y), 1.0);
   outColor = vec4(mix(vec3(0.05), vec3(0.9), line), 1.0);
 }`,
-    parameters: [], parameterValues: {}, schemaVersion: 1,
+    materialInputProfile: 'none', parameters: [], parameterValues: {}, schemaVersion: 2,
   },
   {
     id: 'builtin-fresnel', name: 'Fresnel', origin: 'builtin', portrait: { kind: 'bundled', url: fresnelPortrait },
@@ -45,7 +45,7 @@ const builtins: ShaderDefinition[] = [
     parameters: [
       { id: 'power', type: 'float', uniformName: 'uPower', label: 'Power', min: 0.1, max: 8, step: 0.1, defaultValue: 3 },
       { id: 'color', type: 'color', uniformName: 'uColor', label: 'Color', defaultValue: '#80caff' },
-    ], parameterValues: { power: 3, color: '#80caff' }, schemaVersion: 1,
+    ], materialInputProfile: 'none', parameterValues: { power: 3, color: '#80caff' }, schemaVersion: 2,
   },
   {
     id: 'builtin-toon', name: 'Toon', origin: 'builtin', portrait: { kind: 'bundled', url: toonPortrait },
@@ -59,7 +59,7 @@ const builtins: ShaderDefinition[] = [
       { id: 'bands', type: 'integer', uniformName: 'uBands', label: 'Bands', min: 1, max: 8, step: 1, defaultValue: 3 },
       { id: 'shadow-color', type: 'color', uniformName: 'uShadowColor', label: 'Shadow color', defaultValue: '#18223b' },
       { id: 'light-color', type: 'color', uniformName: 'uLightColor', label: 'Light color', defaultValue: '#f7c75f' },
-    ], parameterValues: { bands: 3, 'shadow-color': '#18223b', 'light-color': '#f7c75f' }, schemaVersion: 1,
+    ], materialInputProfile: 'none', parameterValues: { bands: 3, 'shadow-color': '#18223b', 'light-color': '#f7c75f' }, schemaVersion: 2,
   },
   {
     id: 'builtin-procedural-matcap', name: 'Procedural Matcap', origin: 'builtin', portrait: { kind: 'bundled', url: proceduralMatcapPortrait },
@@ -69,7 +69,7 @@ const builtins: ShaderDefinition[] = [
   vec3 base = mix(vec3(0.05, 0.08, 0.15), vec3(0.35, 0.8, 0.9), normal.y * 0.5 + 0.5);
   outColor = vec4(base + highlight, 1.0);
 }`,
-    parameters: [], parameterValues: {}, schemaVersion: 1,
+    materialInputProfile: 'none', parameters: [], parameterValues: {}, schemaVersion: 2,
   },
   {
     id: 'builtin-rim-light', name: 'Rim Light', origin: 'builtin', portrait: { kind: 'bundled', url: rimLightPortrait },
@@ -83,7 +83,7 @@ const builtins: ShaderDefinition[] = [
       { id: 'rim-power', type: 'float', uniformName: 'uRimPower', label: 'Rim power', min: 0.1, max: 8, step: 0.1, defaultValue: 2 },
       { id: 'rim-intensity', type: 'float', uniformName: 'uRimIntensity', label: 'Rim intensity', min: 0, max: 4, step: 0.1, defaultValue: 1.5 },
       { id: 'rim-color', type: 'color', uniformName: 'uRimColor', label: 'Rim color', defaultValue: '#8a5cff' },
-    ], parameterValues: { 'rim-power': 2, 'rim-intensity': 1.5, 'rim-color': '#8a5cff' }, schemaVersion: 1,
+    ], materialInputProfile: 'none', parameterValues: { 'rim-power': 2, 'rim-intensity': 1.5, 'rim-color': '#8a5cff' }, schemaVersion: 2,
   },
 ]
 

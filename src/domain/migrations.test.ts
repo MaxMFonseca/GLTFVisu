@@ -18,14 +18,34 @@ describe('migrateStoredShader', () => {
     expect(migrated).toMatchObject({
       id: 'stored-id',
       origin: 'local',
-      schemaVersion: 1,
+      schemaVersion: 2,
+      materialInputProfile: 'none',
       parameterValues: { tint: '#ddeeff' },
     })
     expect(migrated.parameters[0]).toMatchObject({ defaultValue: '#aabbcc' })
   })
 
-  it('rejects malformed and unsupported stored records', () => {
+  it('normalizes an explicit v2 GLTF PBR profile', () => {
+    expect(migrateStoredShader({
+      id: 'stored-v2',
+      name: 'Stored PBR',
+      fragmentSource: 'void main() { outColor = vec4(1.0); }',
+      origin: 'local',
+      materialInputProfile: 'gltf-pbr',
+      parameters: [],
+      parameterValues: {},
+      schemaVersion: 2,
+    })).toMatchObject({ schemaVersion: 2, materialInputProfile: 'gltf-pbr' })
+  })
+
+  it('rejects malformed, unsupported, and incomplete stored records', () => {
     expect(() => migrateStoredShader(null)).toThrow('Invalid stored shader')
-    expect(() => migrateStoredShader({ schemaVersion: 2 })).toThrow('Unsupported stored shader version')
+    expect(() => migrateStoredShader({ schemaVersion: 3 })).toThrow('Unsupported stored shader version')
+    expect(() => migrateStoredShader({
+      id: 'stored-v2', name: 'Stored', fragmentSource: '', origin: 'local', parameters: [], parameterValues: {}, schemaVersion: 2,
+    })).toThrow('Invalid material input profile')
+    expect(() => migrateStoredShader({
+      id: 'stored-v2', name: 'Stored', fragmentSource: '', origin: 'local', materialInputProfile: 'gltf-physical', parameters: [], parameterValues: {}, schemaVersion: 2,
+    })).toThrow('Invalid material input profile')
   })
 })

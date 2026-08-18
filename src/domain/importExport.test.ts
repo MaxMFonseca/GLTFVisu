@@ -14,18 +14,20 @@ const shader: ShaderDefinition = {
   parameterValues: { gain: 1.5, tint: '#112233' },
   createdAt: 10,
   updatedAt: 20,
-  schemaVersion: 1,
+  schemaVersion: 2,
+  materialInputProfile: 'none',
 }
 
 const idFactory = () => 'fresh-id'
 
-function envelope(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+function envelope(overrides: Record<string, unknown> = {}, version = 2): Record<string, unknown> {
   return {
     format: SHADER_PACKAGE_FORMAT,
-    version: 1,
+    version,
     shader: {
       name: shader.name,
       fragmentSource: shader.fragmentSource,
+      ...(version === 2 ? { materialInputProfile: shader.materialInputProfile } : {}),
       parameters: shader.parameters,
       parameterValues: shader.parameterValues,
       ...overrides,
@@ -39,12 +41,17 @@ describe('serializeShader', () => {
 
     expect(parsed).toMatchObject({
       format: SHADER_PACKAGE_FORMAT,
-      version: 1,
+      version: 2,
       shader: { name: 'Soft glow', fragmentSource: shader.fragmentSource },
     })
     expect(parsed.shader).not.toHaveProperty('id')
     expect(parsed.shader).not.toHaveProperty('origin')
     expect(parsed.shader).not.toHaveProperty('createdAt')
+  })
+
+  it('writes the material input profile in v2 packages', async () => {
+    await expect(serializeShader({ ...shader, materialInputProfile: 'gltf-surface' }))
+      .resolves.toContain('"materialInputProfile":"gltf-surface"')
   })
 
   it('round-trips a portrait as a portable data URL', async () => {
@@ -76,7 +83,8 @@ describe('parseShaderPackage', () => {
       origin: 'local',
       createdAt: 1234,
       updatedAt: 1234,
-      schemaVersion: 1,
+      schemaVersion: 2,
+      materialInputProfile: 'none',
       name: 'Soft glow',
       parameterValues: { gain: 1.5, tint: '#112233' },
     })
@@ -86,13 +94,30 @@ describe('parseShaderPackage', () => {
     expect(parseShaderPackage(JSON.stringify(envelope()), idFactory, 1234).portrait).toBeUndefined()
   })
 
+  it('migrates a v1 package to the none material input profile', () => {
+    const imported = parseShaderPackage(JSON.stringify(envelope({}, 1)), idFactory, 10)
+
+    expect(imported).toMatchObject({ schemaVersion: 2, materialInputProfile: 'none' })
+  })
+
   it('rejects malformed JSON', () => {
     expect(() => parseShaderPackage('{', idFactory, 1234)).toThrow('Malformed shader JSON')
   })
 
   it('rejects a package with a wrong format or unsupported version', () => {
     expect(() => parseShaderPackage(JSON.stringify(envelope({})).replace(SHADER_PACKAGE_FORMAT, 'other'), idFactory, 1234)).toThrow('Unsupported shader package format')
-    expect(() => parseShaderPackage(JSON.stringify({ ...envelope(), version: 2 }), idFactory, 1234)).toThrow('Unsupported shader package version')
+    expect(() => parseShaderPackage(JSON.stringify({ ...envelope(), version: 3 }), idFactory, 1234)).toThrow('Unsupported shader package version')
+  })
+
+  it.each([
+    ['a missing v2 material input profile', envelope({ materialInputProfile: undefined })],
+    ['an unsupported v2 material input profile', envelope({ materialInputProfile: 'gltf-physical' })],
+  ])('rejects %s', (_case, value) => {
+    expect(() => parseShaderPackage(JSON.stringify(value), idFactory, 1234)).toThrow('Invalid material input profile')
+  })
+
+  it('rejects an unknown v2 shader key', () => {
+    expect(() => parseShaderPackage(JSON.stringify(envelope({ extra: true })), idFactory, 1234)).toThrow('Invalid shader package')
   })
 
   it('rejects invalid parameter metadata', () => {

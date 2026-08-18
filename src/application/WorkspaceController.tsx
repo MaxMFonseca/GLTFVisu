@@ -150,7 +150,8 @@ function createLocal(id: string, timestamp: number): ShaderDefinition {
     parameterValues: {},
     createdAt: timestamp,
     updatedAt: timestamp,
-    schemaVersion: 1,
+    schemaVersion: 2,
+    materialInputProfile: 'none',
   }
 }
 

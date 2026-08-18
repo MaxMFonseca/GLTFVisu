@@ -1,4 +1,7 @@
 import type { ShaderParameterDefinition, ShaderParameterValue } from './parameters'
+import type { MaterialInputProfile } from './materialInput'
+
+export const SHADER_SCHEMA_VERSION = 2 as const
 
 export type ShaderOrigin = 'builtin' | 'local'
 
@@ -17,12 +20,13 @@ export interface ShaderDefinition {
   name: string
   fragmentSource: string
   origin: ShaderOrigin
+  materialInputProfile: MaterialInputProfile
   portrait?: ShaderPortrait
   parameters: ShaderParameterDefinition[]
   parameterValues: Record<string, ShaderParameterValue>
   createdAt?: number
   updatedAt?: number
-  schemaVersion: 1
+  schemaVersion: typeof SHADER_SCHEMA_VERSION
 }
 
 export type ShaderDraft = ShaderDefinition

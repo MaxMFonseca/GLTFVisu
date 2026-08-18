@@ -38,7 +38,8 @@ function draft(source: string): ShaderDraft {
     fragmentSource: source,
     parameters: [gain],
     parameterValues: { gain: 1 },
-    schemaVersion: 1,
+    schemaVersion: 2,
+    materialInputProfile: 'none',
   }
 }
 

@@ -1,4 +1,5 @@
 import type { ShaderParameterDefinition } from './parameters'
+import { PROFILE_CONTRACT_IDENTIFIERS } from './materialInput'
 
 export const APP_UNIFORMS = ['uTime', 'uResolution', 'uCameraPosition'] as const
 export const SHADER_CONTRACT_IDENTIFIERS = [
@@ -215,6 +216,9 @@ export function validateUniformName(
   }
   if (SHADER_CONTRACT_IDENTIFIERS.includes(uniformName as (typeof SHADER_CONTRACT_IDENTIFIERS)[number])) {
     return { valid: false, reason: 'Reserved shader contract identifier' }
+  }
+  if (PROFILE_CONTRACT_IDENTIFIERS.includes(uniformName as (typeof PROFILE_CONTRACT_IDENTIFIERS)[number])) {
+    return { valid: false, reason: 'Reserved profile contract identifier' }
   }
   if (existingUniformNames.includes(uniformName)) {
     return { valid: false, reason: 'Duplicate uniform name' }

@@ -281,7 +281,7 @@ describe('shader workspace acceptance', () => {
     const exportedJson = await readBlob(exportedBlob as Blob)
     expect(JSON.parse(exportedJson)).toMatchObject({
       format: 'gltf-shader-visualizer',
-      version: 1,
+      version: 2,
       shader: { name: 'Studio / Glow', fragmentSource: fixedSource },
     })
 

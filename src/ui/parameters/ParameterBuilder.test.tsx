@@ -23,7 +23,8 @@ function shader(): ShaderDefinition {
     parameterValues: { gain: 0.7, bands: 2, tint: '#AABBCC', enabled: true },
     createdAt: 1,
     updatedAt: 1,
-    schemaVersion: 1,
+    schemaVersion: 2,
+    materialInputProfile: 'none',
   }
 }
 

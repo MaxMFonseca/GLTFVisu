@@ -25,7 +25,8 @@ function createShader(overrides: Partial<ShaderDefinition> = {}): ShaderDefiniti
     parameterValues: { gain: 1 },
     createdAt: 10,
     updatedAt: 20,
-    schemaVersion: 1,
+    schemaVersion: 2,
+    materialInputProfile: 'none',
     ...overrides,
   }
 }
@@ -218,7 +219,8 @@ describe('IndexedDbShaderRepository', () => {
     const repository = createRepository(name)
 
     await expect(repository.get('shader-id')).resolves.toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
+      materialInputProfile: 'none',
       parameters: [{ defaultValue: '#aabbcc' }],
       parameterValues: { tint: '#ddeeff' },
     })
