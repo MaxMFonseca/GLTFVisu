@@ -27,6 +27,20 @@ function localShader(): ShaderDefinition {
   }
 }
 
+function builtinWithFloatAndColor(): ShaderDefinition {
+  return {
+    ...localShader(),
+    id: 'builtin-controls',
+    name: 'Built-in controls',
+    origin: 'builtin',
+    parameters: [
+      { id: 'power', type: 'float', uniformName: 'uPower', label: 'Power', min: 0, max: 2, step: 0.1, defaultValue: 1 },
+      { id: 'color', type: 'color', uniformName: 'uColor', label: 'Color', defaultValue: '#112233' },
+    ],
+    parameterValues: { power: 1, color: '#112233' },
+  }
+}
+
 function repository(): ShaderRepository {
   return {
     list: vi.fn(async () => []),
@@ -116,24 +130,36 @@ afterEach(() => {
 })
 
 describe('ShaderEditorPanel', () => {
-  it('keeps a built-in read only and duplicates it into an editable local shader', async () => {
-    const user = userEvent.setup()
-    const builtin = { ...localShader(), id: 'builtin-one', name: 'Built in', origin: 'builtin' as const }
-    const repo = repository()
-    renderPanel({ builtins: [builtin], repository: repo, idFactory: () => 'copy-one' })
+  it('shows only enabled runtime controls for a built-in shader', () => {
+    renderPanel({ builtins: [builtinWithFloatAndColor()] })
 
-    expect(screen.getByRole('textbox', { name: 'Shader name' })).toHaveAttribute('readonly')
-    expect(screen.getByRole('textbox', { name: 'Fragment shader source' })).toHaveAttribute('readonly')
-    expect(screen.getByRole('button', { name: 'Save shader' })).toBeDisabled()
+    expect(screen.getByRole('heading', { name: 'Shader controls' })).toBeVisible()
+    expect(screen.getByRole('slider', { name: /Power.*uPower/ })).toBeEnabled()
+    expect(screen.getByLabelText(/Color.*uColor.*color picker/)).toBeEnabled()
+    expect(screen.queryByLabelText('Shader name')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Compile' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Add parameter' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Shader contract')).not.toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: 'Fragment shader source' })).not.toBeInTheDocument()
+  })
 
-    await user.click(screen.getByRole('button', { name: 'Duplicate shader' }))
+  it('shows the no-controls message for a parameterless built-in shader', () => {
+    const builtin = { ...localShader(), id: 'builtin-empty', origin: 'builtin' as const }
+    renderPanel({ builtins: [builtin] })
 
-    await waitFor(() => expect(repo.save).toHaveBeenCalledWith(expect.objectContaining({
-      id: 'copy-one',
-      name: 'Built in copy',
-      origin: 'local',
-    })))
-    expect(screen.getByRole('textbox', { name: 'Shader name' })).not.toHaveAttribute('readonly')
+    expect(screen.getByText('This shader has no runtime controls.')).toBeVisible()
+  })
+
+  it('keeps the full editor, parameter builder, and runtime controls for a local shader', () => {
+    renderPanel()
+
+    expect(screen.getByRole('heading', { name: 'Shader editor' })).toBeVisible()
+    expect(screen.getByRole('textbox', { name: 'Shader name' })).toBeEnabled()
+    expect(screen.getByRole('textbox', { name: 'Fragment shader source' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Compile' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Add parameter' })).toBeVisible()
+    expect(screen.getByText('Shader contract')).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Runtime controls' })).toBeVisible()
   })
 
   it('shows dirty state and saves a valid local draft only through explicit Save', async () => {

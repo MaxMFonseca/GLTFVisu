@@ -173,6 +173,10 @@ async function waitForValidCompile(): Promise<void> {
   await waitFor(() => expect(screen.getByText('Valid')).toBeVisible())
 }
 
+async function waitForBuiltinControls(): Promise<void> {
+  await screen.findByRole('heading', { name: 'Shader controls' })
+}
+
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
@@ -191,7 +195,7 @@ describe('shader workspace acceptance', () => {
     }
     const download = vi.fn()
     const firstRender = renderWorkspace({ repository, viewer, urls: exportUrls, download })
-    await waitForValidCompile()
+    await waitForBuiltinControls()
 
     expect(within(libraryPanel()).getByRole('button', { name: 'Normal' })).toHaveAttribute('aria-current', 'true')
     await user.click(within(libraryPanel()).getByRole('button', { name: 'Duplicate shader' }))
@@ -247,7 +251,7 @@ describe('shader workspace acceptance', () => {
 
     firstRender.unmount()
     const hydratedRender = renderWorkspace({ repository, viewer, urls: exportUrls, download, ids: ['local-2'] })
-    await waitForValidCompile()
+    await waitForBuiltinControls()
     await user.click(await within(libraryPanel()).findByRole('button', { name: 'Studio / Glow' }))
     await waitFor(() => expect(within(editorPanel()).getByRole('textbox', { name: 'Shader name' })).toHaveValue('Studio / Glow'))
     expect(within(editorPanel()).getByRole('textbox', { name: 'Fragment shader source' })).toHaveValue(fixedSource)
@@ -268,7 +272,7 @@ describe('shader workspace acceptance', () => {
     hydratedRender.unmount()
 
     renderWorkspace({ repository, viewer, urls: exportUrls, download, ids: ['local-2'] })
-    await waitForValidCompile()
+    await waitForBuiltinControls()
     await user.click(await within(libraryPanel()).findByRole('button', { name: 'Studio / Glow' }))
     const restoredPortrait = await within(libraryPanel()).findByRole('img', { name: 'Studio / Glow preview' })
     expect(restoredPortrait.getAttribute('src')).toMatch(/^blob:portrait-/)
@@ -312,7 +316,7 @@ describe('shader workspace acceptance', () => {
     const repository = createRepository()
     const viewer = createViewer()
     renderWorkspace({ repository, viewer })
-    await waitForValidCompile()
+    await waitForBuiltinControls()
     const input = within(libraryPanel()).getByLabelText('Import shader file') as HTMLInputElement
     const malformed = new File(['{broken'], 'broken.json', { type: 'application/json' })
 
@@ -358,7 +362,7 @@ describe('shader workspace acceptance', () => {
     const repository = createRepository()
     const viewer = createViewer()
     renderWorkspace({ repository, viewer })
-    await waitForValidCompile()
+    await waitForBuiltinControls()
     await user.click(within(libraryPanel()).getByRole('button', { name: 'Duplicate shader' }))
     await within(libraryPanel()).findByRole('button', { name: 'Normal copy' })
     await waitFor(() => expect(viewer.compileShader).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'local-1' })))

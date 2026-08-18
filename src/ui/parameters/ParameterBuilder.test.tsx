@@ -62,11 +62,11 @@ const timer: TimerPort = {
   clear: vi.fn(),
 }
 
-function renderInWorkspace(children: React.ReactNode) {
+function renderInWorkspace(children: React.ReactNode, selectedShader = shader()) {
   const repo = repository()
   const viewerPort = viewer()
   render(
-    <WorkspaceProvider repository={repo} viewer={viewerPort} builtins={[shader()]} timer={timer}>
+    <WorkspaceProvider repository={repo} viewer={viewerPort} builtins={[selectedShader]} timer={timer}>
       {children}
     </WorkspaceProvider>,
   )
@@ -130,6 +130,24 @@ describe('ParameterBuilder', () => {
 })
 
 describe('ParameterControls', () => {
+  it('keeps built-in runtime controls interactive through the value update command', async () => {
+    const builtin = { ...shader(), id: 'builtin-parameters', origin: 'builtin' as const }
+    const runtime = renderInWorkspace(<ParameterControls />, builtin)
+    await waitFor(() => expect(runtime.viewer.compileShader).toHaveBeenCalledTimes(1))
+    vi.mocked(runtime.viewer.compileShader).mockClear()
+
+    const power = screen.getByRole('slider', { name: 'Gain (uGain) slider' })
+    const tint = screen.getByLabelText('Tint (uTint) color picker')
+    expect(power).toBeEnabled()
+    expect(tint).toBeEnabled()
+
+    fireEvent.change(power, { target: { value: '1.5' } })
+
+    expect(runtime.viewer.updateParameter).toHaveBeenCalledWith(expect.objectContaining({ id: 'gain' }), 1.5)
+    expect(runtime.viewer.compileShader).not.toHaveBeenCalled()
+    expect(runtime.repo.save).not.toHaveBeenCalled()
+  })
+
   it('disambiguates accessible names when display labels are duplicated', () => {
     const duplicateLabels = shader()
     duplicateLabels.parameters = duplicateLabels.parameters.map((parameter) => ({ ...parameter, label: 'Value' }))
