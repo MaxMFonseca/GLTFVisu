@@ -1,6 +1,9 @@
 import {
   Color,
+  DataTexture,
   EquirectangularReflectionMapping,
+  LinearFilter,
+  LinearSRGBColorSpace,
   Matrix3,
   PMREMGenerator,
   type Scene,
@@ -32,6 +35,7 @@ interface ObjectUrlLease {
 
 export interface EnvironmentServiceDependencies {
   loadHdr(url: string): Promise<Texture>
+  loadRemoteHdr?(url: string): Promise<Texture>
   createPmrem(texture: Texture): WebGLRenderTarget
   createObjectURL(file: File): string
   revokeObjectURL(url: string): void
@@ -87,9 +91,12 @@ export class EnvironmentService {
 
       const resolved = this.resolveSourceUrl(source)
       objectUrlLease = resolved.objectUrlLease
-      sourceTexture = await this.dependencies.loadHdr(resolved.url)
+      const loadHdr = source.kind === 'remote'
+        ? this.dependencies.loadRemoteHdr ?? this.dependencies.loadHdr
+        : this.dependencies.loadHdr
+      sourceTexture = await loadHdr(resolved.url)
       sourceTexture.mapping = EquirectangularReflectionMapping
-      if (this.disposed) {
+      if (this.disposed || generation !== this.generation) {
         sourceTexture.dispose()
         return
       }
@@ -206,10 +213,38 @@ function createProductionDependencies(renderer: WebGLRenderer): ProductionDepend
   return {
     dependencies: {
       loadHdr: (url) => loader.loadAsync(url),
+      loadRemoteHdr: createRemoteHdrLoader(loader),
       createPmrem: (texture) => pmremGenerator.fromEquirectangular(texture),
       createObjectURL: (file) => URL.createObjectURL(file),
       revokeObjectURL: (url) => URL.revokeObjectURL(url),
     },
     dispose: () => pmremGenerator.dispose(),
+  }
+}
+
+type HdrParser = Pick<RGBELoader, 'parse'>
+type RemoteFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+
+/** @internal Production remote transport separated for credential-policy verification. */
+export function createRemoteHdrLoader(
+  parser: HdrParser,
+  fetchRemote: RemoteFetch = globalThis.fetch,
+): (url: string) => Promise<Texture> {
+  return async (url) => {
+    const response = await fetchRemote(url, { credentials: 'omit' })
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} ${response.statusText}`.trim())
+    }
+
+    const parsed = parser.parse(await response.arrayBuffer())
+    const texture = new DataTexture(parsed.data, parsed.width, parsed.height)
+    texture.type = parsed.type
+    texture.colorSpace = LinearSRGBColorSpace
+    texture.minFilter = LinearFilter
+    texture.magFilter = LinearFilter
+    texture.generateMipmaps = false
+    texture.flipY = true
+    texture.needsUpdate = true
+    return texture
   }
 }

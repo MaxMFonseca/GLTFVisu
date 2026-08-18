@@ -1,6 +1,7 @@
 import {
   Color,
   EquirectangularReflectionMapping,
+  FloatType,
   Scene,
   Texture,
   Vector3,
@@ -9,7 +10,11 @@ import {
 } from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import { EnvironmentLoadError, type EnvironmentDisplaySettings } from '../domain/environment'
-import { EnvironmentService, type EnvironmentServiceDependencies } from './EnvironmentService'
+import {
+  createRemoteHdrLoader,
+  EnvironmentService,
+  type EnvironmentServiceDependencies,
+} from './EnvironmentService'
 
 interface Deferred<T> {
   promise: Promise<T>
@@ -123,20 +128,17 @@ describe('EnvironmentService', () => {
     expect(pmrem.dispose).not.toHaveBeenCalled()
   })
 
-  it('disposes decoded and filtered resources from a stale successful candidate', async () => {
+  it('disposes an already-stale decoded source without generating PMREM', async () => {
     const scene = new Scene()
     const firstLoad = deferred<Texture>()
     const secondLoad = deferred<Texture>()
     const firstSource = textureFixture()
     const secondSource = textureFixture()
-    const firstPmrem = targetFixture()
     const secondPmrem = targetFixture()
     const loadHdr = vi.fn()
       .mockReturnValueOnce(firstLoad.promise)
       .mockReturnValueOnce(secondLoad.promise)
-    const createPmrem = vi.fn((texture: Texture) => (
-      texture === firstSource.texture ? firstPmrem.target : secondPmrem.target
-    ))
+    const createPmrem = vi.fn(() => secondPmrem.target)
     const service = serviceFixture(scene, { loadHdr, createPmrem })
 
     const first = service.load({ kind: 'bundled', id: 'city', url: 'city.hdr' })
@@ -149,9 +151,40 @@ describe('EnvironmentService', () => {
     expect(scene.background).toBe(secondSource.texture)
     expect(service.binding.environmentMap.value).toBe(secondPmrem.target.texture)
     expect(firstSource.dispose).toHaveBeenCalledTimes(1)
+    expect(createPmrem).toHaveBeenCalledTimes(1)
+    expect(createPmrem).toHaveBeenCalledWith(secondSource.texture)
+    expect(secondSource.dispose).not.toHaveBeenCalled()
+    expect(secondPmrem.dispose).not.toHaveBeenCalled()
+  })
+
+  it('disposes a PMREM target when generation is superseded re-entrantly during filtering', async () => {
+    const scene = new Scene()
+    const firstSource = textureFixture()
+    const secondSource = textureFixture()
+    const firstPmrem = targetFixture()
+    const secondPmrem = targetFixture()
+    const loadHdr = vi.fn()
+      .mockResolvedValueOnce(firstSource.texture)
+      .mockResolvedValueOnce(secondSource.texture)
+    let replacement: Promise<void> | undefined
+    const createPmrem = vi.fn((texture: Texture) => {
+      if (texture === firstSource.texture) {
+        replacement = service.load({ kind: 'bundled', id: 'studio', url: 'studio.hdr' })
+        return firstPmrem.target
+      }
+      return secondPmrem.target
+    })
+    const service = serviceFixture(scene, { loadHdr, createPmrem })
+
+    await service.load({ kind: 'bundled', id: 'city', url: 'city.hdr' })
+    await replacement
+
+    expect(firstSource.dispose).toHaveBeenCalledTimes(1)
     expect(firstPmrem.dispose).toHaveBeenCalledTimes(1)
     expect(secondSource.dispose).not.toHaveBeenCalled()
     expect(secondPmrem.dispose).not.toHaveBeenCalled()
+    expect(scene.background).toBe(secondSource.texture)
+    expect(service.binding.environmentMap.value).toBe(secondPmrem.target.texture)
   })
 
   it('disposes the predecessor only after a successful replacement is installed', async () => {
@@ -168,6 +201,16 @@ describe('EnvironmentService', () => {
     ))
     const service = serviceFixture(scene, { loadHdr, createPmrem })
     await service.load({ kind: 'bundled', id: 'city', url: 'city.hdr' })
+    firstSource.dispose.mockImplementation(() => {
+      expect(scene.background).toBe(secondSource.texture)
+      expect(scene.environment).toBe(secondPmrem.target.texture)
+      expect(service.binding.environmentMap.value).toBe(secondPmrem.target.texture)
+    })
+    firstPmrem.dispose.mockImplementation(() => {
+      expect(scene.background).toBe(secondSource.texture)
+      expect(scene.environment).toBe(secondPmrem.target.texture)
+      expect(service.binding.environmentMap.value).toBe(secondPmrem.target.texture)
+    })
 
     await service.load({ kind: 'bundled', id: 'studio', url: 'studio.hdr' })
 
@@ -207,15 +250,12 @@ describe('EnvironmentService', () => {
     const localLoad = deferred<Texture>()
     const localSource = textureFixture()
     const remoteSource = textureFixture()
-    const localPmrem = targetFixture()
     const remotePmrem = targetFixture()
     const revokeObjectURL = vi.fn()
     const loadHdr = vi.fn()
       .mockReturnValueOnce(localLoad.promise)
       .mockResolvedValueOnce(remoteSource.texture)
-    const createPmrem = vi.fn((texture: Texture) => (
-      texture === localSource.texture ? localPmrem.target : remotePmrem.target
-    ))
+    const createPmrem = vi.fn(() => remotePmrem.target)
     const service = serviceFixture(scene, {
       loadHdr,
       createPmrem,
@@ -232,7 +272,57 @@ describe('EnvironmentService', () => {
     await local
     expect(revokeObjectURL).toHaveBeenCalledTimes(1)
     expect(localSource.dispose).toHaveBeenCalledTimes(1)
-    expect(localPmrem.dispose).toHaveBeenCalledTimes(1)
+    expect(createPmrem).toHaveBeenCalledTimes(1)
+    expect(createPmrem).toHaveBeenCalledWith(remoteSource.texture)
+  })
+
+  it('revokes a local object URL exactly once when HDR decode fails', async () => {
+    const scene = new Scene()
+    const failure = new Error('Invalid HDR bytes')
+    const revokeObjectURL = vi.fn()
+    const service = serviceFixture(scene, {
+      loadHdr: async () => {
+        throw failure
+      },
+      createObjectURL: () => 'blob:invalid-hdr',
+      revokeObjectURL,
+    })
+
+    const result = service.load({ kind: 'local', file: new File(['bad'], 'broken.hdr') })
+
+    await expect(result).rejects.toMatchObject({
+      name: 'EnvironmentLoadError',
+      cause: failure,
+    })
+    expect(revokeObjectURL).toHaveBeenCalledTimes(1)
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:invalid-hdr')
+    service.dispose()
+    expect(revokeObjectURL).toHaveBeenCalledTimes(1)
+  })
+
+  it('revokes a pending local object URL exactly once when the service is disposed', async () => {
+    const scene = new Scene()
+    const pending = deferred<Texture>()
+    const source = textureFixture()
+    const createPmrem = vi.fn(() => targetFixture().target)
+    const revokeObjectURL = vi.fn()
+    const service = serviceFixture(scene, {
+      loadHdr: () => pending.promise,
+      createPmrem,
+      createObjectURL: () => 'blob:disposed-hdr',
+      revokeObjectURL,
+    })
+    const load = service.load({ kind: 'local', file: new File(['hdr'], 'city.hdr') })
+
+    service.dispose()
+    expect(revokeObjectURL).toHaveBeenCalledTimes(1)
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:disposed-hdr')
+
+    pending.resolve(source.texture)
+    await load
+    expect(revokeObjectURL).toHaveBeenCalledTimes(1)
+    expect(source.dispose).toHaveBeenCalledTimes(1)
+    expect(createPmrem).not.toHaveBeenCalled()
   })
 
   it('keeps PMREM lighting active in clear-color mode and updates stable settings objects', async () => {
@@ -269,22 +359,87 @@ describe('EnvironmentService', () => {
     expect(clearColor.getHexString()).toBe('abcdef')
   })
 
-  it('disposes a decoded source when PMREM generation fails and wraps the failure', async () => {
+  it('preserves binding and uniform container identities across settings and replacement', async () => {
     const scene = new Scene()
-    const source = textureFixture()
+    const firstSource = textureFixture()
+    const secondSource = textureFixture()
+    const firstPmrem = targetFixture()
+    const secondPmrem = targetFixture()
+    const loadHdr = vi.fn()
+      .mockResolvedValueOnce(firstSource.texture)
+      .mockResolvedValueOnce(secondSource.texture)
+    const createPmrem = vi.fn((texture: Texture) => (
+      texture === firstSource.texture ? firstPmrem.target : secondPmrem.target
+    ))
+    const service = serviceFixture(scene, { loadHdr, createPmrem })
+    const binding = service.binding
+    const environmentMap = binding.environmentMap
+    const environmentRotation = binding.environmentRotation
+    const rotationMatrix = environmentRotation.value
+    const environmentIntensity = binding.environmentIntensity
+
+    await service.load({ kind: 'bundled', id: 'city', url: 'city.hdr' })
+    service.update(settings({ rotation: 45, intensity: 2 }))
+    await service.load({ kind: 'bundled', id: 'studio', url: 'studio.hdr' })
+
+    expect(service.binding).toBe(binding)
+    expect(service.binding.environmentMap).toBe(environmentMap)
+    expect(service.binding.environmentRotation).toBe(environmentRotation)
+    expect(service.binding.environmentRotation.value).toBe(rotationMatrix)
+    expect(service.binding.environmentIntensity).toBe(environmentIntensity)
+    expect(environmentMap.value).toBe(secondPmrem.target.texture)
+    expect(environmentIntensity.value).toBe(2)
+  })
+
+  it('rolls back fully to the active predecessor when PMREM generation fails', async () => {
+    const scene = new Scene()
+    const activeSource = textureFixture()
+    const failingSource = textureFixture()
+    const activePmrem = targetFixture()
     const failure = new Error('PMREM failed')
+    const loadHdr = vi.fn()
+      .mockResolvedValueOnce(activeSource.texture)
+      .mockResolvedValueOnce(failingSource.texture)
     const service = serviceFixture(scene, {
-      loadHdr: async () => source.texture,
-      createPmrem: () => {
+      loadHdr,
+      createPmrem: (texture) => {
+        if (texture === activeSource.texture) return activePmrem.target
         throw failure
       },
     })
+    await service.load({ kind: 'bundled', id: 'city', url: 'city.hdr' })
 
-    const result = service.load({ kind: 'bundled', id: 'city', url: 'city.hdr' })
+    const result = service.load({ kind: 'bundled', id: 'studio', url: 'studio.hdr' })
 
     await expect(result).rejects.toEqual(new EnvironmentLoadError('Unable to load HDR environment', failure))
-    expect(source.dispose).toHaveBeenCalledTimes(1)
-    expect(service.binding.environmentMap.value).toBeNull()
+    expect(failingSource.dispose).toHaveBeenCalledTimes(1)
+    expect(activeSource.dispose).not.toHaveBeenCalled()
+    expect(activePmrem.dispose).not.toHaveBeenCalled()
+    expect(scene.background).toBe(activeSource.texture)
+    expect(scene.environment).toBe(activePmrem.target.texture)
+    expect(service.binding.environmentMap.value).toBe(activePmrem.target.texture)
+  })
+
+  it('routes validated remote sources through the credentialless loader boundary', async () => {
+    const scene = new Scene()
+    const source = textureFixture()
+    const pmrem = targetFixture()
+    const loadHdr = vi.fn(async () => {
+      throw new Error('Generic loader must not fetch remote URLs')
+    })
+    const loadRemoteHdr = vi.fn(async () => source.texture)
+    const service = serviceFixture(scene, {
+      loadHdr,
+      loadRemoteHdr,
+      createPmrem: () => pmrem.target,
+    })
+
+    await service.load({ kind: 'remote', url: 'https://example.com/studio.hdr' })
+
+    expect(loadRemoteHdr).toHaveBeenCalledWith('https://example.com/studio.hdr')
+    expect(loadHdr).not.toHaveBeenCalled()
+    expect(scene.background).toBe(source.texture)
+    expect(service.binding.environmentMap.value).toBe(pmrem.target.texture)
   })
 
   it('rejects insecure remote URLs as typed load failures without decoding them', async () => {
@@ -339,5 +494,56 @@ describe('EnvironmentService', () => {
     expect(source.dispose).toHaveBeenCalledTimes(1)
     expect(service.binding.environmentMap.value).toBeNull()
     expect(scene.environment).toBeNull()
+  })
+})
+
+describe('createRemoteHdrLoader', () => {
+  it('fetches remote HDR bytes without ambient credentials before parsing', async () => {
+    const bytes = new ArrayBuffer(8)
+    const fetchRemote = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      arrayBuffer: async () => bytes,
+    } as Response))
+    const pixels = new Float32Array([1, 2, 3, 4])
+    const parser = {
+      parse: vi.fn(() => ({
+        width: 1,
+        height: 1,
+        data: pixels,
+        header: '#?RADIANCE',
+        gamma: 1,
+        exposure: 1,
+        type: FloatType,
+      })),
+    }
+
+    const texture = await createRemoteHdrLoader(parser, fetchRemote)('https://example.com/studio.hdr')
+
+    expect(fetchRemote).toHaveBeenCalledWith(
+      'https://example.com/studio.hdr',
+      { credentials: 'omit' },
+    )
+    expect(parser.parse).toHaveBeenCalledWith(bytes)
+    expect(texture.image).toMatchObject({ width: 1, height: 1, data: pixels })
+    expect(texture.type).toBe(FloatType)
+    expect(texture.generateMipmaps).toBe(false)
+    expect(texture.flipY).toBe(true)
+  })
+
+  it('rejects an HTTP error without attempting to parse its response body', async () => {
+    const fetchRemote = vi.fn(async () => ({
+      ok: false,
+      status: 403,
+      statusText: 'Forbidden',
+      arrayBuffer: vi.fn(),
+    } as unknown as Response))
+    const parser = { parse: vi.fn() }
+
+    const result = createRemoteHdrLoader(parser, fetchRemote)('https://example.com/private.hdr')
+
+    await expect(result).rejects.toThrow('HTTP 403 Forbidden')
+    expect(parser.parse).not.toHaveBeenCalled()
   })
 })
