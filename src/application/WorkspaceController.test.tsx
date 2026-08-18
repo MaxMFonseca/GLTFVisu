@@ -212,6 +212,22 @@ describe('WorkspaceProvider', () => {
     })
     expect(workspace.current().state.dirty).toEqual({ name: false, source: false, schema: false, values: false, portrait: false })
   })
+
+  it('composes environment settings commands issued in one batched turn', async () => {
+    const viewer = createViewer()
+    const workspace = renderWorkspace({ viewer })
+    await ready(workspace)
+
+    act(() => {
+      workspace.current().commands.setEnvironmentRotation(90)
+      workspace.current().commands.setEnvironmentIntensity(2)
+      workspace.current().commands.setEnvironmentClearColor('#ABCDEF')
+    })
+
+    const expected = { backgroundMode: 'skybox' as const, clearColor: '#abcdef', rotation: 90, intensity: 2 }
+    expect(workspace.current().state.environment.settings).toEqual(expected)
+    expect(viewer.updateEnvironment).toHaveBeenLastCalledWith(expected)
+  })
   it('shows the initial built-in, hydrates locals, and compiles without persisting', async () => {
     const repository = createRepository([localShader()])
     const viewer = createViewer()

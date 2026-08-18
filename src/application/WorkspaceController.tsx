@@ -209,7 +209,9 @@ export function WorkspaceProvider({
   const compileGenerationRef = useRef(0)
   const loadGenerationRef = useRef(0)
   const environmentLoadGenerationRef = useRef(0)
+  const environmentSettingsRef = useRef(state.environment.settings)
   stateRef.current = state
+  environmentSettingsRef.current = state.environment.settings
 
   const cancelScheduledCompile = useCallback(() => {
     if (compileTimerRef.current === undefined) return
@@ -314,7 +316,8 @@ export function WorkspaceProvider({
   }
 
   const updateEnvironmentSettings = (changes: Partial<EnvironmentDisplaySettings>): void => {
-    const settings = { ...stateRef.current.environment.settings, ...changes }
+    const settings = { ...environmentSettingsRef.current, ...changes }
+    environmentSettingsRef.current = settings
     viewer.updateEnvironment(settings)
     dispatch({ type: 'environmentSettingsChanged', settings })
   }
