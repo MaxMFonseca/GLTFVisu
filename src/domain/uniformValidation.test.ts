@@ -81,6 +81,23 @@ describe('validateUniformName', () => {
     },
   )
 
+  it.each([
+    ['surface helper', 'sampleGltfBaseColor'],
+    ['surface varying', 'vGltfUv1'],
+    ['surface UV define', 'USE_UV1'],
+    ['PBR tangent varying', 'vGltfWorldTangent'],
+    ['PBR tangent define', 'USE_TANGENT'],
+    ['PBR environment type define', 'ENVMAP_TYPE_CUBE_UV'],
+    ['PBR environment width define', 'CUBEUV_TEXEL_WIDTH'],
+    ['PBR environment height define', 'CUBEUV_TEXEL_HEIGHT'],
+    ['PBR environment mip define', 'CUBEUV_MAX_MIP'],
+  ])('rejects the injected %s %s before shader compilation', (_label, uniformName) => {
+    expect(validateUniformName(uniformName, [])).toEqual({
+      valid: false,
+      reason: 'Reserved profile contract identifier',
+    })
+  })
+
   it.each(['gl_custom', 'u__value', '__proto__'])(
     'rejects GLSL-reserved identifier pattern %s',
     (uniformName) => {

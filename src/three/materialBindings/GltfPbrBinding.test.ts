@@ -202,6 +202,32 @@ describe('createGltfPbrVariant', () => {
     expect(tangentVariant.uniforms.uGltfNormalScale.value).toEqual(new Vector2(0.5, 0.75))
     expect(derivativeVariant.uniforms.uGltfNormalScale.value).toEqual(new Vector2(0.5, -0.75))
   })
+
+  it('disposes both private fallbacks once when listeners reenter and throw', () => {
+    const variant = createGltfPbrVariant(
+      new Material(),
+      new ShaderMaterial(),
+      environmentBinding(null),
+    )
+    const white = variant.uniforms.uGltfMetallicMap.value as DataTexture
+    const normal = variant.uniforms.uGltfNormalMap.value as DataTexture
+    const disposeWhite = vi.spyOn(white, 'dispose')
+    const disposeNormal = vi.spyOn(normal, 'dispose')
+    white.addEventListener('dispose', () => {
+      variant.dispose()
+      throw new Error('white fallback listener failed')
+    })
+    normal.addEventListener('dispose', () => {
+      variant.dispose()
+      throw new Error('normal fallback listener failed')
+    })
+
+    expect(() => variant.dispose()).not.toThrow()
+    expect(() => variant.dispose()).not.toThrow()
+
+    expect(disposeWhite).toHaveBeenCalledTimes(1)
+    expect(disposeNormal).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('createGltfPbrBindingOwner', () => {
@@ -271,6 +297,29 @@ describe('createGltfPbrBindingOwner', () => {
     expect(disposeWhite).toHaveBeenCalledTimes(1)
     expect(disposeNormal).toHaveBeenCalledTimes(1)
     for (const dispose of disposeBorrowed) expect(dispose).not.toHaveBeenCalled()
+  })
+
+  it('disposes both owner fallbacks once when listeners reenter and throw', () => {
+    const owner = createGltfPbrBindingOwner(environmentBinding(null))
+    const variant = owner.createVariant(new Material(), new ShaderMaterial())
+    const white = variant.uniforms.uGltfMetallicMap.value as DataTexture
+    const normal = variant.uniforms.uGltfNormalMap.value as DataTexture
+    const disposeWhite = vi.spyOn(white, 'dispose')
+    const disposeNormal = vi.spyOn(normal, 'dispose')
+    white.addEventListener('dispose', () => {
+      owner.dispose()
+      throw new Error('white owner fallback listener failed')
+    })
+    normal.addEventListener('dispose', () => {
+      owner.dispose()
+      throw new Error('normal owner fallback listener failed')
+    })
+
+    expect(() => owner.dispose()).not.toThrow()
+    expect(() => owner.dispose()).not.toThrow()
+
+    expect(disposeWhite).toHaveBeenCalledTimes(1)
+    expect(disposeNormal).toHaveBeenCalledTimes(1)
   })
 
   it('splits a shared normal-mapped material by tangent availability', () => {

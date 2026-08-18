@@ -39,6 +39,7 @@ export interface EnvironmentServiceDependencies {
   createPmrem(texture: Texture): WebGLRenderTarget
   createObjectURL(file: File): string
   revokeObjectURL(url: string): void
+  disposePmremGenerator?(): void
 }
 
 interface ProductionDependencies {
@@ -70,7 +71,7 @@ export class EnvironmentService {
   ) {
     if (dependencies !== undefined) {
       this.dependencies = dependencies
-      this.disposeDependencies = () => undefined
+      this.disposeDependencies = () => dependencies.disposePmremGenerator?.()
       return
     }
 
@@ -86,6 +87,7 @@ export class EnvironmentService {
     let sourceTexture: Texture | undefined
     let pmremTarget: WebGLRenderTarget | undefined
     let objectUrlLease: ObjectUrlLease | undefined
+    let previous: ActiveEnvironment | undefined
     try {
       if (this.disposed) throw new Error('Environment service is disposed')
 
@@ -97,31 +99,29 @@ export class EnvironmentService {
       sourceTexture = await loadHdr(resolved.url)
       sourceTexture.mapping = EquirectangularReflectionMapping
       if (this.disposed || generation !== this.generation) {
-        sourceTexture.dispose()
+        disposeEnvironmentResourcesBestEffort(sourceTexture)
         return
       }
       pmremTarget = this.dependencies.createPmrem(sourceTexture)
 
       if (this.disposed || generation !== this.generation) {
-        sourceTexture.dispose()
-        pmremTarget.dispose()
+        disposeEnvironmentResourcesBestEffort(sourceTexture, pmremTarget)
         return
       }
 
-      const previous = this.active
+      previous = this.active
       this.active = { sourceTexture, pmremTarget }
       this.binding.environmentMap.value = pmremTarget.texture
       this.scene.environment = pmremTarget.texture
       this.applyDisplaySettings()
-      previous?.sourceTexture.dispose()
-      previous?.pmremTarget.dispose()
     } catch (error) {
-      pmremTarget?.dispose()
-      sourceTexture?.dispose()
+      disposeEnvironmentResourcesBestEffort(sourceTexture, pmremTarget)
       throw new EnvironmentLoadError(HDR_LOAD_ERROR_MESSAGE, error)
     } finally {
       if (objectUrlLease !== undefined) this.revokeObjectUrl(objectUrlLease)
     }
+
+    disposeEnvironmentBestEffort(previous)
   }
 
   update(settings: EnvironmentDisplaySettings): void {
@@ -134,18 +134,21 @@ export class EnvironmentService {
     if (this.disposed) return
     this.disposed = true
     this.generation += 1
-    this.revokePendingObjectUrls()
 
     const active = this.active
+    const objectUrlLeases = this.detachObjectUrlLeases()
     this.active = undefined
     this.binding.environmentMap.value = null
     if (active !== undefined) {
       if (this.scene.background === active.sourceTexture) this.scene.background = this.clearColor
       if (this.scene.environment === active.pmremTarget.texture) this.scene.environment = null
-      active.sourceTexture.dispose()
-      active.pmremTarget.dispose()
     }
-    this.disposeDependencies()
+    runBestEffortCleanup([
+      () => active?.sourceTexture.dispose(),
+      () => active?.pmremTarget.dispose(),
+      this.disposeDependencies,
+      ...objectUrlLeases.map((lease) => () => this.dependencies.revokeObjectURL(lease.url)),
+    ])
   }
 
   private resolveSourceUrl(source: EnvironmentLoadSource): {
@@ -186,14 +189,51 @@ export class EnvironmentService {
   }
 
   private revokePendingObjectUrls(): void {
-    for (const lease of this.objectUrlLeases) this.revokeObjectUrl(lease)
+    const leases = this.detachObjectUrlLeases()
+    runBestEffortCleanup(
+      leases.map((lease) => () => this.dependencies.revokeObjectURL(lease.url)),
+    )
   }
 
   private revokeObjectUrl(lease: ObjectUrlLease): void {
     if (lease.revoked) return
     lease.revoked = true
     this.objectUrlLeases.delete(lease)
-    this.dependencies.revokeObjectURL(lease.url)
+    runBestEffortCleanup([() => this.dependencies.revokeObjectURL(lease.url)])
+  }
+
+  private detachObjectUrlLeases(): ObjectUrlLease[] {
+    const leases = [...this.objectUrlLeases]
+    this.objectUrlLeases.clear()
+    for (const lease of leases) lease.revoked = true
+    return leases
+  }
+}
+
+function disposeEnvironmentBestEffort(environment: ActiveEnvironment | undefined): void {
+  disposeEnvironmentResourcesBestEffort(
+    environment?.sourceTexture,
+    environment?.pmremTarget,
+  )
+}
+
+function disposeEnvironmentResourcesBestEffort(
+  sourceTexture: Texture | undefined,
+  pmremTarget?: WebGLRenderTarget,
+): void {
+  runBestEffortCleanup([
+    () => sourceTexture?.dispose(),
+    () => pmremTarget?.dispose(),
+  ])
+}
+
+function runBestEffortCleanup(operations: readonly (() => void)[]): void {
+  for (const operation of operations) {
+    try {
+      operation()
+    } catch {
+      // Cleanup callbacks cannot interrupt an ownership transition or terminal teardown.
+    }
   }
 }
 

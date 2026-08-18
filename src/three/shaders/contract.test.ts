@@ -134,6 +134,35 @@ describe('buildFragmentShader', () => {
     expect(() => buildFragmentShader('void main() {}', invalid)).toThrow('Invalid shader parameter definitions')
   })
 
+  it.each([
+    ['gltf-surface', 'sampleGltfBaseColor'],
+    ['gltf-surface', 'vGltfUv1'],
+    ['gltf-surface', 'USE_UV1'],
+    ['gltf-pbr', 'vGltfWorldTangent'],
+    ['gltf-pbr', 'USE_TANGENT'],
+    ['gltf-pbr', 'ENVMAP_TYPE_CUBE_UV'],
+    ['gltf-pbr', 'CUBEUV_TEXEL_WIDTH'],
+    ['gltf-pbr', 'CUBEUV_TEXEL_HEIGHT'],
+    ['gltf-pbr', 'CUBEUV_MAX_MIP'],
+  ] as const)(
+    'rejects the %s injected identifier %s before fragment assembly',
+    (profile, uniformName) => {
+      const invalid: ShaderParameterDefinition[] = [{
+        id: 'collision',
+        type: 'float',
+        uniformName,
+        label: 'Collision',
+        min: 0,
+        max: 1,
+        step: 0.1,
+        defaultValue: 0,
+      }]
+
+      expect(() => buildFragmentShader('void main() {}', invalid, profile))
+        .toThrow('Reserved profile contract identifier')
+    },
+  )
+
   it('injects the canonical GLTF surface contract once before the reset user source', () => {
     const toon = BUILTIN_SHADERS.find((shader) => shader.id === 'builtin-toon')
     expect(toon).toBeDefined()

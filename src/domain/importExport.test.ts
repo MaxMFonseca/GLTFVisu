@@ -152,6 +152,36 @@ describe('parseShaderPackage', () => {
   })
 
   it.each([
+    'sampleGltfBaseColor',
+    'vGltfUv1',
+    'vGltfWorldTangent',
+    'USE_UV1',
+    'USE_TANGENT',
+    'ENVMAP_TYPE_CUBE_UV',
+    'CUBEUV_TEXEL_WIDTH',
+    'CUBEUV_TEXEL_HEIGHT',
+    'CUBEUV_MAX_MIP',
+  ])('rejects an imported profile-owned uniform named %s', (uniformName) => {
+    const imported = envelope({
+      materialInputProfile: 'gltf-pbr',
+      parameters: [{
+        id: 'collision',
+        type: 'float',
+        uniformName,
+        label: 'Collision',
+        min: 0,
+        max: 1,
+        step: 0.1,
+        defaultValue: 0,
+      }],
+      parameterValues: { collision: 0 },
+    })
+
+    expect(() => parseShaderPackage(JSON.stringify(imported), idFactory, 1234))
+      .toThrow('Invalid shader parameter definitions')
+  })
+
+  it.each([
     ['a missing value', { gain: 1.5, bands: 2, tint: '#112233' }],
     ['an extra value', { gain: 1.5, bands: 2, tint: '#112233', enabled: true, extra: 1 }],
     ['a numeric string', { gain: '1.5', bands: 2, tint: '#112233', enabled: true }],

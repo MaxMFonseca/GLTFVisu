@@ -44,8 +44,7 @@ export function createGltfPbrBindingOwner(
   }
 
   return createMaterialBindingOwner(createVariant, () => {
-    fallbacks.white.dispose()
-    fallbacks.normal.dispose()
+    disposePbrFallbackTexturesBestEffort(fallbacks)
   })
 }
 
@@ -71,8 +70,7 @@ export function createGltfPbrVariant(
   variant.addEventListener('dispose', () => {
     if (disposed) return
     disposed = true
-    fallbacks.white.dispose()
-    fallbacks.normal.dispose()
+    disposePbrFallbackTexturesBestEffort(fallbacks)
   })
   return variant
 }
@@ -133,6 +131,16 @@ function createPbrFallbackTextures(): PbrFallbackTextures {
   return {
     white: createWhiteFallbackTexture(),
     normal: createNeutralNormalFallbackTexture(),
+  }
+}
+
+function disposePbrFallbackTexturesBestEffort(fallbacks: PbrFallbackTextures): void {
+  for (const texture of [fallbacks.white, fallbacks.normal]) {
+    try {
+      texture.dispose()
+    } catch {
+      // Fallback listeners cannot prevent the sibling owned texture from being released.
+    }
   }
 }
 
