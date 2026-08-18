@@ -81,6 +81,20 @@ export function cloneShader(shader: ShaderDefinition): ShaderDefinition {
   }
 }
 
+export function cloneShaderWithBuiltinParameterValues(
+  shader: ShaderDefinition,
+  builtinParameterValues: BuiltinParameterValues,
+): ShaderDefinition {
+  const draft = cloneShader(shader)
+  if (shader.origin === 'builtin') {
+    draft.parameterValues = {
+      ...draft.parameterValues,
+      ...builtinParameterValues[shader.id],
+    }
+  }
+  return draft
+}
+
 export function cleanDirtyFields(): WorkspaceDirtyFields {
   return { name: false, source: false, schema: false, values: false, portrait: false }
 }

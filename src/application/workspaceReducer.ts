@@ -10,6 +10,7 @@ import type { CompileResult, ModelInfo } from './ViewerPort'
 import {
   cleanDirtyFields,
   cloneShader,
+  cloneShaderWithBuiltinParameterValues,
   initialFieldRevisions,
   type BuiltinParameterValues,
   type WorkspaceFieldRevisions,
@@ -81,13 +82,7 @@ function createBuiltinParameterValues(builtins: readonly ShaderDefinition[]): Bu
 
 function selectedState(state: WorkspaceState, shader: ShaderDefinition): WorkspaceState {
   const revision = state.draftRevision + 1
-  const draft = cloneShader(shader)
-  if (shader.origin === 'builtin') {
-    draft.parameterValues = {
-      ...draft.parameterValues,
-      ...state.builtinParameterValues[shader.id],
-    }
-  }
+  const draft = cloneShaderWithBuiltinParameterValues(shader, state.builtinParameterValues)
   return {
     ...state,
     selectedId: shader.id,

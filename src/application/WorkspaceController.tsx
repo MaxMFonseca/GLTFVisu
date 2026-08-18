@@ -21,7 +21,12 @@ import type { ShaderRepository } from './ShaderRepository'
 import type { ViewerPort } from './ViewerPort'
 import type { WorkspaceCommands } from './commands'
 import { createInitialWorkspaceState, workspaceReducer } from './workspaceReducer'
-import { cloneShader, hasLoadedModel, type WorkspaceState } from './workspaceState'
+import {
+  cloneShader,
+  cloneShaderWithBuiltinParameterValues,
+  hasLoadedModel,
+  type WorkspaceState,
+} from './workspaceState'
 
 const COMPILE_DEBOUNCE_MS = 400
 const DEFAULT_FRAGMENT_SOURCE = `void main() {
@@ -244,7 +249,10 @@ export function WorkspaceProvider({
   const selectConcreteShader = useCallback((shader: ShaderDefinition) => {
     cancelScheduledCompile()
     dispatch({ type: 'select', shader })
-    void compileDraft(shader)
+    const compileInput = shader.origin === 'builtin'
+      ? cloneShaderWithBuiltinParameterValues(shader, stateRef.current.builtinParameterValues)
+      : shader
+    void compileDraft(compileInput)
   }, [cancelScheduledCompile, compileDraft])
 
   useEffect(() => {

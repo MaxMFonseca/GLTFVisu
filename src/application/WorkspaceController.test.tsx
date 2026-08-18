@@ -238,6 +238,26 @@ describe('WorkspaceProvider', () => {
     }))
   })
 
+  it('recompiles a reselected built-in with its restored session values', async () => {
+    const fresnel = BUILTIN_SHADERS.find((shader) => shader.id === 'builtin-fresnel')
+    const toon = BUILTIN_SHADERS.find((shader) => shader.id === 'builtin-toon')
+    if (fresnel === undefined || toon === undefined) throw new Error('Expected Fresnel and Toon built-ins')
+    const viewer = createViewer()
+    const workspace = renderWorkspace({ viewer })
+    await ready(workspace)
+    await act(async () => workspace.current().commands.selectShader(fresnel.id))
+    act(() => workspace.current().commands.updateValue('power', 6))
+    vi.mocked(viewer.compileShader).mockClear()
+
+    await act(async () => workspace.current().commands.selectShader(toon.id))
+    await act(async () => workspace.current().commands.selectShader(fresnel.id))
+
+    expect(viewer.compileShader).toHaveBeenLastCalledWith(expect.objectContaining({
+      id: fresnel.id,
+      parameterValues: expect.objectContaining({ power: 6 }),
+    }))
+  })
+
   it('blocks invalid schemas from compile and save while preserving a recoverable draft', async () => {
     const local = localShader()
     const repository = createRepository([local])
