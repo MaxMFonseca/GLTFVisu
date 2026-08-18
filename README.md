@@ -95,7 +95,7 @@ Float and integer definitions also include minimum, maximum, step, and default v
 
 ## Environment lighting
 
-Open **Environment** in the viewer toolbar to choose one of four bundled 1K CC0 HDR environments: Starfield (Rogland Clear Night), City (Urban Street 01), Desert (Goegap), or Studio (Poly Haven Studio). They work offline after the application has loaded. Authors, source pages, licenses, and vendored checksums are recorded in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+Open **Environment** in the viewer toolbar to choose one of four bundled 1K CC0 HDR environments: Starfield (Rogland Clear Night), City (Urban Street 01), Desert (Goegap), or Studio (Poly Haven Studio). The HDR files are hosted with the static application, so selecting them does not fetch from Poly Haven or another third party at runtime. They remain available without a network connection when the site is served locally or the relevant assets are already cached. Authors, source pages, licenses, and vendored checksums are recorded in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 
 You can also choose a local `.hdr` file; it stays in browser memory and is not uploaded or saved. A remote environment must be a direct `https://` HDR URL whose server permits cross-origin requests (CORS). An `http://` URL is rejected, and an HTTPS page cannot load insecure HTTP content. Failed replacements leave the previous environment active.
 
@@ -147,6 +147,6 @@ Imported shaders execute locally on the GPU through WebGL2. Review shader source
 
 `npm run build` writes a static site to `dist/`. Vite is configured with the relative base `./`, so generated HTML, JavaScript, CSS, bundled HDRs and portraits, and Monaco worker assets resolve beneath the directory where the site is hosted instead of from the domain root.
 
-For GitHub Pages, publish the contents of `dist/` under the repository subpath, such as `/GLTFvisu/`. The same build can be hosted under another subpath without changing source code. Use `npm run preview` to inspect the production build locally before publishing.
+For GitHub Pages, publish the contents of `dist/` under the repository subpath, such as `/GLTFVisu/`. The same build can be hosted under another subpath without changing source code. Use `npm run preview` to inspect the production build locally before publishing.
 
 After building, `npm run verify:static` serves and crawls the output under a simulated `/GLTFVisu/` repository path. It rejects root-relative `/assets` requests and checks the four HDRs, all bundled portraits, Monaco worker, and JavaScript/CSS chunks.
