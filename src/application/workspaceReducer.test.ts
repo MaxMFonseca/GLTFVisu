@@ -112,6 +112,24 @@ describe('workspaceReducer', () => {
     })
   })
 
+  it('keeps built-in runtime values in the session and restores them on selection', () => {
+    const fresnel = BUILTIN_SHADERS.find((shader) => shader.id === 'builtin-fresnel')
+    const toon = BUILTIN_SHADERS.find((shader) => shader.id === 'builtin-toon')
+    if (fresnel === undefined || toon === undefined) throw new Error('Expected Fresnel and Toon built-ins')
+    const selected = workspaceReducer(createInitialWorkspaceState(BUILTIN_SHADERS), {
+      type: 'select', shader: fresnel,
+    })
+
+    const changed = workspaceReducer(selected, { type: 'editValue', parameterId: 'power', value: 6 })
+    const away = workspaceReducer(changed, { type: 'select', shader: toon })
+    const restored = workspaceReducer(away, { type: 'select', shader: fresnel })
+
+    expect(changed.draft.parameterValues.power).toBe(6)
+    expect(changed.builtinParameterValues['builtin-fresnel']?.power).toBe(6)
+    expect(changed.dirty.values).toBe(false)
+    expect(restored.draft.parameterValues.power).toBe(6)
+  })
+
   it('does not let compile results clear persistence dirty state and ignores stale generations', () => {
     const selected = workspaceReducer(createInitialWorkspaceState(BUILTIN_SHADERS), {
       type: 'select', shader: localShader(),

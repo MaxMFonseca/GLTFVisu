@@ -283,9 +283,19 @@ export function WorkspaceProvider({
       }
     },
     async duplicateShader(id) {
-      const source = findShader(id ?? stateRef.current.selectedId)
+      const current = stateRef.current
+      const source = findShader(id ?? current.selectedId)
       if (source === undefined) return
-      const shader = duplicateLocal(source, idFactory(), now())
+      const duplicateSource = source.origin === 'builtin'
+        ? {
+            ...source,
+            parameterValues: {
+              ...source.parameterValues,
+              ...current.builtinParameterValues[source.id],
+            },
+          }
+        : source
+      const shader = duplicateLocal(duplicateSource, idFactory(), now())
       try {
         await repository.save(shader)
         if (!activeRef.current) return
@@ -322,7 +332,6 @@ export function WorkspaceProvider({
     },
     updateValue(parameterId, value) {
       const current = stateRef.current.draft
-      if (current.origin === 'builtin') return
       const definition = current.parameters.find((parameter) => parameter.id === parameterId)
       if (definition === undefined) return
       const normalized = normalizeParameterValue(definition, value)

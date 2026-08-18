@@ -1,4 +1,5 @@
 import type { ParameterDefinitionValidationError } from '../domain/uniformValidation'
+import type { ShaderParameterValue } from '../domain/parameters'
 import type { ShaderDefinition, ShaderDraft } from '../domain/shader'
 import type { AnimationClipInfo, CompileDiagnostic } from './ViewerPort'
 
@@ -42,8 +43,14 @@ export interface WorkspaceNotice {
   message: string
 }
 
+export type BuiltinParameterValues = Readonly<Record<
+  string,
+  Readonly<Record<string, ShaderParameterValue>>
+>>
+
 export interface WorkspaceState {
   builtins: readonly ShaderDefinition[]
+  builtinParameterValues: BuiltinParameterValues
   locals: readonly ShaderDefinition[]
   selectedId: string
   savedSnapshot: ShaderDefinition
