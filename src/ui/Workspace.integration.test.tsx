@@ -90,6 +90,8 @@ function createViewer(): ViewerHarness {
       return { status: 'valid', generation }
     }),
     updateParameter: vi.fn(),
+    loadEnvironment: vi.fn(async () => undefined),
+    updateEnvironment: vi.fn(),
     capturePortrait: vi.fn(async (): Promise<ShaderPortrait> => {
       if (viewer.failCapture) throw new Error('Portrait capture failed')
       return {

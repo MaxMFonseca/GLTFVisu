@@ -4,6 +4,7 @@ import type { ShaderRepository } from './application/ShaderRepository'
 import type { CompileResult, ModelInfo, ViewerPort } from './application/ViewerPort'
 import type { ShaderParameterDefinition, ShaderParameterValue } from './domain/parameters'
 import type { ShaderDraft, ShaderPortrait } from './domain/shader'
+import type { EnvironmentDisplaySettings, EnvironmentLoadSource } from './domain/environment'
 import { IndexedDbShaderRepository } from './persistence/IndexedDbShaderRepository'
 import { ViewerEngine } from './three/ViewerEngine'
 import { Workspace } from './ui/Workspace'
@@ -50,6 +51,14 @@ class MountedViewerPort implements ViewerPort {
 
   updateParameter(definition: ShaderParameterDefinition, value: ShaderParameterValue): void {
     this.engine?.updateParameter(definition, value)
+  }
+
+  async loadEnvironment(source: EnvironmentLoadSource): Promise<void> {
+    return (await this.mounted()).loadEnvironment(source)
+  }
+
+  updateEnvironment(settings: EnvironmentDisplaySettings): void {
+    this.engine?.updateEnvironment(settings)
   }
 
   async capturePortrait(): Promise<ShaderPortrait> {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { BUILTIN_SHADERS } from '../domain/builtins'
+import { DEFAULT_ENVIRONMENT_DISPLAY_SETTINGS } from '../domain/environment'
 import type { ShaderDefinition } from '../domain/shader'
 import {
   createInitialWorkspaceState,
@@ -26,6 +27,43 @@ function localShader(overrides: Partial<ShaderDefinition> = {}): ShaderDefinitio
 }
 
 describe('workspaceReducer', () => {
+  it('keeps the prior ready environment after a failed replacement', () => {
+    const source = { kind: 'remote' as const, url: 'https://example.com/studio.hdr' }
+    const initial = createInitialWorkspaceState(BUILTIN_SHADERS)
+    const ready = workspaceReducer(
+      workspaceReducer(initial, { type: 'environmentLoadStarted', generation: 1, label: 'Studio' }),
+      { type: 'environmentLoadSucceeded', generation: 1, source },
+    )
+    const loading = workspaceReducer(ready, { type: 'environmentLoadStarted', generation: 2, label: 'Broken HDR' })
+    const failed = workspaceReducer(loading, {
+      type: 'environmentLoadFailed', generation: 2, message: 'Unable to load environment',
+    })
+
+    expect(failed.environment).toEqual({
+      status: 'error',
+      activeSource: source,
+      error: 'Unable to load environment',
+      settings: DEFAULT_ENVIRONMENT_DISPLAY_SETTINGS,
+    })
+    expect(failed.notices.at(-1)).toEqual({
+      kind: 'error', scope: 'environment', message: 'Unable to load environment',
+    })
+  })
+
+  it('ignores a stale environment completion after a newer source is ready', () => {
+    const initial = createInitialWorkspaceState(BUILTIN_SHADERS)
+    const first = workspaceReducer(initial, { type: 'environmentLoadStarted', generation: 1, label: 'First' })
+    const second = workspaceReducer(first, { type: 'environmentLoadStarted', generation: 2, label: 'Second' })
+    const newest = workspaceReducer(second, {
+      type: 'environmentLoadSucceeded', generation: 2, source: { kind: 'remote', url: 'https://example.com/second.hdr' },
+    })
+    const stale = workspaceReducer(newest, {
+      type: 'environmentLoadSucceeded', generation: 1, source: { kind: 'remote', url: 'https://example.com/first.hdr' },
+    })
+
+    expect(newest.environment.activeSource).toEqual({ kind: 'remote', url: 'https://example.com/second.hdr' })
+    expect(stale).toBe(newest)
+  })
   it('restores the committed animated model snapshot when a replacement load fails', () => {
     const loaded = workspaceReducer(createInitialWorkspaceState(BUILTIN_SHADERS), {
       type: 'modelLoadSucceeded',

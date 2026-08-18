@@ -43,6 +43,8 @@ function viewer(): ViewerPort {
     resize: vi.fn(),
     compileShader: vi.fn(async () => ({ status: 'valid' as const, generation: 1 })),
     updateParameter: vi.fn(),
+    loadEnvironment: vi.fn(async () => undefined),
+    updateEnvironment: vi.fn(),
     capturePortrait: vi.fn(async () => ({
       kind: 'captured' as const, blob: new Blob(['portrait']), mimeType: 'image/png' as const, width: 2, height: 2,
     })),
