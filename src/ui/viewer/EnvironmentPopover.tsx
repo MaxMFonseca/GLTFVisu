@@ -80,7 +80,7 @@ export function EnvironmentPopover({ environment, environmentCatalog, commands }
       <button
         ref={triggerRef}
         type="button"
-        aria-controls={popoverId}
+        {...(open ? { 'aria-controls': popoverId } : {})}
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
       >

@@ -1,8 +1,10 @@
 .viewer-stage {
+  --viewer-toolbar-height: 2.75rem;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   height: 100%;
   min-height: 0;
+  position: relative;
   width: 100%;
 }
 
@@ -39,7 +41,7 @@
 }
 
 .environment-control {
-  position: relative;
+  position: static;
 }
 
 .environment-popover {
@@ -50,11 +52,11 @@
   display: grid;
   gap: var(--space-3);
   left: 0;
-  max-height: min(32rem, calc(100vh - 5rem));
+  max-height: min(32rem, calc(100% - var(--viewer-toolbar-height) - var(--space-2)));
   overflow-y: auto;
   padding: var(--space-3);
   position: absolute;
-  top: calc(100% + var(--space-2));
+  top: calc(var(--viewer-toolbar-height) + var(--space-2));
   width: min(22rem, calc(100vw - 2rem));
   z-index: 2;
 }

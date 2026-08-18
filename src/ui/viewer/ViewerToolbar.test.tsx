@@ -121,12 +121,14 @@ describe('ViewerToolbar', () => {
 
     const trigger = screen.getByRole('button', { name: 'Environment' })
     expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    expect(trigger).not.toHaveAttribute('aria-controls')
 
     await user.click(trigger)
 
+    const region = screen.getByRole('region', { name: 'Environment settings' })
     expect(trigger).toHaveAttribute('aria-expanded', 'true')
-    expect(trigger).toHaveAttribute('aria-controls')
-    expect(screen.getByRole('region', { name: 'Environment settings' })).toBeVisible()
+    expect(trigger).toHaveAttribute('aria-controls', region.id)
+    expect(region).toBeVisible()
     expect(screen.getByLabelText('Bundled environment')).toBeDisabled()
   })
 })

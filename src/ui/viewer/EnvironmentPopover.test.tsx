@@ -105,9 +105,17 @@ describe('EnvironmentPopover', () => {
     expect(viewerPort.updateEnvironment).toHaveBeenLastCalledWith(expect.objectContaining({ rotation: 90 }))
     expect(screen.getByRole('spinbutton', { name: 'Environment rotation value' })).toHaveValue(90)
 
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Environment rotation value' }), { target: { value: '180' } })
+    expect(viewerPort.updateEnvironment).toHaveBeenLastCalledWith(expect.objectContaining({ rotation: 180 }))
+    expect(screen.getByRole('slider', { name: 'Environment rotation' })).toHaveValue('180')
+
     fireEvent.change(screen.getByRole('slider', { name: 'Environment intensity' }), { target: { value: '2.5' } })
     expect(viewerPort.updateEnvironment).toHaveBeenLastCalledWith(expect.objectContaining({ intensity: 2.5 }))
     expect(screen.getByRole('spinbutton', { name: 'Environment intensity value' })).toHaveValue(2.5)
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Environment intensity value' }), { target: { value: '3.2' } })
+    expect(viewerPort.updateEnvironment).toHaveBeenLastCalledWith(expect.objectContaining({ intensity: 3.2 }))
+    expect(screen.getByRole('slider', { name: 'Environment intensity' })).toHaveValue('3.2')
   })
 
   it('shows loading and error feedback while keeping display controls usable', async () => {
@@ -152,12 +160,22 @@ describe('EnvironmentPopover', () => {
     await user.click(trigger)
     expect(screen.getByRole('region', { name: 'Environment settings' })).toBeVisible()
 
+    const urlInput = screen.getByLabelText('HDR URL')
+    urlInput.focus()
+    expect(urlInput).toHaveFocus()
     await user.keyboard('{Escape}')
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Environment settings' })).not.toBeInTheDocument())
     expect(trigger).toHaveFocus()
 
     await user.click(trigger)
-    fireEvent.pointerDown(document.body)
+    const outsideControl = document.createElement('button')
+    outsideControl.type = 'button'
+    document.body.append(outsideControl)
+    outsideControl.focus()
+    fireEvent.pointerDown(outsideControl)
     expect(screen.queryByRole('region', { name: 'Environment settings' })).not.toBeInTheDocument()
+    await Promise.resolve()
+    expect(outsideControl).toHaveFocus()
+    outsideControl.remove()
   })
 })
