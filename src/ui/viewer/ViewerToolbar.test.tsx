@@ -110,4 +110,23 @@ describe('ViewerToolbar', () => {
     await user.selectOptions(screen.getByRole('combobox', { name: 'Animation clip' }), 'clip-1')
     expect(modelViewer.selectAnimation).toHaveBeenCalledWith('clip-1')
   })
+
+  it('opens accessible environment settings from the toolbar', async () => {
+    const user = userEvent.setup()
+    render(
+      <WorkspaceProvider repository={repository()} viewer={createViewer()}>
+        <ViewerToolbar />
+      </WorkspaceProvider>,
+    )
+
+    const trigger = screen.getByRole('button', { name: 'Environment' })
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+
+    await user.click(trigger)
+
+    expect(trigger).toHaveAttribute('aria-expanded', 'true')
+    expect(trigger).toHaveAttribute('aria-controls')
+    expect(screen.getByRole('region', { name: 'Environment settings' })).toBeVisible()
+    expect(screen.getByLabelText('Bundled environment')).toBeDisabled()
+  })
 })
