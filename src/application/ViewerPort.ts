@@ -28,6 +28,10 @@ export interface ModelInfo {
 
 /** Application-facing boundary for the imperative viewer runtime. */
 export interface ViewerPort {
+  /**
+   * Installs the requested model. Starting a newer request must supersede any
+   * older in-flight request and prevent that older model from being installed.
+   */
   loadModel(files: File[], root: File): Promise<ModelInfo>
   replaceModelTexture(slotId: string, file: File): Promise<readonly ModelTextureSlotInfo[]>
   restoreModelTexture(slotId: string): Promise<readonly ModelTextureSlotInfo[]>
