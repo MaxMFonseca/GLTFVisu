@@ -123,6 +123,31 @@ describe('Workspace', () => {
     expect(screen.getByRole('button', { name: 'Expand shader editor' })).toBeVisible()
   })
 
+  it('keeps every desktop grid item in its track when either outer panel is collapsed', async () => {
+    const user = userEvent.setup()
+    const { container } = render(
+      <WorkspaceProvider repository={repository()} viewer={viewer()}>
+        <Workspace mountViewer={() => ({ dispose: vi.fn() })} />
+      </WorkspaceProvider>,
+    )
+    const items = [
+      container.querySelector('.workspace-library'),
+      container.querySelector('.panel-divider-left'),
+      container.querySelector('.workspace-viewer'),
+      container.querySelector('.panel-divider-right'),
+      container.querySelector('.workspace-editor'),
+    ] as Element[]
+    const gridColumns = () => items.map((item) => getComputedStyle(item).gridColumn)
+
+    expect(gridColumns()).toEqual(['1', '2', '3', '4', '5'])
+    await user.click(screen.getByRole('button', { name: 'Collapse shader library' }))
+    expect(gridColumns()).toEqual(['1', '2', '3', '4', '5'])
+
+    await user.click(screen.getByRole('button', { name: 'Expand shader library' }))
+    await user.click(screen.getByRole('button', { name: 'Collapse shader editor' }))
+    expect(gridColumns()).toEqual(['1', '2', '3', '4', '5'])
+  })
+
   it('offers keyboard tabs on narrow displays and resizes the viewer when activated', async () => {
     useNarrowViewport()
     const user = userEvent.setup()
