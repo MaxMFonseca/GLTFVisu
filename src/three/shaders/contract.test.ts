@@ -233,6 +233,17 @@ describe('buildFragmentShader', () => {
       'uniform int uGltfNormalUvChannel;',
       'uniform mat3 uGltfNormalUvTransform;',
       'uniform vec2 uGltfNormalScale;',
+      'uniform sampler2D uGltfOcclusionMap;',
+      'uniform bool uGltfHasOcclusionMap;',
+      'uniform int uGltfOcclusionUvChannel;',
+      'uniform mat3 uGltfOcclusionUvTransform;',
+      'uniform float uGltfOcclusionStrength;',
+      'uniform sampler2D uGltfEmissiveMap;',
+      'uniform bool uGltfHasEmissiveMap;',
+      'uniform int uGltfEmissiveUvChannel;',
+      'uniform mat3 uGltfEmissiveUvTransform;',
+      'uniform vec3 uGltfEmissiveFactor;',
+      'uniform float uGltfEmissiveIntensity;',
       'uniform sampler2D uEnvironmentMap;',
       'uniform mat3 uEnvironmentRotation;',
       'uniform float uEnvironmentIntensity;',
@@ -262,6 +273,10 @@ describe('buildFragmentShader', () => {
     expect(PBR_FRAGMENT_SOURCE).toContain('uGltfNormalScale * uNormalStrength')
     expect(PBR_FRAGMENT_SOURCE).toMatch(/texture\(uGltfRoughnessMap,[^)]+\)\.g/)
     expect(PBR_FRAGMENT_SOURCE).toMatch(/texture\(uGltfMetallicMap,[^)]+\)\.b/)
+    expect(PBR_FRAGMENT_SOURCE).toMatch(/texture\(uGltfOcclusionMap,[^)]+\)\.r/)
+    expect(PBR_FRAGMENT_SOURCE).toContain('mix(1.0, sampledOcclusion, uGltfOcclusionStrength)')
+    expect(PBR_FRAGMENT_SOURCE).toContain('emissive *= texture(uGltfEmissiveMap, emissiveUv).rgb')
+    expect(PBR_FRAGMENT_SOURCE).toContain('uGltfEmissiveFactor * uGltfEmissiveIntensity')
     expect(PBR_FRAGMENT_SOURCE).toContain('clamp(metallic, 0.0, 1.0)')
     expect(PBR_FRAGMENT_SOURCE).toContain('clamp(roughness, 0.04, 1.0)')
     expect(PBR_FRAGMENT_SOURCE).toMatch(/textureCubeUV\(uEnvironmentMap,\s*diffuseDirection,\s*1\.0\)/)

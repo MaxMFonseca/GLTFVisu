@@ -2,6 +2,7 @@ import {
   AnimationClip,
   BufferAttribute,
   BoxGeometry,
+  Color,
   CubeReflectionMapping,
   CubeUVReflectionMapping,
   DoubleSide,
@@ -270,6 +271,7 @@ describe('ViewerEngine', () => {
       animationClips: [],
       textureSlots: [{
         id: 'material-0:base-color',
+        materialId: 'material-0',
         materialLabel: 'Hull',
         channel: 'base-color',
         label: 'Base color',
@@ -340,6 +342,222 @@ describe('ViewerEngine', () => {
     expect(restoredSlots.every(({ replaced }) => !replaced)).toBe(true)
     expect((mesh.material as unknown as ShaderMaterial).uniforms.uBoundTexture.value).toBe(originalBaseColor)
     engine.dispose()
+  })
+
+  it('rebinds occlusion and emissive replacements and restorations through the real PBR owner', async () => {
+    const originalOcclusion = new Texture()
+    originalOcclusion.channel = 1
+    originalOcclusion.offset.set(0.2, 0.3)
+    originalOcclusion.repeat.set(0.4, 0.5)
+    const originalEmissive = new Texture()
+    originalEmissive.offset.set(0.6, 0.7)
+    const replacementOcclusion = new Texture()
+    const replacementEmissive = new Texture()
+    const originalMaterial = new MeshStandardMaterial({
+      aoMap: originalOcclusion,
+      aoMapIntensity: 0.35,
+      emissive: '#4080c0',
+      emissiveMap: originalEmissive,
+      emissiveIntensity: 1.75,
+    })
+    const geometry = new BoxGeometry()
+    geometry.setAttribute('uv1', geometry.getAttribute('uv').clone())
+    const mesh = new Mesh(geometry, originalMaterial)
+    const root = new Group().add(mesh)
+    const loader: ModelLoaderPort = { load: vi.fn(async () => ({ scene: root, animations: [] })) }
+    const template = new ShaderMaterial()
+    setMaterialInputProfile(template, 'gltf-pbr')
+    const compiler: CompilerPort = {
+      material: template,
+      compile: vi.fn(async () => ({ status: 'valid' as const, generation: 1 })),
+      updateParameter: vi.fn(),
+      dispose: vi.fn(),
+    }
+    const registryDependencies: ModelTextureRegistryDependencies = {
+      decode: vi.fn()
+        .mockResolvedValueOnce(replacementOcclusion)
+        .mockResolvedValueOnce(replacementEmissive),
+      createPreview: vi.fn(async (texture) => `preview:${texture.uuid}`),
+      revokePreview: vi.fn(),
+    }
+    const harness = createHarness({
+      loader,
+      createCompiler: () => compiler,
+      createTextureRegistry: (candidateRoot) => ModelTextureRegistry.create(candidateRoot, registryDependencies),
+    })
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    const file = modelFile('pbr-textures.glb')
+    const loaded = await engine.loadModel([file], file)
+    const occlusionSlot = loaded.textureSlots.find(({ channel }) => channel === 'occlusion')!
+    const emissiveSlot = loaded.textureSlots.find(({ channel }) => channel === 'emissive')!
+
+    await engine.replaceModelTexture(occlusionSlot.id, {} as File)
+    let variant = mesh.material as unknown as ShaderMaterial
+    expect(variant.uniforms.uGltfOcclusionMap.value).toBe(replacementOcclusion)
+    expect(variant.uniforms.uGltfOcclusionUvChannel.value).toBe(1)
+    expect(variant.uniforms.uGltfOcclusionUvTransform.value).toEqual(
+      new Matrix3().setUvTransform(0.2, 0.3, 0.4, 0.5, 0, 0, 0),
+    )
+    expect(variant.uniforms.uGltfOcclusionStrength.value).toBe(0.35)
+
+    await engine.replaceModelTexture(emissiveSlot.id, {} as File)
+    variant = mesh.material as unknown as ShaderMaterial
+    expect(variant.uniforms.uGltfOcclusionMap.value).toBe(replacementOcclusion)
+    expect(variant.uniforms.uGltfEmissiveMap.value).toBe(replacementEmissive)
+    expect(variant.uniforms.uGltfEmissiveUvTransform.value).toEqual(
+      new Matrix3().setUvTransform(0.6, 0.7, 1, 1, 0, 0, 0),
+    )
+    expect(variant.uniforms.uGltfEmissiveFactor.value).toEqual(new Color('#4080c0'))
+    expect(variant.uniforms.uGltfEmissiveIntensity.value).toBe(1.75)
+
+    await engine.restoreModelTexture(occlusionSlot.id)
+    await engine.restoreModelTexture(emissiveSlot.id)
+    variant = mesh.material as unknown as ShaderMaterial
+    expect(variant.uniforms.uGltfOcclusionMap.value).toBe(originalOcclusion)
+    expect(variant.uniforms.uGltfEmissiveMap.value).toBe(originalEmissive)
+    engine.dispose()
+  })
+
+  it.each(['base-first', 'normal-first'] as const)(
+    'keeps concurrent distinct-slot replacements when decoding completes %s',
+    async (resolutionOrder) => {
+      const originalBaseColor = new Texture()
+      const originalNormal = new Texture()
+      const replacementBaseColor = new Texture()
+      const replacementNormal = new Texture()
+      const closeBaseColor = vi.fn()
+      const closeNormal = vi.fn()
+      replacementBaseColor.image = { close: closeBaseColor }
+      replacementNormal.image = { close: closeNormal }
+      const disposeBaseColor = vi.spyOn(replacementBaseColor, 'dispose')
+      const disposeNormal = vi.spyOn(replacementNormal, 'dispose')
+      const material = new MeshStandardMaterial({ map: originalBaseColor, normalMap: originalNormal })
+      const mesh = new Mesh(new BoxGeometry(), material)
+      const root = new Group().add(mesh)
+      const loader: ModelLoaderPort = { load: vi.fn(async () => ({ scene: root, animations: [] })) }
+      const template = new ShaderMaterial()
+      setMaterialInputProfile(template, 'gltf-pbr')
+      const compiler: CompilerPort = {
+        material: template,
+        compile: vi.fn(async () => ({ status: 'valid' as const, generation: 1 })),
+        updateParameter: vi.fn(),
+        dispose: vi.fn(),
+      }
+      const baseDecode = deferred<Texture>()
+      const normalDecode = deferred<Texture>()
+      const revokePreview = vi.fn()
+      const registryDependencies: ModelTextureRegistryDependencies = {
+        decode: vi.fn((file: File) => file.name === 'base.png' ? baseDecode.promise : normalDecode.promise),
+        createPreview: vi.fn(async (texture) => `preview:${texture.uuid}`),
+        revokePreview,
+      }
+      const harness = createHarness({
+        loader,
+        createCompiler: () => compiler,
+        createTextureRegistry: (candidateRoot) => ModelTextureRegistry.create(candidateRoot, registryDependencies),
+      })
+      const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+      const file = modelFile('concurrent-textures.glb')
+      const loaded = await engine.loadModel([file], file)
+      const baseSlot = loaded.textureSlots.find(({ channel }) => channel === 'base-color')!
+      const normalSlot = loaded.textureSlots.find(({ channel }) => channel === 'normal')!
+
+      const baseReplacement = engine.replaceModelTexture(
+        baseSlot.id,
+        new File(['base'], 'base.png', { type: 'image/png' }),
+      )
+      const normalReplacement = engine.replaceModelTexture(
+        normalSlot.id,
+        new File(['normal'], 'normal.png', { type: 'image/png' }),
+      )
+      const replacements = Promise.all([baseReplacement, normalReplacement])
+      if (resolutionOrder === 'base-first') {
+        baseDecode.resolve(replacementBaseColor)
+        await baseReplacement
+        normalDecode.resolve(replacementNormal)
+      } else {
+        normalDecode.resolve(replacementNormal)
+        await normalReplacement
+        baseDecode.resolve(replacementBaseColor)
+      }
+      const [baseResult, normalResult] = await replacements
+      const finalSlots = resolutionOrder === 'base-first' ? normalResult : baseResult
+
+      expect(finalSlots.map(({ channel, replaced }) => [channel, replaced])).toEqual([
+        ['base-color', true],
+        ['normal', true],
+      ])
+      expect(material.map).toBe(replacementBaseColor)
+      expect(material.normalMap).toBe(replacementNormal)
+      const variant = mesh.material as unknown as ShaderMaterial
+      expect(variant.uniforms.uGltfBaseColorMap.value).toBe(replacementBaseColor)
+      expect(variant.uniforms.uGltfNormalMap.value).toBe(replacementNormal)
+      expect(disposeBaseColor).not.toHaveBeenCalled()
+      expect(disposeNormal).not.toHaveBeenCalled()
+
+      engine.dispose()
+
+      expect(disposeBaseColor).toHaveBeenCalledOnce()
+      expect(disposeNormal).toHaveBeenCalledOnce()
+      expect(closeBaseColor).toHaveBeenCalledOnce()
+      expect(closeNormal).toHaveBeenCalledOnce()
+      expect(revokePreview.mock.calls.filter(([url]) => url === `preview:${replacementBaseColor.uuid}`)).toHaveLength(1)
+      expect(revokePreview.mock.calls.filter(([url]) => url === `preview:${replacementNormal.uuid}`)).toHaveLength(1)
+    },
+  )
+
+  it('keeps same-slot last-request wins while a prior replacement is decoding', async () => {
+    const original = new Texture()
+    const staleCandidate = new Texture()
+    const latestCandidate = new Texture()
+    const disposeStale = vi.spyOn(staleCandidate, 'dispose')
+    const disposeLatest = vi.spyOn(latestCandidate, 'dispose')
+    const material = new MeshStandardMaterial({ map: original })
+    const mesh = new Mesh(new BoxGeometry(), material)
+    const root = new Group().add(mesh)
+    const loader: ModelLoaderPort = { load: vi.fn(async () => ({ scene: root, animations: [] })) }
+    const template = new ShaderMaterial()
+    setMaterialInputProfile(template, 'gltf-surface')
+    const compiler: CompilerPort = {
+      material: template,
+      compile: vi.fn(async () => ({ status: 'valid' as const, generation: 1 })),
+      updateParameter: vi.fn(),
+      dispose: vi.fn(),
+    }
+    const staleDecode = deferred<Texture>()
+    const latestDecode = deferred<Texture>()
+    const registryDependencies: ModelTextureRegistryDependencies = {
+      decode: vi.fn((file: File) => file.name === 'stale.png' ? staleDecode.promise : latestDecode.promise),
+      createPreview: vi.fn(async (texture) => `preview:${texture.uuid}`),
+      revokePreview: vi.fn(),
+    }
+    const harness = createHarness({
+      loader,
+      createCompiler: () => compiler,
+      createTextureRegistry: (candidateRoot) => ModelTextureRegistry.create(candidateRoot, registryDependencies),
+    })
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    const file = modelFile('same-slot-stale.glb')
+    const loaded = await engine.loadModel([file], file)
+    const slotId = loaded.textureSlots[0].id
+    const staleReplacement = engine.replaceModelTexture(slotId, new File(['stale'], 'stale.png'))
+    const latestReplacement = engine.replaceModelTexture(slotId, new File(['latest'], 'latest.png'))
+    const staleOutcome = staleReplacement.catch((error: unknown) => error)
+
+    latestDecode.resolve(latestCandidate)
+    await expect(latestReplacement).resolves.toEqual([
+      expect.objectContaining({ id: slotId, replaced: true }),
+    ])
+    staleDecode.resolve(staleCandidate)
+    await expect(staleOutcome).resolves.toEqual(expect.objectContaining({
+      message: 'Model texture mutation is stale',
+    }))
+
+    expect(material.map).toBe(latestCandidate)
+    expect(disposeStale).toHaveBeenCalledOnce()
+    expect(disposeLatest).not.toHaveBeenCalled()
+    engine.dispose()
+    expect(disposeLatest).toHaveBeenCalledOnce()
   })
 
   it('keeps the exact predecessor variant when candidate and recovery creation would fail', async () => {

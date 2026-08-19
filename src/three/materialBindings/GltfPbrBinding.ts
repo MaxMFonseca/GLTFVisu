@@ -86,6 +86,8 @@ function createGltfPbrVariantWithFallbacks(
   const metallic = availableTextureInput(inputs.metallic, context)
   const roughness = availableTextureInput(inputs.roughness, context)
   const normal = availableTextureInput(inputs.normal, context)
+  const occlusion = availableTextureInput(inputs.occlusion, context)
+  const emissive = availableTextureInput(inputs.emissive, context)
   const variant = createGltfSurfaceVariant(
     original,
     template,
@@ -93,7 +95,7 @@ function createGltfPbrVariantWithFallbacks(
     context,
   ) as EnvironmentShaderMaterial
 
-  if ([metallic, roughness, normal].some(hasSecondaryUv)) {
+  if ([metallic, roughness, normal, occlusion, emissive].some(hasSecondaryUv)) {
     variant.defines = { ...variant.defines, USE_UV1: '' }
   }
   if (normal.texture !== null && context.hasTangent) {
@@ -118,6 +120,17 @@ function createGltfPbrVariantWithFallbacks(
     uGltfNormalUvChannel: { value: normal.uvChannel },
     uGltfNormalUvTransform: { value: normal.uvTransform },
     uGltfNormalScale: { value: inputs.normalScale },
+    uGltfOcclusionMap: { value: occlusion.texture ?? fallbacks.white },
+    uGltfHasOcclusionMap: { value: occlusion.texture !== null },
+    uGltfOcclusionUvChannel: { value: occlusion.uvChannel },
+    uGltfOcclusionUvTransform: { value: occlusion.uvTransform },
+    uGltfOcclusionStrength: { value: inputs.occlusionStrength },
+    uGltfEmissiveMap: { value: emissive.texture ?? fallbacks.white },
+    uGltfHasEmissiveMap: { value: emissive.texture !== null },
+    uGltfEmissiveUvChannel: { value: emissive.uvChannel },
+    uGltfEmissiveUvTransform: { value: emissive.uvTransform },
+    uGltfEmissiveFactor: { value: inputs.emissiveFactor },
+    uGltfEmissiveIntensity: { value: inputs.emissiveIntensity },
     uEnvironmentMap: environmentBinding.environmentMap,
     uEnvironmentRotation: environmentBinding.environmentRotation,
     uEnvironmentIntensity: environmentBinding.environmentIntensity,
@@ -165,5 +178,5 @@ function needsGeometryUvSplit(original: Material): boolean {
 }
 
 function pbrTextureInputs(inputs: GltfPbrInputs): readonly TextureInput[] {
-  return [inputs.metallic, inputs.roughness, inputs.normal]
+  return [inputs.metallic, inputs.roughness, inputs.normal, inputs.occlusion, inputs.emissive]
 }

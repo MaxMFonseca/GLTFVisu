@@ -209,7 +209,7 @@ export class ViewerEngine implements ViewerPort {
   private loadAbort?: AbortController
   private loadGeneration = 0
   private compileGeneration = 0
-  private textureMutationGeneration = 0
+  private readonly textureMutationGenerations = new Map<string, number>()
   private environmentGeneration = 0
   private modelRoot?: Object3D
   private modelMaterials?: ModelMaterialSnapshot
@@ -327,11 +327,11 @@ export class ViewerEngine implements ViewerPort {
   }
 
   async replaceModelTexture(slotId: string, file: File): Promise<readonly ModelTextureSlotInfo[]> {
-    return this.mutateModelTexture((registry) => registry.prepareReplace(slotId, file))
+    return this.mutateModelTexture(slotId, (registry) => registry.prepareReplace(slotId, file))
   }
 
   async restoreModelTexture(slotId: string): Promise<readonly ModelTextureSlotInfo[]> {
-    return this.mutateModelTexture((registry) => registry.prepareRestore(slotId))
+    return this.mutateModelTexture(slotId, (registry) => registry.prepareRestore(slotId))
   }
 
   async loadEnvironment(source: EnvironmentLoadSource): Promise<void> {
@@ -601,6 +601,7 @@ export class ViewerEngine implements ViewerPort {
   }
 
   private async mutateModelTexture(
+    slotId: string,
     prepare: (registry: ModelTextureRegistry) => ModelTextureMutation | Promise<ModelTextureMutation>,
   ): Promise<readonly ModelTextureSlotInfo[]> {
     this.assertMutationAvailable()
@@ -611,12 +612,13 @@ export class ViewerEngine implements ViewerPort {
     if (registry === undefined || root === undefined || runtime === undefined) {
       throw new Error('No model is loaded')
     }
-    const generation = ++this.textureMutationGeneration
+    const generation = (this.textureMutationGenerations.get(slotId) ?? 0) + 1
+    this.textureMutationGenerations.set(slotId, generation)
     const mutation = await prepare(registry)
     if (
       this.disposed
       || this.disposalRequested
-      || generation !== this.textureMutationGeneration
+      || generation !== this.textureMutationGenerations.get(slotId)
       || registry !== this.textureRegistry
       || root !== this.modelRoot
       || runtime !== this.materialRuntime

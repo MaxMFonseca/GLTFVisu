@@ -9,6 +9,7 @@ afterEach(cleanup)
 function slot(overrides: Partial<ModelTextureSlotInfo> = {}): ModelTextureSlotInfo {
   return {
     id: 'material-0:base-color',
+    materialId: 'material-0',
     materialLabel: 'Armor',
     channel: 'base-color',
     label: 'Base color',
@@ -38,7 +39,7 @@ describe('ModelTextureEditor', () => {
             id: 'material-0:normal', channel: 'normal', label: 'Normal', previewUrl: 'blob:armor-normal',
           }),
           slot({
-            id: 'material-1:emissive', materialLabel: 'Visor', channel: 'emissive', label: 'Emissive',
+            id: 'material-1:emissive', materialId: 'material-1', materialLabel: 'Visor', channel: 'emissive', label: 'Emissive',
             previewUrl: 'blob:visor-emissive', replaced: true,
           }),
         ]}
@@ -82,6 +83,29 @@ describe('ModelTextureEditor', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
+  it('keeps distinct same-named materials in separate identity-keyed groups', () => {
+    render(
+      <ModelTextureEditor
+        slots={[
+          slot({ id: 'material-0:base-color', materialId: 'material-0', materialLabel: 'Shared' }),
+          slot({
+            id: 'material-1:normal', materialId: 'material-1', materialLabel: 'Shared',
+            channel: 'normal', label: 'Normal', previewUrl: 'blob:shared-normal',
+          }),
+        ]}
+        onReplace={vi.fn(async () => undefined)}
+        onRestore={vi.fn(async () => undefined)}
+      />,
+    )
+
+    const groups = screen.getAllByRole('group', { name: 'Shared' })
+    expect(groups).toHaveLength(2)
+    expect(within(groups[0]).getByText('Base color')).toBeVisible()
+    expect(within(groups[0]).queryByText('Normal')).not.toBeInTheDocument()
+    expect(within(groups[1]).getByText('Normal')).toBeVisible()
+    expect(within(groups[1]).queryByText('Base color')).not.toBeInTheDocument()
+  })
+
   it('forwards edits exactly, disables only the pending row, and resets the input after success or failure', async () => {
     const user = userEvent.setup()
     const firstReplace = deferred()
@@ -96,7 +120,7 @@ describe('ModelTextureEditor', () => {
         slots={[
           slot({ replaced: true }),
           slot({
-            id: 'material-1:emissive', materialLabel: 'Visor', channel: 'emissive', label: 'Emissive',
+            id: 'material-1:emissive', materialId: 'material-1', materialLabel: 'Visor', channel: 'emissive', label: 'Emissive',
             previewUrl: 'blob:visor-emissive', replaced: true,
           }),
         ]}

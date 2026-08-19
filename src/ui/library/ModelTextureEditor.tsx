@@ -10,18 +10,19 @@ export interface ModelTextureEditorProps {
 }
 
 interface MaterialTextureGroup {
+  materialId: string
   materialLabel: string
   slots: ModelTextureSlotInfo[]
 }
 
 function groupByMaterial(slots: readonly ModelTextureSlotInfo[]): MaterialTextureGroup[] {
   const groups: MaterialTextureGroup[] = []
-  const byLabel = new Map<string, MaterialTextureGroup>()
+  const byId = new Map<string, MaterialTextureGroup>()
   for (const slot of slots) {
-    let group = byLabel.get(slot.materialLabel)
+    let group = byId.get(slot.materialId)
     if (group === undefined) {
-      group = { materialLabel: slot.materialLabel, slots: [] }
-      byLabel.set(slot.materialLabel, group)
+      group = { materialId: slot.materialId, materialLabel: slot.materialLabel, slots: [] }
+      byId.set(slot.materialId, group)
       groups.push(group)
     }
     group.slots.push(slot)
@@ -84,7 +85,7 @@ export function ModelTextureEditor({ slots, onReplace, onRestore }: ModelTexture
     <section className="model-texture-editor" aria-labelledby="model-textures-heading">
       <h3 id="model-textures-heading">Model textures</h3>
       {groupByMaterial(slots).map((group) => (
-        <details className="model-texture-group" aria-label={group.materialLabel} key={group.materialLabel} open>
+        <details className="model-texture-group" aria-label={group.materialLabel} key={group.materialId} open>
           <summary>{group.materialLabel}</summary>
           <ul className="model-texture-list">
             {group.slots.map((slot) => {

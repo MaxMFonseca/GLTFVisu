@@ -205,6 +205,7 @@ function deferred<T = void>() {
 function textureSlot(overrides: Partial<ModelTextureSlotInfo> = {}): ModelTextureSlotInfo {
   return {
     id: 'material-0:base-color',
+    materialId: 'material-0',
     materialLabel: 'Armor',
     channel: 'base-color',
     label: 'Base color',
