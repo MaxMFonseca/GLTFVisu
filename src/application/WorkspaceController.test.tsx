@@ -838,6 +838,39 @@ describe('WorkspaceProvider', () => {
     })
   })
 
+  it('restores updated texture metadata when a later model load fails', async () => {
+    const viewer = createViewer()
+    const originalSlots = [textureSlot()]
+    const replacedSlots = [textureSlot({ previewUrl: 'blob:replacement', replaced: true })]
+    const nextLoad = deferred<ModelInfo>()
+    vi.mocked(viewer.loadModel)
+      .mockResolvedValueOnce({ name: 'first.glb', meshCount: 1, animationClips: [], textureSlots: originalSlots })
+      .mockReturnValueOnce(nextLoad.promise)
+    const mutation = deferred<readonly ModelTextureSlotInfo[]>()
+    vi.mocked(viewer.replaceModelTexture).mockReturnValueOnce(mutation.promise)
+    const workspace = renderWorkspace({ viewer })
+    await ready(workspace)
+    const first = new File(['first'], 'first.glb')
+    const second = new File(['second'], 'second.glb')
+    await act(async () => workspace.current().commands.loadModel([first], first))
+
+    let replacementPromise!: Promise<void>
+    act(() => {
+      replacementPromise = workspace.current().commands.replaceModelTexture(
+        originalSlots[0].id,
+        new File(['replacement'], 'body.png'),
+      )
+    })
+    let nextLoadPromise!: Promise<void>
+    act(() => { nextLoadPromise = workspace.current().commands.loadModel([second], second) })
+    await act(async () => { mutation.resolve(replacedSlots); await replacementPromise })
+    await act(async () => { nextLoad.reject(new Error('Second model failed')); await nextLoadPromise })
+
+    expect(workspace.current().state.modelLoad).toEqual({
+      status: 'loaded', name: 'first.glb', meshCount: 1, textureSlots: replacedSlots,
+    })
+  })
+
   it('deletes only locals and selects the next local before the first built-in', async () => {
     const first = localShader({ id: 'first' })
     const second = localShader({ id: 'second' })

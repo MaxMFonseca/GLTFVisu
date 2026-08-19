@@ -72,6 +72,7 @@ export interface WorkspaceState {
   persistence: 'idle' | 'saving'
   schemaErrors: readonly ParameterDefinitionValidationError[]
   compile: WorkspaceCompileState
+  modelGeneration: number
   modelLoad: WorkspaceModelLoadState
   animations: WorkspaceAnimationState
   notices: readonly WorkspaceNotice[]

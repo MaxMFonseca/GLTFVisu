@@ -80,7 +80,7 @@ describe('workspaceReducer', () => {
   it('stores texture slots and restores them with the committed animated model when replacement fails', () => {
     const originalSlots = [textureSlot()]
     const loaded = workspaceReducer(createInitialWorkspaceState(BUILTIN_SHADERS), {
-      type: 'modelLoadSucceeded',
+      type: 'modelLoadSucceeded', generation: 1,
       info: {
         name: 'robot.glb',
         meshCount: 2,
@@ -114,12 +114,12 @@ describe('workspaceReducer', () => {
       id: 'material-0:normal', channel: 'normal', label: 'Normal', previewUrl: 'blob:replacement',
     })]
     const loaded = workspaceReducer(createInitialWorkspaceState(BUILTIN_SHADERS), {
-      type: 'modelLoadSucceeded',
+      type: 'modelLoadSucceeded', generation: 1,
       info: { name: 'robot.glb', meshCount: 2, animationClips: [], textureSlots: predecessorSlots },
     })
     const loading = workspaceReducer(loaded, { type: 'modelLoadStarted', fileName: 'vehicle.glb' })
     const replaced = workspaceReducer(loading, {
-      type: 'modelLoadSucceeded',
+      type: 'modelLoadSucceeded', generation: 2,
       info: { name: 'vehicle.glb', meshCount: 4, animationClips: [], textureSlots: replacementSlots },
     })
 
@@ -134,13 +134,17 @@ describe('workspaceReducer', () => {
     const originalSlots = [textureSlot()]
     const changedSlots = [textureSlot({ previewUrl: 'blob:replacement', replaced: true })]
     const loaded = workspaceReducer(createInitialWorkspaceState(BUILTIN_SHADERS), {
-      type: 'modelLoadSucceeded',
+      type: 'modelLoadSucceeded', generation: 1,
       info: { name: 'robot.glb', meshCount: 2, animationClips: [], textureSlots: originalSlots },
     })
 
-    const changed = workspaceReducer(loaded, { type: 'modelTexturesChanged', textureSlots: changedSlots })
+    const changed = workspaceReducer(loaded, {
+      type: 'modelTexturesChanged', generation: 1, textureSlots: changedSlots,
+    })
     const loading = workspaceReducer(changed, { type: 'modelLoadStarted', fileName: 'next.glb' })
-    const stale = workspaceReducer(loading, { type: 'modelTexturesChanged', textureSlots: originalSlots })
+    const stale = workspaceReducer(loading, {
+      type: 'modelTexturesChanged', generation: 2, textureSlots: originalSlots,
+    })
 
     expect(changed.modelLoad).toEqual({
       status: 'loaded', name: 'robot.glb', meshCount: 2, textureSlots: changedSlots,

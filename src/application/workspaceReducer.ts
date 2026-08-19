@@ -51,8 +51,8 @@ export type WorkspaceAction =
     }
   | { type: 'deleteSucceeded'; id: string; fallback?: ShaderDefinition }
   | { type: 'modelLoadStarted'; fileName: string }
-  | { type: 'modelLoadSucceeded'; info: ModelInfo }
-  | { type: 'modelTexturesChanged'; textureSlots: readonly ModelTextureSlotInfo[] }
+  | { type: 'modelLoadSucceeded'; generation: number; info: ModelInfo }
+  | { type: 'modelTexturesChanged'; generation: number; textureSlots: readonly ModelTextureSlotInfo[] }
   | { type: 'environmentLoadStarted'; generation: number; label: string }
   | { type: 'environmentLoadSucceeded'; generation: number; source: EnvironmentLoadSource }
   | { type: 'environmentLoadFailed'; generation: number; message: string }
@@ -86,6 +86,7 @@ export function createInitialWorkspaceState(
     persistence: 'idle',
     schemaErrors: [],
     compile: { generation: 0, status: 'idle', diagnostics: [] },
+    modelGeneration: 0,
     modelLoad: { status: 'empty' },
     animations: { clips: [], playing: false },
     notices: [],
@@ -376,6 +377,7 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
     case 'modelLoadSucceeded':
       return {
         ...state,
+        modelGeneration: action.generation,
         modelLoad: {
           status: 'loaded',
           name: action.info.name,
@@ -400,14 +402,29 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
         },
       }
     case 'modelTexturesChanged':
-      if (state.modelLoad.status !== 'loaded') return state
-      return {
-        ...state,
-        modelLoad: {
-          ...state.modelLoad,
-          textureSlots: cloneTextureSlots(action.textureSlots),
-        },
+      if (action.generation !== state.modelGeneration) return state
+      if (state.modelLoad.status === 'loaded') {
+        return {
+          ...state,
+          modelLoad: {
+            ...state.modelLoad,
+            textureSlots: cloneTextureSlots(action.textureSlots),
+          },
+        }
       }
+      if (state.modelLoad.status === 'loading' && state.modelLoad.retained !== undefined) {
+        return {
+          ...state,
+          modelLoad: {
+            ...state.modelLoad,
+            retained: {
+              ...state.modelLoad.retained,
+              textureSlots: cloneTextureSlots(action.textureSlots),
+            },
+          },
+        }
+      }
+      return state
     case 'environmentLoadSucceeded':
       if (action.generation !== state.environmentLoadGeneration) return state
       return {
