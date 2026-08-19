@@ -4,6 +4,7 @@ export const VERTEX_SHADER = /* glsl */ `
 
 out vec3 vWorldPosition;
 out vec3 vWorldNormal;
+out vec2 vGltfUv1;
 
 #include <common>
 #include <batching_pars_vertex>
@@ -13,6 +14,11 @@ out vec3 vWorldNormal;
 
 void main() {
   #include <uv_vertex>
+  #ifdef USE_UV1
+    vGltfUv1 = uv1;
+  #else
+    vGltfUv1 = vUv;
+  #endif
   #include <batching_vertex>
 
   #include <beginnormal_vertex>

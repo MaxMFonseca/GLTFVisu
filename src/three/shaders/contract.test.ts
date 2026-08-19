@@ -1,9 +1,12 @@
 import { Color, GLSL3, ShaderMaterial, Vector2, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
+import { BUILTIN_SHADERS } from '../../domain/builtins'
+import { GLTF_SURFACE_CONTRACT_IDENTIFIERS } from '../../domain/materialInput'
 import type { ShaderParameterDefinition } from '../../domain/parameters'
 import { buildFragmentShader, SHADER_CONTRACT } from './contract'
 import { parseShaderDiagnostics } from './diagnostics'
 import * as materialFactory from './materialFactory'
+import { surfaceProfileContract } from './profileContract'
 import { VERTEX_SHADER } from './vertexShader'
 
 const definitions: ShaderParameterDefinition[] = [
@@ -126,6 +129,46 @@ describe('buildFragmentShader', () => {
 
     expect(() => buildFragmentShader('void main() {}', invalid)).toThrow('Invalid shader parameter definitions')
   })
+
+  it('injects the canonical GLTF surface contract once before the reset user source', () => {
+    const toon = BUILTIN_SHADERS.find((shader) => shader.id === 'builtin-toon')
+    expect(toon).toBeDefined()
+    if (toon === undefined) return
+
+    const built = buildFragmentShader(toon.fragmentSource, toon.parameters, 'gltf-surface')
+    const expectedDeclarations = [
+      'uniform vec3 uGltfBaseColorFactor;',
+      'uniform float uGltfBaseColorOpacity;',
+      'uniform sampler2D uGltfBaseColorMap;',
+      'uniform bool uGltfHasBaseColorMap;',
+      'uniform int uGltfBaseColorUvChannel;',
+      'uniform mat3 uGltfBaseColorUvTransform;',
+      'uniform float uGltfAlphaCutoff;',
+    ]
+
+    expect(surfaceProfileContract.identifiers).toBe(GLTF_SURFACE_CONTRACT_IDENTIFIERS)
+    expect(surfaceProfileContract.declarations).toEqual(expectedDeclarations)
+    for (const declaration of expectedDeclarations) {
+      expect(built.source.split(declaration)).toHaveLength(2)
+    }
+    expect(built.source.split('in vec2 vGltfUv1;')).toHaveLength(2)
+    expect(built.source).toContain('vec4 sampleGltfBaseColor()')
+    expect(built.source).toContain('gltfSrgbToLinear(texel.rgb)')
+    expect(built.source).toContain('uGltfBaseColorOpacity * texel.a')
+    expect(built.source.endsWith(toon.fragmentSource)).toBe(true)
+    expect(built.source.split('\n')[built.injectedLineCount - 1]).toBe('#line 1 1')
+    expect(built.source.split('\n')[built.injectedLineCount]).toBe('void main() {')
+  })
+
+  it('keeps ordinary shaders free of GLTF surface declarations', () => {
+    const built = buildFragmentShader('void main() {}', [], 'none')
+
+    for (const identifier of GLTF_SURFACE_CONTRACT_IDENTIFIERS) {
+      expect(built.source).not.toContain(identifier)
+    }
+    expect(built.source).not.toContain('vGltfUv1')
+    expect(built.source).not.toContain('sampleGltfBaseColor')
+  })
 })
 
 describe('VERTEX_SHADER', () => {
@@ -151,6 +194,17 @@ describe('VERTEX_SHADER', () => {
     expect(VERTEX_SHADER.indexOf('#include <skinning_vertex>'))
       .toBeLessThan(VERTEX_SHADER.indexOf('vWorldPosition = worldPosition.xyz;'))
     expect(VERTEX_SHADER).toContain('normalize( inverseTransformDirection( transformedNormal, viewMatrix ) )')
+  })
+
+  it('provides secondary GLTF UVs with the primary UV as a safe fallback', () => {
+    expect(VERTEX_SHADER.split('out vec2 vGltfUv1;')).toHaveLength(2)
+    expect(VERTEX_SHADER).toContain('#ifdef USE_UV1')
+    expect(VERTEX_SHADER).toContain('vGltfUv1 = uv1;')
+    expect(VERTEX_SHADER).toContain('vGltfUv1 = vUv;')
+    expect(VERTEX_SHADER.indexOf('#include <uv_vertex>'))
+      .toBeLessThan(VERTEX_SHADER.indexOf('vGltfUv1 = vUv;'))
+    expect(VERTEX_SHADER.indexOf('#include <batching_vertex>'))
+      .toBeLessThan(VERTEX_SHADER.indexOf('#include <morphinstance_vertex>'))
   })
 })
 
@@ -179,5 +233,17 @@ describe('createShaderMaterial', () => {
 
     expect(materialFactory.getShaderLineMapping(material)).toEqual({ sourceId: 1, lineOffset: 0 })
     expect(material.userData).not.toHaveProperty('shaderLineMapping')
+  })
+
+  it('assembles the selected material profile into the created shader', () => {
+    const material = materialFactory.createShaderMaterial(
+      'void main() { outColor = sampleGltfBaseColor(); }',
+      [],
+      {},
+      'gltf-surface',
+    )
+
+    expect(material.fragmentShader).toContain('vec4 sampleGltfBaseColor()')
+    expect(materialFactory.getMaterialInputProfile(material)).toBe('gltf-surface')
   })
 })

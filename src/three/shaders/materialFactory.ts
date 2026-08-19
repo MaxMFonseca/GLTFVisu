@@ -30,7 +30,7 @@ export function createShaderMaterial(
   values: Readonly<Record<string, ShaderParameterValue | undefined>> = {},
   profile: MaterialInputProfile = 'none',
 ): ShaderMaterial {
-  const fragmentShader = buildFragmentShader(fragmentSource, definitions)
+  const fragmentShader = buildFragmentShader(fragmentSource, definitions, profile)
   const material = new ShaderMaterial({
     glslVersion: GLSL3,
     vertexShader: VERTEX_SHADER,

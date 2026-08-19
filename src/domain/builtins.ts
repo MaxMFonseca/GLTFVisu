@@ -50,16 +50,18 @@ const builtins: ShaderDefinition[] = [
   {
     id: 'builtin-toon', name: 'Toon', origin: 'builtin', portrait: { kind: 'bundled', url: toonPortrait },
     fragmentSource: `void main() {
+  vec4 albedo = sampleGltfBaseColor();
+  if (uGltfAlphaCutoff > 0.0 && albedo.a < uGltfAlphaCutoff) discard;
   float bands = float(max(uBands, 1));
   float light = max(dot(normalize(vWorldNormal), normalize(vec3(0.4, 0.8, 0.6))), 0.0);
   float stepped = floor(light * bands) / bands;
-  outColor = vec4(mix(uShadowColor, uLightColor, stepped), 1.0);
+  outColor = vec4(albedo.rgb * mix(uShadowColor, uLightColor, stepped), albedo.a);
 }`,
     parameters: [
       { id: 'bands', type: 'integer', uniformName: 'uBands', label: 'Bands', min: 1, max: 8, step: 1, defaultValue: 3 },
-      { id: 'shadow-color', type: 'color', uniformName: 'uShadowColor', label: 'Shadow color', defaultValue: '#18223b' },
-      { id: 'light-color', type: 'color', uniformName: 'uLightColor', label: 'Light color', defaultValue: '#f7c75f' },
-    ], materialInputProfile: 'none', parameterValues: { bands: 3, 'shadow-color': '#18223b', 'light-color': '#f7c75f' }, schemaVersion: 2,
+      { id: 'shadow-color', type: 'color', uniformName: 'uShadowColor', label: 'Shadow tint', defaultValue: '#18223b' },
+      { id: 'light-color', type: 'color', uniformName: 'uLightColor', label: 'Light tint', defaultValue: '#f7c75f' },
+    ], materialInputProfile: 'gltf-surface', parameterValues: { bands: 3, 'shadow-color': '#18223b', 'light-color': '#f7c75f' }, schemaVersion: 2,
   },
   {
     id: 'builtin-procedural-matcap', name: 'Procedural Matcap', origin: 'builtin', portrait: { kind: 'bundled', url: proceduralMatcapPortrait },
