@@ -41,7 +41,25 @@ export const GLTF_PBR_CONTRACT_IDENTIFIERS = [
   'uEnvironmentIntensity',
 ] as const
 
+export const GLTF_SURFACE_PROFILE_IDENTIFIERS = [
+  ...GLTF_SURFACE_CONTRACT_IDENTIFIERS,
+  'sampleGltfBaseColor',
+  'vGltfUv1',
+  'USE_UV1',
+] as const
+
+export const GLTF_PBR_PROFILE_IDENTIFIERS = [
+  ...GLTF_SURFACE_PROFILE_IDENTIFIERS,
+  ...GLTF_PBR_CONTRACT_IDENTIFIERS.slice(GLTF_SURFACE_CONTRACT_IDENTIFIERS.length),
+  'vGltfWorldTangent',
+  'USE_TANGENT',
+  'ENVMAP_TYPE_CUBE_UV',
+  'CUBEUV_TEXEL_WIDTH',
+  'CUBEUV_TEXEL_HEIGHT',
+  'CUBEUV_MAX_MIP',
+] as const
+
 /** Application-owned identifiers injected by the GLTF material input profiles. */
 export const PROFILE_CONTRACT_IDENTIFIERS = [
-  ...GLTF_PBR_CONTRACT_IDENTIFIERS,
+  ...GLTF_PBR_PROFILE_IDENTIFIERS,
 ] as const

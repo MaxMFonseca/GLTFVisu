@@ -225,6 +225,54 @@ describe('EnvironmentService', () => {
     expect(secondPmrem.dispose).not.toHaveBeenCalled()
   })
 
+  it('keeps a committed replacement active when predecessor disposal reenters and throws', async () => {
+    const scene = new Scene()
+    const firstSource = textureFixture()
+    const secondSource = textureFixture()
+    const firstPmrem = targetFixture()
+    const secondPmrem = targetFixture()
+    const loadHdr = vi.fn()
+      .mockResolvedValueOnce(firstSource.texture)
+      .mockResolvedValueOnce(secondSource.texture)
+    const createPmrem = vi.fn((texture: Texture) => (
+      texture === firstSource.texture ? firstPmrem.target : secondPmrem.target
+    ))
+    const service = serviceFixture(scene, { loadHdr, createPmrem })
+    await service.load({ kind: 'bundled', id: 'city', url: 'city.hdr' })
+    const retirementSnapshots: boolean[] = []
+    firstSource.texture.addEventListener('dispose', () => {
+      retirementSnapshots.push(
+        scene.background === secondSource.texture
+        && scene.environment === secondPmrem.target.texture
+        && service.binding.environmentMap.value === secondPmrem.target.texture,
+      )
+      service.update(settings({ intensity: 2 }))
+      throw new Error('source retirement listener failed')
+    })
+    firstPmrem.target.addEventListener('dispose', () => {
+      retirementSnapshots.push(
+        scene.background === secondSource.texture
+        && scene.environment === secondPmrem.target.texture
+        && service.binding.environmentMap.value === secondPmrem.target.texture,
+      )
+      service.update(settings({ rotation: 45, intensity: 3 }))
+      throw new Error('PMREM retirement listener failed')
+    })
+
+    await expect(service.load({ kind: 'bundled', id: 'studio', url: 'studio.hdr' }))
+      .resolves.toBeUndefined()
+
+    expect(retirementSnapshots).toEqual([true, true])
+    expect(firstSource.dispose).toHaveBeenCalledTimes(1)
+    expect(firstPmrem.dispose).toHaveBeenCalledTimes(1)
+    expect(secondSource.dispose).not.toHaveBeenCalled()
+    expect(secondPmrem.dispose).not.toHaveBeenCalled()
+    expect(scene.background).toBe(secondSource.texture)
+    expect(scene.environment).toBe(secondPmrem.target.texture)
+    expect(service.binding.environmentMap.value).toBe(secondPmrem.target.texture)
+    expect(service.binding.environmentIntensity.value).toBe(3)
+  })
+
   it('revokes a local object URL exactly once after successful decode', async () => {
     const scene = new Scene()
     const source = textureFixture()
@@ -486,6 +534,89 @@ describe('EnvironmentService', () => {
     expect(service.binding.environmentMap.value).toBeNull()
     expect(scene.environment).toBeNull()
     expect(scene.background).toBeInstanceOf(Color)
+  })
+
+  it('clears terminal state before callbacks and attempts every cleanup once despite reentry and throws', async () => {
+    const scene = new Scene()
+    const source = textureFixture()
+    const pmrem = targetFixture()
+    const pendingSource = textureFixture()
+    const pendingLoad = deferred<Texture>()
+    const revokeSnapshots: boolean[] = []
+    const sourceSnapshots: boolean[] = []
+    const pmremSnapshots: boolean[] = []
+    const generatorSnapshots: boolean[] = []
+    const revokeObjectURL = vi.fn(() => {
+      revokeSnapshots.push(
+        service.binding.environmentMap.value === null
+        && scene.environment === null
+        && scene.background !== source.texture,
+      )
+      service.dispose()
+      throw new Error('URL revoke callback failed')
+    })
+    const disposePmremGenerator = vi.fn(() => {
+      generatorSnapshots.push(
+        service.binding.environmentMap.value === null
+        && scene.environment === null
+        && scene.background !== source.texture,
+      )
+      service.dispose()
+      throw new Error('generator dispose callback failed')
+    })
+    const loadHdr = vi.fn()
+      .mockResolvedValueOnce(source.texture)
+      .mockReturnValueOnce(pendingLoad.promise)
+    const service = serviceFixture(scene, {
+      loadHdr,
+      createPmrem: () => pmrem.target,
+      createObjectURL: () => 'blob:pending-terminal-hdr',
+      revokeObjectURL,
+      disposePmremGenerator,
+    })
+    await service.load({ kind: 'bundled', id: 'city', url: 'city.hdr' })
+    const pending = service.load({
+      kind: 'local',
+      file: new File(['hdr'], 'pending-terminal.hdr'),
+    })
+    source.texture.addEventListener('dispose', () => {
+      sourceSnapshots.push(
+        service.binding.environmentMap.value === null
+        && scene.environment === null
+        && scene.background !== source.texture,
+      )
+      service.dispose()
+      throw new Error('source dispose listener failed')
+    })
+    pmrem.target.addEventListener('dispose', () => {
+      pmremSnapshots.push(
+        service.binding.environmentMap.value === null
+        && scene.environment === null
+        && scene.background !== source.texture,
+      )
+      service.dispose()
+      throw new Error('PMREM dispose listener failed')
+    })
+
+    expect(() => service.dispose()).not.toThrow()
+    expect(() => service.dispose()).not.toThrow()
+
+    expect(sourceSnapshots).toEqual([true])
+    expect(pmremSnapshots).toEqual([true])
+    expect(generatorSnapshots).toEqual([true])
+    expect(revokeSnapshots).toEqual([true])
+    expect(source.dispose).toHaveBeenCalledTimes(1)
+    expect(pmrem.dispose).toHaveBeenCalledTimes(1)
+    expect(disposePmremGenerator).toHaveBeenCalledTimes(1)
+    expect(revokeObjectURL).toHaveBeenCalledTimes(1)
+    expect(service.binding.environmentMap.value).toBeNull()
+    expect(scene.environment).toBeNull()
+    expect(scene.background).toBeInstanceOf(Color)
+
+    pendingLoad.resolve(pendingSource.texture)
+    await pending
+    expect(pendingSource.dispose).toHaveBeenCalledTimes(1)
+    expect(revokeObjectURL).toHaveBeenCalledTimes(1)
   })
 
   it('does not generate PMREM after disposal while HDR decoding is pending', async () => {
