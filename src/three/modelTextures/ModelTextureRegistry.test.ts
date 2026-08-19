@@ -469,4 +469,62 @@ describe('ModelTextureRegistry', () => {
       expect(revokePreview.mock.calls.filter(([url]) => url === `preview:${texture.uuid}`)).toHaveLength(1)
     }
   })
+
+  it('releases every completed preview after partial creation fails despite a throwing reentrant revoker', async () => {
+    const nestedOriginal = new Texture()
+    const nestedMaterial = new MeshStandardMaterial({ map: nestedOriginal })
+    const nestedRegistryRef: { current?: ModelTextureRegistry } = {}
+    const revokePreview = vi.fn((url: string) => {
+      if (url === 'base-color-preview') {
+        nestedRegistryRef.current?.dispose()
+        throw new Error('base-color revocation failed')
+      }
+      if (url === 'nested-preview') throw new Error('nested revocation failed')
+    })
+    const nestedRegistry = await ModelTextureRegistry.create(
+      new Group().add(new Mesh(undefined, nestedMaterial)),
+      {
+        decode: vi.fn(),
+        createPreview: vi.fn(async () => 'nested-preview'),
+        revokePreview,
+      },
+    )
+    nestedRegistryRef.current = nestedRegistry
+
+    const baseColor = new Texture()
+    const normal = new Texture()
+    const occlusion = new Texture()
+    const material = new MeshStandardMaterial({
+      map: baseColor,
+      normalMap: normal,
+      aoMap: occlusion,
+    })
+    const creationError = new Error('occlusion preview failed')
+    const createPreview = vi.fn(async (texture: Texture) => {
+      if (texture === baseColor) return 'base-color-preview'
+      if (texture === normal) return 'normal-preview'
+      throw creationError
+    })
+    let rejection: unknown
+
+    try {
+      await ModelTextureRegistry.create(
+        new Group().add(new Mesh(undefined, material)),
+        {
+          decode: vi.fn(),
+          createPreview,
+          revokePreview,
+        },
+      )
+    } catch (error) {
+      rejection = error
+    }
+
+    expect(rejection).toBe(creationError)
+    expect(revokePreview.mock.calls).toEqual([
+      ['base-color-preview'],
+      ['nested-preview'],
+      ['normal-preview'],
+    ])
+  })
 })

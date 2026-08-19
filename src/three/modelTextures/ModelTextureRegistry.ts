@@ -110,7 +110,9 @@ export class ModelTextureRegistry {
       }
       return new ModelTextureRegistry(slots, dependencies)
     } catch (error) {
-      for (const slot of slots) dependencies.revokePreview(slot.originalPreviewUrl)
+      for (const slot of slots) {
+        bestEffort(() => dependencies.revokePreview(slot.originalPreviewUrl))
+      }
       throw error
     }
   }
