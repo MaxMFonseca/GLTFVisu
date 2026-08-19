@@ -4,17 +4,23 @@ import {
   Color,
   DirectionalLight,
   HemisphereLight,
+  Line,
+  Mesh,
   PerspectiveCamera,
+  Points,
   Scene,
   Vector2,
   Vector3,
   WebGLRenderer,
   type AnimationClip,
+  type Material,
   type Object3D,
   type ShaderMaterial,
+  type Texture,
 } from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import type { AnimationClipInfo, CompileDiagnostic, CompileResult, ModelInfo, ViewerPort } from '../application/ViewerPort'
+import type { MaterialInputProfile } from '../domain/materialInput'
 import type { ShaderParameterDefinition, ShaderParameterValue } from '../domain/parameters'
 import type { ShaderDraft, ShaderPortrait } from '../domain/shader'
 import {
@@ -27,14 +33,24 @@ import { AnimationController } from './AnimationController'
 import { calculateCameraFit, type CameraFit } from './cameraFit'
 import { CaptureService, type CapturedImage } from './CaptureService'
 import { disposeObjectTree } from './disposeObject'
+import { EnvironmentService } from './EnvironmentService'
 import { GltfAssetLoader, ModelLoadError } from './GltfAssetLoader'
 import { isMaterialRenderable, MaterialOverride } from './MaterialOverride'
+import { createGltfPbrBindingOwner, type EnvironmentShaderMaterial } from './materialBindings/GltfPbrBinding'
+import { createGltfSurfaceBindingOwner } from './materialBindings/GltfSurfaceBinding'
+import {
+  createMaterialBindingOwner,
+  type EnvironmentBinding,
+  type MaterialBindingOwner,
+  type MaterialVariantFactory,
+} from './materialBindings/types'
 import {
   ShaderCompiler,
   type PreparedRuntimeMaterial,
   type RuntimeMaterialPreparer,
   type ShaderValidationRenderer,
 } from './ShaderCompiler'
+import { getMaterialInputProfile } from './shaders/materialFactory'
 
 export interface AnimationState {
   clips: readonly AnimationClipInfo[]
@@ -93,6 +109,13 @@ export interface CapturePort {
   capture(): Promise<CapturedImage>
 }
 
+export interface EnvironmentPort {
+  readonly binding: EnvironmentBinding
+  load(source: EnvironmentLoadSource): Promise<void>
+  update(settings: EnvironmentDisplaySettings): void
+  dispose(): void
+}
+
 export interface AnimationPort {
   readonly clips: readonly AnimationClipInfo[]
   readonly selectedClipId?: string
@@ -108,6 +131,11 @@ export interface ViewerEngineDependencies {
   createControls?: (camera: PerspectiveCamera, canvas: HTMLCanvasElement) => ViewerControls
   createResizeObserver?: (callback: ResizeObserverCallback) => ResizeObserverPort
   createCompiler?: (renderer: ShaderValidationRenderer) => CompilerPort
+  createEnvironment?: (renderer: WebGLRenderer, scene: Scene) => EnvironmentPort
+  createVariantFactory?: (
+    profile: MaterialInputProfile,
+    binding: EnvironmentBinding,
+  ) => MaterialVariantFactory
   createCapture?: (renderer: ViewerRenderer, scene: Scene, camera: PerspectiveCamera) => CapturePort
   createAnimation?: (root: Object3D, clips: readonly AnimationClip[]) => AnimationPort
   loader?: ModelLoaderPort
@@ -131,6 +159,21 @@ export class ShaderRuntimeValidationError extends Error {
   }
 }
 
+type MaterialAssignment = Material | Material[]
+type ModelMaterialRenderable = Mesh | Line | Points
+type ModelMaterialSnapshot = Map<ModelMaterialRenderable, MaterialAssignment>
+
+interface ProfileMaterialRuntime {
+  readonly profile: MaterialInputProfile
+  readonly override: MaterialOverride
+  readonly bindingOwner?: MaterialBindingOwner
+}
+
+interface PendingMaterialRuntime {
+  disposeVariants(): void
+  disposeOwner(): void
+}
+
 /** Imperative owner of the complete Three viewer lifecycle. */
 export class ViewerEngine implements ViewerPort {
   private readonly scene = createViewerScene()
@@ -139,19 +182,24 @@ export class ViewerEngine implements ViewerPort {
   private readonly controls: ViewerControls
   private readonly loader: ModelLoaderPort
   private readonly compiler: CompilerPort
+  private readonly environment: EnvironmentPort
   private readonly capture: CapturePort
   private readonly clock: ClockPort
   private readonly observer: ResizeObserverPort
   private readonly requestFrame: (callback: FrameRequestCallback) => number
   private readonly cancelFrame: (handle: number) => void
   private readonly createAnimation: (root: Object3D, clips: readonly AnimationClip[]) => AnimationPort
+  private readonly createVariantFactory?: ViewerEngineDependencies['createVariantFactory']
   private readonly drawingBufferSize = new Vector2()
+  private readonly pendingMaterialRuntimes = new Set<PendingMaterialRuntime>()
   private frameHandle?: number
   private loadAbort?: AbortController
   private loadGeneration = 0
   private compileGeneration = 0
+  private environmentGeneration = 0
   private modelRoot?: Object3D
-  private materialOverride?: MaterialOverride
+  private modelMaterials?: ModelMaterialSnapshot
+  private materialRuntime?: ProfileMaterialRuntime
   private animation?: AnimationPort
   private disposed = false
 
@@ -172,6 +220,9 @@ export class ViewerEngine implements ViewerPort {
     this.controls = dependencies.createControls?.(this.camera, canvas) ?? new OrbitControls(this.camera, canvas)
     this.loader = dependencies.loader ?? new GltfAssetLoader()
     this.compiler = dependencies.createCompiler?.(this.renderer) ?? new ShaderCompiler(this.renderer)
+    this.environment = dependencies.createEnvironment?.(this.renderer as WebGLRenderer, this.scene)
+      ?? new EnvironmentService(this.renderer as WebGLRenderer, this.scene)
+    this.createVariantFactory = dependencies.createVariantFactory
     this.capture = dependencies.createCapture?.(this.renderer, this.scene, this.camera)
       ?? new CaptureService(this.renderer, this.scene, this.camera)
     this.clock = dependencies.clock ?? new Clock()
@@ -222,18 +273,19 @@ export class ViewerEngine implements ViewerPort {
   }
 
   async loadEnvironment(source: EnvironmentLoadSource): Promise<void> {
-    void source
+    const generation = ++this.environmentGeneration
     try {
       this.assertActive()
+      await this.environment.load(source)
     } catch (error) {
       throw new EnvironmentLoadError(ENVIRONMENT_LOAD_ERROR_MESSAGE, error)
     }
-    throw new EnvironmentLoadError()
+    if (this.disposed || generation !== this.environmentGeneration) return
+    this.refreshPbrEnvironmentMaps()
   }
 
   updateEnvironment(settings: EnvironmentDisplaySettings): void {
-    void settings
-    // Environment resources are installed by the dedicated service in the next task.
+    if (!this.disposed) this.environment.update(settings)
   }
 
   async capturePortrait(): Promise<ShaderPortrait> {
@@ -259,6 +311,7 @@ export class ViewerEngine implements ViewerPort {
     this.disposed = true
     this.loadGeneration += 1
     this.compileGeneration += 1
+    this.environmentGeneration += 1
     this.loadAbort?.abort()
     this.loadAbort = undefined
     if (this.frameHandle !== undefined) {
@@ -267,8 +320,11 @@ export class ViewerEngine implements ViewerPort {
     }
     this.observer.disconnect()
     this.controls.dispose()
+    this.disposePendingMaterialVariants()
     this.disposeModel()
+    this.disposePendingMaterialOwners()
     this.compiler.dispose()
+    this.environment.dispose()
     this.renderer.dispose()
     this.renderer.domElement.remove()
   }
@@ -304,30 +360,72 @@ export class ViewerEngine implements ViewerPort {
   }
 
   private readonly prepareRuntimeMaterial: RuntimeMaterialPreparer = (material) => {
-    const override = this.materialOverride
-    if (override === undefined) return undefined
-    const prepared = override.prepare(material)
-    const runtime: PreparedRuntimeMaterial = {
+    const current = this.materialRuntime
+    const root = this.modelRoot
+    if (current === undefined || root === undefined) return undefined
+
+    const profile = getMaterialInputProfile(material)
+    if (profile === current.profile) {
+      const prepared = current.override.prepare(material)
+      return this.trackPendingMaterialRuntime({
+        validate: (validateRender) => prepared.run(
+          () => validateRender(() => this.renderer.render(this.scene, this.camera)),
+        ),
+        commit: () => prepared.commit(),
+        dispose: () => prepared.dispose(),
+      })
+    }
+
+    const replacement = this.createProfileMaterialRuntime(
+      root,
+      profile,
+      this.modelMaterials,
+      current.override.materials,
+    )
+    let prepared: ReturnType<MaterialOverride['prepare']>
+    try {
+      prepared = replacement.override.prepare(material)
+    } catch (error) {
+      replacement.bindingOwner?.dispose()
+      throw error
+    }
+
+    return this.trackPendingMaterialRuntime({
       validate: (validateRender) => prepared.run(
         () => validateRender(() => this.renderer.render(this.scene, this.camera)),
       ),
-      commit: () => prepared.commit(),
+      commit: () => {
+        prepared.commit()
+        const candidateAssignments = snapshotModelMaterials(root)
+        current.override.dispose()
+        assignModelMaterials(candidateAssignments)
+        this.materialRuntime = replacement
+        current.bindingOwner?.dispose()
+      },
       dispose: () => prepared.dispose(),
-    }
-    return runtime
+    }, () => replacement.bindingOwner?.dispose())
   }
 
   private installModel(loaded: LoadedModel, name: string): ModelInfo {
-    const nextOverride = new MaterialOverride(loaded.scene)
+    const profile = this.compiler.material === undefined
+      ? 'none'
+      : getMaterialInputProfile(this.compiler.material)
+    const nextMaterials = snapshotModelMaterials(loaded.scene)
+    const nextRuntime = this.createProfileMaterialRuntime(
+      loaded.scene,
+      profile,
+      undefined,
+      this.materialRuntime?.override.materials,
+    )
     let nextAnimation: AnimationPort | undefined
     let fit: CameraFit
     try {
       if (this.compiler.material !== undefined) {
         if (this.compiler.validateRuntime === undefined) {
-          nextOverride.apply(this.compiler.material)
+          nextRuntime.override.apply(this.compiler.material)
         } else {
           const diagnostics = this.compiler.validateRuntime(
-            createRuntimePreparer(nextOverride, () => this.renderCandidateModel(loaded.scene)),
+            createRuntimePreparer(nextRuntime.override, () => this.renderCandidateModel(loaded.scene)),
           )
           if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
             throw new ShaderRuntimeValidationError(diagnostics)
@@ -338,13 +436,14 @@ export class ViewerEngine implements ViewerPort {
       fit = fitFor(loaded.scene, this.camera, this.controls.target)
     } catch (error) {
       nextAnimation?.dispose()
-      nextOverride.dispose()
+      nextRuntime.override.dispose()
+      nextRuntime.bindingOwner?.dispose()
       disposeObjectTree(loaded.scene)
       throw error
     }
 
     const previousRoot = this.modelRoot
-    const previousOverride = this.materialOverride
+    const previousRuntime = this.materialRuntime
     const previousAnimation = this.animation
     const cameraState = snapshotCamera(this.camera, this.controls)
 
@@ -352,7 +451,7 @@ export class ViewerEngine implements ViewerPort {
       applyCameraFit(this.camera, this.controls, fit)
     } catch (error) {
       restoreCamera(this.camera, this.controls, cameraState)
-      disposePreparedModel(loaded.scene, nextOverride, nextAnimation)
+      disposePreparedModel(loaded.scene, nextRuntime, nextAnimation)
       throw error
     }
 
@@ -363,17 +462,19 @@ export class ViewerEngine implements ViewerPort {
       if (loaded.scene.parent === this.scene) this.scene.remove(loaded.scene)
       if (previousRoot !== undefined && previousRoot.parent !== this.scene) this.scene.add(previousRoot)
       restoreCamera(this.camera, this.controls, cameraState)
-      disposePreparedModel(loaded.scene, nextOverride, nextAnimation)
+      disposePreparedModel(loaded.scene, nextRuntime, nextAnimation)
       throw error
     }
 
     this.modelRoot = loaded.scene
-    this.materialOverride = nextOverride
+    this.modelMaterials = nextMaterials
+    this.materialRuntime = nextRuntime
     this.animation = nextAnimation
 
     if (previousRoot !== undefined) {
+      previousRuntime?.override.dispose()
       previousAnimation?.dispose()
-      previousOverride?.dispose()
+      previousRuntime?.bindingOwner?.dispose()
       disposeObjectTree(previousRoot)
     }
 
@@ -405,17 +506,111 @@ export class ViewerEngine implements ViewerPort {
     }
   }
 
+  private createProfileMaterialRuntime(
+    root: Object3D,
+    profile: MaterialInputProfile,
+    originals?: ModelMaterialSnapshot,
+    forbiddenVariants: readonly ShaderMaterial[] = [],
+  ): ProfileMaterialRuntime {
+    let bindingOwner: MaterialBindingOwner | undefined
+    try {
+      bindingOwner = createProfileBindingOwner(profile, this.environment.binding, this.createVariantFactory)
+      const createVariant = bindingOwner === undefined
+        ? undefined
+        : rejectMaterialVariantAliases(bindingOwner.createVariant, new Set(forbiddenVariants))
+      const createOverride = () => new MaterialOverride(root, createVariant)
+      const override = originals === undefined
+        ? createOverride()
+        : withModelMaterials(originals, createOverride)
+      return { profile, override, bindingOwner }
+    } catch (error) {
+      bindingOwner?.dispose()
+      throw error
+    }
+  }
+
+  private trackPendingMaterialRuntime(
+    runtime: PreparedRuntimeMaterial,
+    disposeOwner: () => void = () => undefined,
+  ): PreparedRuntimeMaterial {
+    let completed = false
+    let variantsDisposed = false
+    let ownerDisposed = false
+    const assertPending = () => {
+      if (completed || variantsDisposed) throw new Error('Material runtime transaction is complete')
+    }
+    const pending: PendingMaterialRuntime = {
+      disposeVariants: () => {
+        if (completed || variantsDisposed) return
+        variantsDisposed = true
+        runtime.dispose()
+      },
+      disposeOwner: () => {
+        if (completed || ownerDisposed) return
+        ownerDisposed = true
+        try {
+          disposeOwner()
+        } finally {
+          if (variantsDisposed) this.pendingMaterialRuntimes.delete(pending)
+        }
+      },
+    }
+    this.pendingMaterialRuntimes.add(pending)
+
+    return {
+      validate: (validateRender) => {
+        assertPending()
+        return runtime.validate(validateRender)
+      },
+      commit: () => {
+        assertPending()
+        runtime.commit()
+        completed = true
+        this.pendingMaterialRuntimes.delete(pending)
+      },
+      dispose: () => {
+        try {
+          pending.disposeVariants()
+        } finally {
+          pending.disposeOwner()
+        }
+      },
+    }
+  }
+
+  private refreshPbrEnvironmentMaps(): void {
+    const runtime = this.materialRuntime
+    if (runtime?.profile !== 'gltf-pbr') return
+    const nextMap = this.environment.binding.environmentMap.value
+    for (const material of runtime.override.materials) {
+      const environmentMaterial = material as EnvironmentShaderMaterial
+      const previousMap = environmentMaterial.envMap ?? null
+      environmentMaterial.envMap = nextMap
+      if (environmentProgramChanged(previousMap, nextMap)) environmentMaterial.needsUpdate = true
+    }
+  }
+
+  private disposePendingMaterialVariants(): void {
+    for (const pending of [...this.pendingMaterialRuntimes]) pending.disposeVariants()
+  }
+
+  private disposePendingMaterialOwners(): void {
+    for (const pending of [...this.pendingMaterialRuntimes]) pending.disposeOwner()
+  }
+
   private disposeModel(): void {
     const root = this.modelRoot
-    const override = this.materialOverride
+    const runtime = this.materialRuntime
     const animation = this.animation
     this.modelRoot = undefined
-    this.materialOverride = undefined
+    this.modelMaterials = undefined
+    this.materialRuntime = undefined
     this.animation = undefined
     if (root === undefined) return
     this.scene.remove(root)
+    runtime?.override.dispose()
     animation?.dispose()
-    override?.dispose()
+    runtime?.bindingOwner?.dispose()
     disposeObjectTree(root)
   }
 
@@ -491,11 +686,12 @@ function restoreCamera(camera: PerspectiveCamera, controls: ViewerControls, stat
 
 function disposePreparedModel(
   root: Object3D,
-  override: MaterialOverride,
+  runtime: ProfileMaterialRuntime,
   animation: AnimationPort,
 ): void {
+  runtime.override.dispose()
   animation.dispose()
-  override.dispose()
+  runtime.bindingOwner?.dispose()
   disposeObjectTree(root)
 }
 
@@ -524,4 +720,89 @@ function countMaterialRenderables(root: Object3D): number {
     if (isMaterialRenderable(object)) count += 1
   })
   return count
+}
+
+function createProfileBindingOwner(
+  profile: MaterialInputProfile,
+  environment: EnvironmentBinding,
+  createVariantFactory?: ViewerEngineDependencies['createVariantFactory'],
+): MaterialBindingOwner | undefined {
+  if (createVariantFactory !== undefined) {
+    return createMaterialBindingOwner(createVariantFactory(profile, environment))
+  }
+  if (profile === 'gltf-surface') return createGltfSurfaceBindingOwner()
+  if (profile === 'gltf-pbr') return createGltfPbrBindingOwner(environment)
+  return undefined
+}
+
+function rejectMaterialVariantAliases(
+  createVariant: MaterialVariantFactory,
+  forbidden: ReadonlySet<ShaderMaterial>,
+): MaterialVariantFactory {
+  if (forbidden.size === 0) return createVariant
+  const guarded: MaterialVariantFactory = (original, template, context) => {
+    const variant = createVariant(original, template, context)
+    if (forbidden.has(variant)) {
+      throw new Error('Material variant factory must return a fresh app-owned ShaderMaterial')
+    }
+    return variant
+  }
+  const getCacheKey = createVariant.getCacheKey
+  if (getCacheKey !== undefined) {
+    guarded.getCacheKey = (original, context) => getCacheKey(original, context)
+  }
+  return guarded
+}
+
+function snapshotModelMaterials(root: Object3D): ModelMaterialSnapshot {
+  const materials: ModelMaterialSnapshot = new Map()
+  root.traverse((object) => {
+    if (isMaterialRenderable(object)) materials.set(object, object.material)
+  })
+  return materials
+}
+
+function withModelMaterials<T>(
+  originals: ModelMaterialSnapshot,
+  operation: () => T,
+): T {
+  const predecessors = new Map<ModelMaterialRenderable, MaterialAssignment>()
+  for (const renderable of originals.keys()) predecessors.set(renderable, renderable.material)
+  assignModelMaterials(originals)
+  try {
+    return operation()
+  } finally {
+    assignModelMaterials(predecessors)
+  }
+}
+
+function assignModelMaterials(assignments: ModelMaterialSnapshot): void {
+  const changed: Array<readonly [ModelMaterialRenderable, MaterialAssignment]> = []
+  try {
+    for (const [renderable, material] of assignments) {
+      const previous = renderable.material
+      renderable.material = material
+      changed.push([renderable, previous])
+    }
+  } catch (error) {
+    for (let index = changed.length - 1; index >= 0; index -= 1) {
+      const [renderable, previous] = changed[index]
+      renderable.material = previous
+    }
+    throw error
+  }
+}
+
+function environmentProgramChanged(previous: Texture | null, next: Texture | null): boolean {
+  if (previous === next) return false
+  if (previous === null || next === null) return true
+  if (previous.mapping !== next.mapping) return true
+  const previousSize = textureImageSize(previous)
+  const nextSize = textureImageSize(next)
+  return previousSize.width !== nextSize.width || previousSize.height !== nextSize.height
+}
+
+function textureImageSize(texture: Texture): { width: unknown; height: unknown } {
+  const image = texture.image as { width?: unknown; height?: unknown } | undefined
+  return { width: image?.width, height: image?.height }
 }
