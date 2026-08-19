@@ -12,6 +12,7 @@ import {
 import { describe, expect, it, vi } from 'vitest'
 import {
   ModelTextureRegistry,
+  type ModelTextureMutation,
   type ModelTextureRegistryDependencies,
 } from './ModelTextureRegistry'
 
@@ -355,5 +356,117 @@ describe('ModelTextureRegistry', () => {
     expect(material.map).toBe(original)
     expect(disposeCandidate).toHaveBeenCalledTimes(1)
     expect(closeCandidate).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps a committed replacement active when every predecessor cleanup callback throws', async () => {
+    const original = new Texture()
+    const predecessor = new Texture()
+    const candidate = new Texture()
+    const candidateMutationRef: { current?: ModelTextureMutation } = {}
+    const disposePredecessor = vi.spyOn(predecessor, 'dispose').mockImplementation(() => {
+      candidateMutationRef.current?.commit()
+      throw new Error('texture dispose failed')
+    })
+    const closePredecessor = vi.fn(() => {
+      candidateMutationRef.current?.rollback()
+      throw new Error('image close failed')
+    })
+    predecessor.image = { close: closePredecessor }
+    const material = new MeshStandardMaterial({ map: original })
+    const decode = vi.fn()
+      .mockResolvedValueOnce(predecessor)
+      .mockResolvedValueOnce(candidate)
+    const revokePreview = vi.fn((url: string) => {
+      if (url === 'predecessor-preview') {
+        candidateMutationRef.current?.commit()
+        throw new Error('preview revocation failed')
+      }
+    })
+    const registry = await ModelTextureRegistry.create(
+      new Group().add(new Mesh(undefined, material)),
+      {
+        decode,
+        createPreview: vi.fn(async (texture) => texture === original
+          ? 'original-preview'
+          : texture === predecessor ? 'predecessor-preview' : 'candidate-preview'),
+        revokePreview,
+      },
+    )
+    const predecessorMutation = await registry.prepareReplace('material-0:base-color', {} as File)
+    predecessorMutation.apply()
+    predecessorMutation.commit()
+    const candidateMutation = await registry.prepareReplace('material-0:base-color', {} as File)
+    candidateMutationRef.current = candidateMutation
+    candidateMutation.apply()
+
+    expect(() => candidateMutation.commit()).not.toThrow()
+
+    expect(material.map).toBe(candidate)
+    expect(registry.list()[0]).toMatchObject({ previewUrl: 'candidate-preview', replaced: true })
+    expect(disposePredecessor).toHaveBeenCalledTimes(1)
+    expect(closePredecessor).toHaveBeenCalledTimes(1)
+    expect(revokePreview.mock.calls.filter(([url]) => url === 'predecessor-preview')).toHaveLength(1)
+
+    candidateMutation.rollback()
+    expect(material.map).toBe(candidate)
+  })
+
+  it('attempts every owned cleanup once when disposal callbacks throw', async () => {
+    const originalBaseColor = new Texture()
+    const originalNormal = new Texture()
+    const candidateBaseColor = new Texture()
+    const candidateNormal = new Texture()
+    const disposeBaseColor = vi.spyOn(candidateBaseColor, 'dispose').mockImplementation(() => {
+      throw new Error('base-color texture dispose failed')
+    })
+    const disposeNormal = vi.spyOn(candidateNormal, 'dispose').mockImplementation(() => {
+      throw new Error('normal texture dispose failed')
+    })
+    const closeBaseColor = vi.fn(() => {
+      throw new Error('base-color image close failed')
+    })
+    const closeNormal = vi.fn(() => {
+      throw new Error('normal image close failed')
+    })
+    candidateBaseColor.image = { close: closeBaseColor }
+    candidateNormal.image = { close: closeNormal }
+    const material = new MeshStandardMaterial({
+      map: originalBaseColor,
+      normalMap: originalNormal,
+    })
+    const decode = vi.fn()
+      .mockResolvedValueOnce(candidateBaseColor)
+      .mockResolvedValueOnce(candidateNormal)
+    const revokePreview = vi.fn((url: string) => {
+      throw new Error(`preview revocation failed: ${url}`)
+    })
+    const registry = await ModelTextureRegistry.create(
+      new Group().add(new Mesh(undefined, material)),
+      {
+        decode,
+        createPreview: vi.fn(async (texture) => `preview:${texture.uuid}`),
+        revokePreview,
+      },
+    )
+    for (const channel of ['base-color', 'normal'] as const) {
+      const slot = registry.list().find((entry) => entry.channel === channel)!
+      const mutation = await registry.prepareReplace(slot.id, {} as File)
+      mutation.apply()
+      mutation.commit()
+    }
+
+    expect(() => registry.dispose()).not.toThrow()
+    expect(() => registry.dispose()).not.toThrow()
+
+    expect(material.map).toBe(originalBaseColor)
+    expect(material.normalMap).toBe(originalNormal)
+    expect(disposeBaseColor).toHaveBeenCalledTimes(1)
+    expect(disposeNormal).toHaveBeenCalledTimes(1)
+    expect(closeBaseColor).toHaveBeenCalledTimes(1)
+    expect(closeNormal).toHaveBeenCalledTimes(1)
+    expect(revokePreview).toHaveBeenCalledTimes(4)
+    for (const texture of [originalBaseColor, originalNormal, candidateBaseColor, candidateNormal]) {
+      expect(revokePreview.mock.calls.filter(([url]) => url === `preview:${texture.uuid}`)).toHaveLength(1)
+    }
   })
 })

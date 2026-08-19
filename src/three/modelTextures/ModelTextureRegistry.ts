@@ -227,7 +227,7 @@ export class ModelTextureRegistry {
 
   private releasePreview(url: string): void {
     if (!this.ownedPreviewUrls.delete(url)) return
-    this.dependencies.revokePreview(url)
+    bestEffort(() => this.dependencies.revokePreview(url))
   }
 }
 
@@ -281,9 +281,17 @@ function configureReplacement(texture: Texture, predecessor: Texture, colorSpace
 }
 
 function disposeOwnedTexture(texture: Texture): void {
-  texture.dispose()
+  bestEffort(() => texture.dispose())
   const image = texture.image as { close?: () => void } | undefined
-  image?.close?.()
+  if (image?.close !== undefined) bestEffort(() => image.close?.())
+}
+
+function bestEffort(cleanup: () => void): void {
+  try {
+    cleanup()
+  } catch {
+    // Cleanup is terminal and ownership is already detached; continue releasing later resources.
+  }
 }
 
 function defaultDependencies(): ModelTextureRegistryDependencies {
