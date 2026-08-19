@@ -22,6 +22,7 @@ async function createFixture({
   indexSource = '<script type="module" src="./assets/app-a.js"></script><link rel="stylesheet" href="./assets/app-a.css">',
   portraitFiles = DEFAULT_PORTRAITS,
   portraitReferences = portraitFiles,
+  lazyPortraitReferences = [],
   inlinePortraits = [],
   auxiliaryInlineSvgCount = 0,
 } = {}) {
@@ -31,7 +32,10 @@ async function createFixture({
   await writeFile(join(root, 'index.html'), indexSource)
   await writeFile(join(assets, 'app-a.css'), 'body { color: white; }')
   await writeFile(join(assets, 'editor-a.css'), '.editor { display: block; }')
-  await writeFile(join(assets, 'lazy-a.js'), 'export default true')
+  await writeFile(join(assets, 'lazy-a.js'), [
+    'export default true;',
+    ...lazyPortraitReferences.map((name) => `new URL("${name}", import.meta.url);`),
+  ].join('\n'))
   await writeFile(join(assets, 'editor.worker-a.js'), 'self.onmessage = () => {}')
   if (auxiliaryInlineSvgCount > 0) {
     await writeFile(join(assets, 'editor.api-a.js'), Array.from(
@@ -62,6 +66,9 @@ test('crawls the exact eight emitted PNG portraits beneath the simulated reposit
     assert.equal(result.hdrCount, 4)
     assert.equal(result.portraitCount, 8)
     assert.deepEqual(result.portraitSlugs, PORTRAIT_SLUGS)
+    assert.deepEqual(result.portraitOwners, Object.fromEntries(
+      PORTRAIT_SLUGS.map((slug) => [slug, ['assets/app-a.js']]),
+    ))
     assert.equal(result.workerCount, 1)
     assert.equal(result.unresolved.length, 0)
     assert.ok(result.requests.every((request) => request.startsWith('/GLTFVisu/')))
@@ -121,12 +128,56 @@ test('rejects a portrait emitted in a non-PNG format', async () => {
   }
 })
 
-test('rejects an unexpectedly inlined portrait', async () => {
+test('ignores unrelated inline PNG data in the same chunk that owns every portrait', async () => {
   const root = await createFixture({ inlinePortraits: ['data:image/png;base64,iVBORw0KGgo='] })
+  try {
+    const result = await verifyStaticSubpath({ distDir: root, repositoryPath: '/GLTFVisu/' })
+    assert.equal(result.portraitCount, 8)
+    assert.equal(result.unresolved.length, 0)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('accepts exact portrait ownership split across multiple chunks', async () => {
+  const root = await createFixture({
+    portraitReferences: DEFAULT_PORTRAITS.slice(0, 4),
+    lazyPortraitReferences: DEFAULT_PORTRAITS.slice(4),
+  })
+  try {
+    const result = await verifyStaticSubpath({ distDir: root, repositoryPath: '/GLTFVisu/' })
+    assert.deepEqual(result.portraitOwners, Object.fromEntries([
+      ...PORTRAIT_SLUGS.slice(0, 4).map((slug) => [slug, ['assets/app-a.js']]),
+      ...PORTRAIT_SLUGS.slice(4).map((slug) => [slug, ['assets/lazy-a.js']]),
+    ]))
+    assert.equal(result.unresolved.length, 0)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('rejects a portrait referenced by multiple owning chunks', async () => {
+  const root = await createFixture({ lazyPortraitReferences: ['pbr-a.png'] })
   try {
     await assert.rejects(
       verifyStaticSubpath({ distDir: root, repositoryPath: '/GLTFVisu/' }),
-      /Unexpected inline portrait/,
+      /Portrait pbr must have exactly one owning reference, found 2/,
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('rejects an inline replacement for a missing emitted portrait', async () => {
+  const portraitFiles = DEFAULT_PORTRAITS.filter((name) => name !== 'uv-grid-a.png')
+  const root = await createFixture({
+    portraitFiles,
+    inlinePortraits: ['data:image/png;base64,iVBORw0KGgo='],
+  })
+  try {
+    await assert.rejects(
+      verifyStaticSubpath({ distDir: root, repositoryPath: '/GLTFVisu/' }),
+      /Missing emitted portrait: uv-grid/,
     )
   } finally {
     await rm(root, { recursive: true, force: true })

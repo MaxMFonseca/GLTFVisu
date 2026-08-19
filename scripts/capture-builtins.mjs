@@ -32,8 +32,9 @@ export async function captureBuiltins(options = {}) {
   const startVite = options.startVite ?? startViteProcess
   const launchChrome = options.launchChrome ?? launchChromeProcess
   const connectCdp = options.connectCdp ?? connectCdpWebSocket
-  const now = options.now ?? Date.now
   const sleep = options.sleep ?? delay
+  const readinessTimeoutMs = options.readinessTimeoutMs ?? READINESS_TIMEOUT_MS
+  const connectionTimeoutMs = options.connectionTimeoutMs ?? READINESS_TIMEOUT_MS
   let vite
   let chrome
   let cdp
@@ -44,7 +45,7 @@ export async function captureBuiltins(options = {}) {
   try {
     vite = await startVite({ projectRoot })
     chrome = await launchChrome({ projectRoot })
-    cdp = await connectCdp(chrome.webSocketUrl)
+    cdp = await connectCdp(chrome.webSocketUrl, { timeoutMs: connectionTimeoutMs })
 
     for (const capture of BUILTIN_CAPTURES) {
       await captureBuiltin({
@@ -52,8 +53,8 @@ export async function captureBuiltins(options = {}) {
         cdp,
         origin: vite.origin,
         outputDirectory,
-        now,
         sleep,
+        readinessTimeoutMs,
       })
     }
   } catch (error) {
@@ -69,11 +70,18 @@ export async function captureBuiltins(options = {}) {
     }
   }
 
+  if (failure !== undefined && cleanupErrors.length > 0) {
+    throw new AggregateError(
+      [failure, ...cleanupErrors],
+      'Portrait capture failed and one or more resources could not be cleaned up',
+      { cause: failure },
+    )
+  }
   if (failure !== undefined) throw failure
   if (cleanupErrors.length > 0) throw new AggregateError(cleanupErrors, 'Unable to clean up portrait capture resources')
 }
 
-async function captureBuiltin({ capture, cdp, origin, outputDirectory, now, sleep }) {
+async function captureBuiltin({ capture, cdp, origin, outputDirectory, sleep, readinessTimeoutMs }) {
   let targetId
   let failure
   try {
@@ -98,7 +106,7 @@ async function captureBuiltin({ capture, cdp, origin, outputDirectory, now, slee
     url.searchParams.set('capture', 'builtin-portrait')
     url.searchParams.set('shader', capture.id)
     await cdp.send('Page.navigate', { url: url.href }, sessionId)
-    await waitForPortraitReady({ cdp, sessionId, shaderId: capture.id, now, sleep })
+    await waitForPortraitReady({ cdp, sessionId, shaderId: capture.id, sleep, readinessTimeoutMs })
 
     const screenshot = await cdp.send('Page.captureScreenshot', {
       format: 'png',
@@ -124,8 +132,14 @@ async function captureBuiltin({ capture, cdp, origin, outputDirectory, now, slee
   if (failure !== undefined) throw failure
 }
 
-async function waitForPortraitReady({ cdp, sessionId, shaderId, now, sleep }) {
-  const startedAt = now()
+async function waitForPortraitReady({ cdp, sessionId, shaderId, sleep, readinessTimeoutMs }) {
+  await rejectAfter(pollPortraitReady({ cdp, sessionId, shaderId, sleep }), {
+    timeoutMs: readinessTimeoutMs,
+    message: `Timed out after ${readinessTimeoutMs}ms waiting for ${shaderId}`,
+  })
+}
+
+async function pollPortraitReady({ cdp, sessionId, shaderId, sleep }) {
   while (true) {
     const evaluation = await cdp.send('Runtime.evaluate', {
       expression: "globalThis.__GLTFVISU_PORTRAIT__ ?? { status: 'loading' }",
@@ -138,11 +152,24 @@ async function waitForPortraitReady({ cdp, sessionId, shaderId, now, sleep }) {
       throw new Error(`Portrait harness failed for ${shaderId}: ${state.message ?? 'unknown error'}`)
     }
 
-    const elapsed = now() - startedAt
-    if (elapsed >= READINESS_TIMEOUT_MS) {
-      throw new Error(`Timed out after ${READINESS_TIMEOUT_MS}ms waiting for ${shaderId}`)
+    await sleep(READINESS_POLL_MS)
+  }
+}
+
+async function rejectAfter(operation, { timeoutMs, message, onTimeout }) {
+  const { promise: timeout, reject } = Promise.withResolvers()
+  const timer = setTimeout(() => {
+    reject(new Error(message))
+    try {
+      onTimeout?.()
+    } catch {
+      // The timeout rejection remains the primary failure.
     }
-    await sleep(Math.min(READINESS_POLL_MS, READINESS_TIMEOUT_MS - elapsed))
+  }, timeoutMs)
+  try {
+    return await Promise.race([operation, timeout])
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -249,15 +276,46 @@ async function launchChromeProcess() {
     const webSocketUrl = await readDevToolsUrl(child)
     return {
       webSocketUrl,
-      stop: async () => {
-        await terminateProcess(child)
-        await rm(profileDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
-      },
+      stop: async () => cleanupChromeProcess(child, profileDirectory),
     }
   } catch (error) {
-    await terminateProcess(child)
-    await rm(profileDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    try {
+      await cleanupChromeProcess(child, profileDirectory)
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        'Chrome startup failed and its resources could not be cleaned up',
+        { cause: error },
+      )
+    }
     throw error
+  }
+}
+
+export async function cleanupChromeProcess(child, profileDirectory, options = {}) {
+  const terminate = options.terminate ?? terminateProcess
+  const removeProfile = options.removeProfile ?? rm
+  const cleanupErrors = []
+  try {
+    await terminate(child)
+  } catch (error) {
+    cleanupErrors.push(error)
+  } finally {
+    try {
+      await removeProfile(profileDirectory, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 100,
+      })
+    } catch (error) {
+      cleanupErrors.push(error)
+    }
+  }
+
+  if (cleanupErrors.length === 1) throw cleanupErrors[0]
+  if (cleanupErrors.length > 1) {
+    throw new AggregateError(cleanupErrors, 'Unable to terminate Chrome and remove its temporary profile')
   }
 }
 
@@ -311,20 +369,32 @@ function readDevToolsUrl(child) {
   })
 }
 
-async function connectCdpWebSocket(webSocketUrl) {
-  if (typeof WebSocket !== 'function') throw new Error('Node.js 22 or newer is required for WebSocket support')
-  const socket = new WebSocket(webSocketUrl)
-  await new Promise((resolvePromise, reject) => {
+export async function connectCdpWebSocket(webSocketUrl, options = {}) {
+  const createWebSocket = options.createWebSocket ?? ((url) => {
+    if (typeof WebSocket !== 'function') throw new Error('Node.js 22 or newer is required for WebSocket support')
+    return new WebSocket(url)
+  })
+  const timeoutMs = options.timeoutMs ?? READINESS_TIMEOUT_MS
+  const socket = createWebSocket(webSocketUrl)
+  const handshake = new Promise((resolvePromise, reject) => {
     const onOpen = () => finish()
     const onError = () => finish(new Error('Unable to connect to Chrome DevTools'))
+    const onClose = () => finish(new Error('Chrome DevTools closed before connecting'))
     const finish = (error) => {
       socket.removeEventListener('open', onOpen)
       socket.removeEventListener('error', onError)
+      socket.removeEventListener('close', onClose)
       if (error === undefined) resolvePromise()
       else reject(error)
     }
     socket.addEventListener('open', onOpen)
     socket.addEventListener('error', onError)
+    socket.addEventListener('close', onClose)
+  })
+  await rejectAfter(handshake, {
+    timeoutMs,
+    message: `Timed out after ${timeoutMs}ms connecting to Chrome DevTools`,
+    onTimeout: () => socket.close(),
   })
   return new CdpClient(socket)
 }
@@ -396,11 +466,12 @@ function formatDiagnostics(value) {
   return text.trim().length === 0 ? '' : `:\n${text.trim()}`
 }
 
-async function terminateProcess(child) {
+export async function terminateProcess(child, options = {}) {
+  const graceMs = options.graceMs ?? 5_000
   if (child.exitCode !== null || child.signalCode !== null) return
   const exited = new Promise((resolvePromise) => child.once('exit', resolvePromise))
   child.kill()
-  if (await Promise.race([exited.then(() => true), delay(5_000, false)])) return
+  if (await Promise.race([exited.then(() => true), delay(graceMs, false)])) return
   child.kill('SIGKILL')
   await exited
 }

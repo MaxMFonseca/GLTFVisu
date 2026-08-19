@@ -161,10 +161,13 @@ export async function verifyStaticSubpath({ distDir, repositoryPath = '/GLTFVisu
   const portraitSlugs = [...new Set(emittedPortraits.map(({ slug }) => slug))].sort()
   const portraitCount = emittedPortraits.length
   const nonPngPortraits = files.filter((file) => extname(file) !== '.png' && portraitSlug(file) !== undefined)
-  const portraitBundles = [...textFiles.values()].filter((source) =>
-    emittedPortraits.every(({ file }) => source.includes(basename(file))))
-  const inlinePortraitCount = portraitBundles
-    .reduce((count, source) => count + [...source.matchAll(/data:image\/(?:png|svg\+xml)/g)].length, 0)
+  const ownersByPortraitFile = assetOwners(textFiles, emittedPortraits.map(({ file }) => file))
+  const portraitOwners = Object.fromEntries(PORTRAIT_SLUGS.map((slug) => [
+    slug,
+    [...new Set(emittedPortraits
+      .filter((portrait) => portrait.slug === slug)
+      .flatMap(({ file }) => ownersByPortraitFile.get(file) ?? []))].sort(),
+  ]))
   const workerCount = files.filter((file) => /^editor\.worker-[\w-]+\.js$/.test(basename(file))).length
 
   if (hdrCount !== 4) unresolved.push(`Expected 4 emitted HDRs, found ${hdrCount}`)
@@ -173,8 +176,13 @@ export async function verifyStaticSubpath({ distDir, repositoryPath = '/GLTFVisu
     if (count === 0) unresolved.push(`Missing emitted portrait: ${slug}`)
     if (count > 1) unresolved.push(`Duplicate emitted portrait: ${slug}`)
   }
+  for (const { file, slug } of emittedPortraits) {
+    const owners = ownersByPortraitFile.get(file) ?? []
+    if (owners.length !== 1) {
+      unresolved.push(`Portrait ${slug} must have exactly one owning reference, found ${owners.length}`)
+    }
+  }
   for (const file of nonPngPortraits) unresolved.push(`Non-PNG portrait asset: ${file}`)
-  if (inlinePortraitCount > 0) unresolved.push(`Unexpected inline portrait data (${inlinePortraitCount})`)
   if (portraitCount !== 8) unresolved.push(`Expected 8 bundled portraits, found ${portraitCount}`)
   if (workerCount !== 1) unresolved.push(`Expected 1 Monaco editor worker, found ${workerCount}`)
   if (requests.some((request) => request.startsWith('/assets/'))) unresolved.push('Observed a request beginning at /assets')
@@ -185,11 +193,33 @@ export async function verifyStaticSubpath({ distDir, repositoryPath = '/GLTFVisu
     hdrCount,
     portraitCount,
     portraitSlugs,
+    portraitOwners,
     workerCount,
     requests,
     unresolved,
     jsCssCount: files.filter((file) => extname(file) === '.js' || extname(file) === '.css').length,
   }
+}
+
+function assetOwners(textFiles, targetFiles) {
+  const targets = new Set(targetFiles)
+  const owners = new Map(targetFiles.map((file) => [file, new Set()]))
+  for (const [ownerFile, source] of textFiles) {
+    for (const reference of referencedAssets(source, extname(ownerFile))) {
+      const referencedFile = resolveReferencedFile(ownerFile, reference)
+      if (referencedFile !== undefined && targets.has(referencedFile)) {
+        owners.get(referencedFile).add(ownerFile)
+      }
+    }
+  }
+  return new Map([...owners].map(([file, fileOwners]) => [file, [...fileOwners].sort()]))
+}
+
+function resolveReferencedFile(ownerFile, reference) {
+  const origin = 'https://static.invalid/'
+  const resolved = new URL(reference, new URL(ownerFile, origin))
+  if (resolved.origin !== origin.slice(0, -1)) return undefined
+  return decodeURIComponent(resolved.pathname.slice(1))
 }
 
 function portraitSlug(file, requiredExtension) {
