@@ -2,6 +2,7 @@ import {
   Box3,
   Clock,
   Color,
+  CubeUVReflectionMapping,
   DirectionalLight,
   HemisphereLight,
   Line,
@@ -170,6 +171,9 @@ interface ProfileMaterialRuntime {
 }
 
 interface PendingMaterialRuntime {
+  readonly root: Object3D
+  readonly materialRuntime: ProfileMaterialRuntime
+  readonly compileGeneration: number
   disposeVariants(): void
   disposeOwner(): void
 }
@@ -192,6 +196,7 @@ export class ViewerEngine implements ViewerPort {
   private readonly createVariantFactory?: ViewerEngineDependencies['createVariantFactory']
   private readonly drawingBufferSize = new Vector2()
   private readonly pendingMaterialRuntimes = new Set<PendingMaterialRuntime>()
+  private readonly injectedVariantIdentities = new WeakSet<ShaderMaterial>()
   private frameHandle?: number
   private loadAbort?: AbortController
   private loadGeneration = 0
@@ -263,7 +268,12 @@ export class ViewerEngine implements ViewerPort {
   async compileShader(draft: ShaderDraft): Promise<CompileResult> {
     this.assertActive()
     const generation = ++this.compileGeneration
-    const result = await this.compiler.compile(draft, this.prepareRuntimeMaterial)
+    this.disposePendingMaterialVariants()
+    this.disposePendingMaterialOwners()
+    const result = await this.compiler.compile(
+      draft,
+      (material) => this.prepareRuntimeMaterial(material, generation),
+    )
     if (this.disposed || generation !== this.compileGeneration) return result
     return result
   }
@@ -359,10 +369,16 @@ export class ViewerEngine implements ViewerPort {
     if (cameraPosition instanceof Vector3) cameraPosition.copy(this.camera.position)
   }
 
-  private readonly prepareRuntimeMaterial: RuntimeMaterialPreparer = (material) => {
+  private prepareRuntimeMaterial(
+    material: ShaderMaterial,
+    compileGeneration: number,
+  ): PreparedRuntimeMaterial | undefined {
     const current = this.materialRuntime
     const root = this.modelRoot
     if (current === undefined || root === undefined) return undefined
+    if (this.disposed || compileGeneration !== this.compileGeneration) {
+      throw new Error('Material runtime transaction is stale')
+    }
 
     const profile = getMaterialInputProfile(material)
     if (profile === current.profile) {
@@ -373,14 +389,13 @@ export class ViewerEngine implements ViewerPort {
         ),
         commit: () => prepared.commit(),
         dispose: () => prepared.dispose(),
-      })
+      }, root, current, compileGeneration)
     }
 
     const replacement = this.createProfileMaterialRuntime(
       root,
       profile,
       this.modelMaterials,
-      current.override.materials,
     )
     let prepared: ReturnType<MaterialOverride['prepare']>
     try {
@@ -403,44 +418,48 @@ export class ViewerEngine implements ViewerPort {
         current.bindingOwner?.dispose()
       },
       dispose: () => prepared.dispose(),
-    }, () => replacement.bindingOwner?.dispose())
+    }, root, current, compileGeneration, () => replacement.bindingOwner?.dispose())
   }
 
   private installModel(loaded: LoadedModel, name: string): ModelInfo {
-    const profile = this.compiler.material === undefined
-      ? 'none'
-      : getMaterialInputProfile(this.compiler.material)
-    const nextMaterials = snapshotModelMaterials(loaded.scene)
-    const nextRuntime = this.createProfileMaterialRuntime(
-      loaded.scene,
-      profile,
-      undefined,
-      this.materialRuntime?.override.materials,
-    )
-    let nextAnimation: AnimationPort | undefined
-    let fit: CameraFit
-    try {
-      if (this.compiler.material !== undefined) {
-        if (this.compiler.validateRuntime === undefined) {
-          nextRuntime.override.apply(this.compiler.material)
-        } else {
-          const diagnostics = this.compiler.validateRuntime(
-            createRuntimePreparer(nextRuntime.override, () => this.renderCandidateModel(loaded.scene)),
-          )
-          if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
-            throw new ShaderRuntimeValidationError(diagnostics)
+    const prepared = (() => {
+      let runtime: ProfileMaterialRuntime | undefined
+      let animation: AnimationPort | undefined
+      try {
+        const profile = this.compiler.material === undefined
+          ? 'none'
+          : getMaterialInputProfile(this.compiler.material)
+        const materials = snapshotModelMaterials(loaded.scene)
+        runtime = this.createProfileMaterialRuntime(loaded.scene, profile)
+        if (this.compiler.material !== undefined) {
+          if (this.compiler.validateRuntime === undefined) {
+            runtime.override.apply(this.compiler.material)
+          } else {
+            const diagnostics = this.compiler.validateRuntime(
+              createRuntimePreparer(runtime.override, () => this.renderCandidateModel(loaded.scene)),
+            )
+            if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
+              throw new ShaderRuntimeValidationError(diagnostics)
+            }
           }
         }
+        animation = this.createAnimation(loaded.scene, loaded.animations)
+        const fit = fitFor(loaded.scene, this.camera, this.controls.target)
+        return { runtime, animation, fit, materials }
+      } catch (error) {
+        runtime?.override.dispose()
+        animation?.dispose()
+        runtime?.bindingOwner?.dispose()
+        disposeObjectTree(loaded.scene)
+        throw error
       }
-      nextAnimation = this.createAnimation(loaded.scene, loaded.animations)
-      fit = fitFor(loaded.scene, this.camera, this.controls.target)
-    } catch (error) {
-      nextAnimation?.dispose()
-      nextRuntime.override.dispose()
-      nextRuntime.bindingOwner?.dispose()
-      disposeObjectTree(loaded.scene)
-      throw error
-    }
+    })()
+    const {
+      runtime: nextRuntime,
+      animation: nextAnimation,
+      fit,
+      materials: nextMaterials,
+    } = prepared
 
     const previousRoot = this.modelRoot
     const previousRuntime = this.materialRuntime
@@ -466,6 +485,7 @@ export class ViewerEngine implements ViewerPort {
       throw error
     }
 
+    this.disposePendingMaterialVariants()
     this.modelRoot = loaded.scene
     this.modelMaterials = nextMaterials
     this.materialRuntime = nextRuntime
@@ -474,6 +494,7 @@ export class ViewerEngine implements ViewerPort {
     if (previousRoot !== undefined) {
       previousRuntime?.override.dispose()
       previousAnimation?.dispose()
+      this.disposePendingMaterialOwners()
       previousRuntime?.bindingOwner?.dispose()
       disposeObjectTree(previousRoot)
     }
@@ -510,14 +531,15 @@ export class ViewerEngine implements ViewerPort {
     root: Object3D,
     profile: MaterialInputProfile,
     originals?: ModelMaterialSnapshot,
-    forbiddenVariants: readonly ShaderMaterial[] = [],
   ): ProfileMaterialRuntime {
     let bindingOwner: MaterialBindingOwner | undefined
     try {
       bindingOwner = createProfileBindingOwner(profile, this.environment.binding, this.createVariantFactory)
       const createVariant = bindingOwner === undefined
         ? undefined
-        : rejectMaterialVariantAliases(bindingOwner.createVariant, new Set(forbiddenVariants))
+        : this.createVariantFactory === undefined
+          ? bindingOwner.createVariant
+          : registerInjectedMaterialVariants(bindingOwner.createVariant, this.injectedVariantIdentities)
       const createOverride = () => new MaterialOverride(root, createVariant)
       const override = originals === undefined
         ? createOverride()
@@ -531,15 +553,18 @@ export class ViewerEngine implements ViewerPort {
 
   private trackPendingMaterialRuntime(
     runtime: PreparedRuntimeMaterial,
+    root: Object3D,
+    materialRuntime: ProfileMaterialRuntime,
+    compileGeneration: number,
     disposeOwner: () => void = () => undefined,
   ): PreparedRuntimeMaterial {
     let completed = false
     let variantsDisposed = false
     let ownerDisposed = false
-    const assertPending = () => {
-      if (completed || variantsDisposed) throw new Error('Material runtime transaction is complete')
-    }
     const pending: PendingMaterialRuntime = {
+      root,
+      materialRuntime,
+      compileGeneration,
       disposeVariants: () => {
         if (completed || variantsDisposed) return
         variantsDisposed = true
@@ -556,6 +581,22 @@ export class ViewerEngine implements ViewerPort {
       },
     }
     this.pendingMaterialRuntimes.add(pending)
+    const assertPending = () => {
+      if (completed || variantsDisposed) throw new Error('Material runtime transaction is complete')
+      if (
+        this.disposed
+        || this.compileGeneration !== compileGeneration
+        || this.modelRoot !== root
+        || this.materialRuntime !== materialRuntime
+      ) {
+        try {
+          pending.disposeVariants()
+        } finally {
+          pending.disposeOwner()
+        }
+        throw new Error('Material runtime transaction is stale')
+      }
+    }
 
     return {
       validate: (validateRender) => {
@@ -564,7 +605,12 @@ export class ViewerEngine implements ViewerPort {
       },
       commit: () => {
         assertPending()
-        runtime.commit()
+        this.disposePendingMaterialVariants(pending)
+        try {
+          runtime.commit()
+        } finally {
+          this.disposePendingMaterialOwners(pending)
+        }
         completed = true
         this.pendingMaterialRuntimes.delete(pending)
       },
@@ -590,12 +636,16 @@ export class ViewerEngine implements ViewerPort {
     }
   }
 
-  private disposePendingMaterialVariants(): void {
-    for (const pending of [...this.pendingMaterialRuntimes]) pending.disposeVariants()
+  private disposePendingMaterialVariants(except?: PendingMaterialRuntime): void {
+    for (const pending of [...this.pendingMaterialRuntimes]) {
+      if (pending !== except) pending.disposeVariants()
+    }
   }
 
-  private disposePendingMaterialOwners(): void {
-    for (const pending of [...this.pendingMaterialRuntimes]) pending.disposeOwner()
+  private disposePendingMaterialOwners(except?: PendingMaterialRuntime): void {
+    for (const pending of [...this.pendingMaterialRuntimes]) {
+      if (pending !== except) pending.disposeOwner()
+    }
   }
 
   private disposeModel(): void {
@@ -735,16 +785,16 @@ function createProfileBindingOwner(
   return undefined
 }
 
-function rejectMaterialVariantAliases(
+function registerInjectedMaterialVariants(
   createVariant: MaterialVariantFactory,
-  forbidden: ReadonlySet<ShaderMaterial>,
+  identities: WeakSet<ShaderMaterial>,
 ): MaterialVariantFactory {
-  if (forbidden.size === 0) return createVariant
   const guarded: MaterialVariantFactory = (original, template, context) => {
     const variant = createVariant(original, template, context)
-    if (forbidden.has(variant)) {
+    if (identities.has(variant)) {
       throw new Error('Material variant factory must return a fresh app-owned ShaderMaterial')
     }
+    identities.add(variant)
     return variant
   }
   const getCacheKey = createVariant.getCacheKey
@@ -797,12 +847,10 @@ function environmentProgramChanged(previous: Texture | null, next: Texture | nul
   if (previous === next) return false
   if (previous === null || next === null) return true
   if (previous.mapping !== next.mapping) return true
-  const previousSize = textureImageSize(previous)
-  const nextSize = textureImageSize(next)
-  return previousSize.width !== nextSize.width || previousSize.height !== nextSize.height
+  if (next.mapping !== CubeUVReflectionMapping) return false
+  return textureImageHeight(previous) !== textureImageHeight(next)
 }
 
-function textureImageSize(texture: Texture): { width: unknown; height: unknown } {
-  const image = texture.image as { width?: unknown; height?: unknown } | undefined
-  return { width: image?.width, height: image?.height }
+function textureImageHeight(texture: Texture): unknown {
+  return (texture.image as { height?: unknown } | undefined)?.height
 }
