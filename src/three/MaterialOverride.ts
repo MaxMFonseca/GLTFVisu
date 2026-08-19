@@ -27,6 +27,7 @@ export interface PreparedMaterialOverride {
 export class MaterialOverride {
   private readonly originals = new Map<MaterialRenderable, MaterialAssignment>()
   private readonly originalMaterials = new Set<Material>()
+  private readonly reservedVariants = new Set<ShaderMaterial>()
   private overrideMaterials = new Set<ShaderMaterial>()
   private revision = 0
   private disposed = false
@@ -87,6 +88,7 @@ export class MaterialOverride {
         )
       }
     } catch (error) {
+      this.releaseReservations(variants)
       for (const material of variants) material.dispose()
       throw error
     }
@@ -100,25 +102,27 @@ export class MaterialOverride {
     return {
       run: <T>(operation: () => T): T => {
         assertCurrent()
-        for (const [mesh, assignment] of assignments) mesh.material = assignment
+        const changed = assignMaterials(assignments, predecessors)
         try {
           return operation()
         } finally {
-          for (const [mesh, assignment] of predecessors) mesh.material = assignment
+          restoreMaterials(changed, predecessors)
         }
       },
       commit: () => {
         assertCurrent()
         const previousMaterials = this.overrideMaterials
-        for (const [mesh, assignment] of assignments) mesh.material = assignment
+        assignMaterials(assignments, predecessors)
         this.overrideMaterials = variants
         this.revision += 1
         completed = true
+        this.releaseReservations(variants)
         for (const material of previousMaterials) material.dispose()
       },
       dispose: () => {
         if (completed) return
         completed = true
+        this.releaseReservations(variants)
         for (const material of variants) material.dispose()
       },
     }
@@ -157,14 +161,23 @@ export class MaterialOverride {
       variant === template
       || this.originalMaterials.has(variant)
       || this.overrideMaterials.has(variant)
+      || (this.createVariant !== undefined && (
+        variants.has(variant)
+        || this.reservedVariants.has(variant)
+      ))
     ) {
-      throw new Error('Material variant factory must return a new app-owned ShaderMaterial')
+      throw new Error('Material variant factory must return a fresh app-owned ShaderMaterial')
     }
 
     setMaterialInputProfile(variant, getMaterialInputProfile(template))
     variants.add(variant)
+    if (this.createVariant !== undefined) this.reservedVariants.add(variant)
     variantsByOriginal.set(original, variant)
     return variant
+  }
+
+  private releaseReservations(variants: ReadonlySet<ShaderMaterial>): void {
+    for (const variant of variants) this.reservedVariants.delete(variant)
   }
 }
 
@@ -199,5 +212,33 @@ function compatibilityOf(material: Material): MaterialCompatibility {
     colorWrite: material.colorWrite,
     blending: material.blending,
     alphaTest: material.alphaTest,
+  }
+}
+
+function assignMaterials(
+  assignments: ReadonlyMap<MaterialRenderable, MaterialAssignment>,
+  predecessors: ReadonlyMap<MaterialRenderable, MaterialAssignment>,
+): MaterialRenderable[] {
+  const changed: MaterialRenderable[] = []
+  try {
+    for (const [renderable, assignment] of assignments) {
+      renderable.material = assignment
+      changed.push(renderable)
+    }
+    return changed
+  } catch (error) {
+    restoreMaterials(changed, predecessors)
+    throw error
+  }
+}
+
+function restoreMaterials(
+  changed: readonly MaterialRenderable[],
+  predecessors: ReadonlyMap<MaterialRenderable, MaterialAssignment>,
+): void {
+  for (let index = changed.length - 1; index >= 0; index -= 1) {
+    const renderable = changed[index]
+    const predecessor = predecessors.get(renderable)
+    if (predecessor !== undefined) renderable.material = predecessor
   }
 }

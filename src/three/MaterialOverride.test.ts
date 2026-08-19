@@ -118,6 +118,134 @@ describe('MaterialOverride', () => {
     expect(disposePrepared).toHaveBeenCalledTimes(1)
   })
 
+  it('rolls back partial assignments when prepared run cannot install every variant', () => {
+    const originalA = new MeshBasicMaterial()
+    const originalB = new MeshBasicMaterial()
+    const meshA = new Mesh(new BoxGeometry(), originalA)
+    const meshB = new Mesh(new BoxGeometry(), originalB)
+    const root = new Group().add(meshA, meshB)
+    const template = new ShaderMaterial()
+    const disposeOriginalA = vi.spyOn(originalA, 'dispose')
+    const disposeOriginalB = vi.spyOn(originalB, 'dispose')
+    const disposeTemplate = vi.spyOn(template, 'dispose')
+    const disposeVariants: ReturnType<typeof vi.spyOn>[] = []
+    const override = new MaterialOverride(root, (_original, source) => {
+      const variant = source.clone()
+      disposeVariants.push(vi.spyOn(variant, 'dispose'))
+      return variant
+    })
+    const prepared = override.prepare(template)
+    rejectMaterialChanges(meshB)
+    const operation = vi.fn()
+
+    expect(() => prepared.run(operation)).toThrow('assignment rejected')
+
+    expect(operation).not.toHaveBeenCalled()
+    expect(meshA.material).toBe(originalA)
+    expect(meshB.material).toBe(originalB)
+    prepared.dispose()
+    prepared.dispose()
+    expect(disposeVariants).toHaveLength(2)
+    for (const disposeVariant of disposeVariants) expect(disposeVariant).toHaveBeenCalledTimes(1)
+    expect(disposeOriginalA).not.toHaveBeenCalled()
+    expect(disposeOriginalB).not.toHaveBeenCalled()
+    expect(disposeTemplate).not.toHaveBeenCalled()
+  })
+
+  it('keeps the active transaction current when apply cannot install every variant', () => {
+    const originalA = new MeshBasicMaterial()
+    const originalB = new MeshBasicMaterial()
+    const meshA = new Mesh(new BoxGeometry(), originalA)
+    const meshB = new Mesh(new BoxGeometry(), originalB)
+    const root = new Group().add(meshA, meshB)
+    const activeTemplate = new ShaderMaterial()
+    const outstandingTemplate = new ShaderMaterial()
+    const failingTemplate = new ShaderMaterial()
+    const templateDisposers = [activeTemplate, outstandingTemplate, failingTemplate]
+      .map((template) => vi.spyOn(template, 'dispose'))
+    const disposers = new Map<ShaderMaterial, ReturnType<typeof vi.spyOn>[]>()
+    const override = new MaterialOverride(root, (_original, source) => {
+      const variant = source.clone()
+      const dispose = vi.spyOn(variant, 'dispose')
+      const sourceDisposers = disposers.get(source) ?? []
+      sourceDisposers.push(dispose)
+      disposers.set(source, sourceDisposers)
+      return variant
+    })
+    override.apply(activeTemplate)
+    const activeAssignments = [meshA.material, meshB.material]
+    const outstanding = override.prepare(outstandingTemplate)
+    const allowMaterialChanges = rejectMaterialChanges(meshB)
+
+    expect(() => override.apply(failingTemplate)).toThrow('assignment rejected')
+
+    expect([meshA.material, meshB.material]).toEqual(activeAssignments)
+    expect(override.materials).toEqual(activeAssignments)
+    expect(disposers.get(failingTemplate)).toHaveLength(2)
+    expect(disposers.get(activeTemplate)).toHaveLength(2)
+    expect(disposers.get(outstandingTemplate)).toHaveLength(2)
+    for (const dispose of disposers.get(failingTemplate) ?? []) expect(dispose).toHaveBeenCalledTimes(1)
+    for (const dispose of disposers.get(activeTemplate) ?? []) expect(dispose).not.toHaveBeenCalled()
+    for (const dispose of disposers.get(outstandingTemplate) ?? []) expect(dispose).not.toHaveBeenCalled()
+
+    allowMaterialChanges()
+    expect(() => outstanding.commit()).not.toThrow()
+    expect([meshA.material, meshB.material]).not.toEqual(activeAssignments)
+    for (const dispose of disposers.get(activeTemplate) ?? []) expect(dispose).toHaveBeenCalledTimes(1)
+    outstanding.dispose()
+    override.dispose()
+    for (const dispose of disposers.get(outstandingTemplate) ?? []) expect(dispose).toHaveBeenCalledTimes(1)
+    for (const disposeTemplate of templateDisposers) expect(disposeTemplate).not.toHaveBeenCalled()
+  })
+
+  it('rejects one injected variant returned for two distinct originals and disposes it once', () => {
+    const originalA = new MeshBasicMaterial()
+    const originalB = new MeshBasicMaterial()
+    const meshA = new Mesh(new BoxGeometry(), originalA)
+    const meshB = new Mesh(new BoxGeometry(), originalB)
+    const template = new ShaderMaterial()
+    const shared = new ShaderMaterial()
+    const disposeOriginalA = vi.spyOn(originalA, 'dispose')
+    const disposeOriginalB = vi.spyOn(originalB, 'dispose')
+    const disposeTemplate = vi.spyOn(template, 'dispose')
+    const disposeShared = vi.spyOn(shared, 'dispose')
+    const override = new MaterialOverride(new Group().add(meshA, meshB), () => shared)
+
+    expect(() => override.prepare(template)).toThrow('fresh app-owned ShaderMaterial')
+
+    expect(meshA.material).toBe(originalA)
+    expect(meshB.material).toBe(originalB)
+    expect(disposeShared).toHaveBeenCalledTimes(1)
+    expect(disposeOriginalA).not.toHaveBeenCalled()
+    expect(disposeOriginalB).not.toHaveBeenCalled()
+    expect(disposeTemplate).not.toHaveBeenCalled()
+  })
+
+  it('reserves injected variants across outstanding prepares without disposing another owner alias', () => {
+    const original = new MeshBasicMaterial()
+    const mesh = new Mesh(new BoxGeometry(), original)
+    const firstTemplate = new ShaderMaterial()
+    const secondTemplate = new ShaderMaterial()
+    const shared = new ShaderMaterial()
+    const disposeOriginal = vi.spyOn(original, 'dispose')
+    const disposeFirstTemplate = vi.spyOn(firstTemplate, 'dispose')
+    const disposeSecondTemplate = vi.spyOn(secondTemplate, 'dispose')
+    const disposeShared = vi.spyOn(shared, 'dispose')
+    const override = new MaterialOverride(mesh, () => shared)
+    const first = override.prepare(firstTemplate)
+
+    expect(() => override.prepare(secondTemplate)).toThrow('fresh app-owned ShaderMaterial')
+
+    expect(mesh.material).toBe(original)
+    expect(disposeShared).not.toHaveBeenCalled()
+    expect(disposeOriginal).not.toHaveBeenCalled()
+    expect(disposeFirstTemplate).not.toHaveBeenCalled()
+    expect(disposeSecondTemplate).not.toHaveBeenCalled()
+    first.dispose()
+    first.dispose()
+    expect(disposeShared).toHaveBeenCalledTimes(1)
+  })
+
   it('rejects a factory-owned alias to an original without disposing the original', () => {
     const original = new ShaderMaterial()
     const mesh = new Mesh(new BoxGeometry(), original)
@@ -188,3 +316,17 @@ describe('MaterialOverride', () => {
     expect([mesh.material, line.material, points.material]).toEqual(originals)
   })
 })
+
+function rejectMaterialChanges(mesh: Mesh): () => void {
+  let material = mesh.material
+  let rejecting = true
+  Object.defineProperty(mesh, 'material', {
+    configurable: true,
+    get: () => material,
+    set: (next: Mesh['material']) => {
+      if (rejecting && next !== material) throw new Error('assignment rejected')
+      material = next
+    },
+  })
+  return () => { rejecting = false }
+}
