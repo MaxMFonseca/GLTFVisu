@@ -7,6 +7,7 @@ import {
   type Object3D,
   ShaderMaterial,
   Texture,
+  Matrix3,
 } from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import type { ShaderParameterDefinition } from '../domain/parameters'
@@ -15,6 +16,8 @@ import type { CompileDiagnostic } from '../application/ViewerPort'
 import { BUILTIN_SHADERS } from '../domain/builtins'
 import type { MaterialInputProfile } from '../domain/materialInput'
 import { createGltfSurfaceBindingOwner } from './materialBindings/GltfSurfaceBinding'
+import { createGltfPbrBindingOwner, type EnvironmentShaderMaterial } from './materialBindings/GltfPbrBinding'
+import type { EnvironmentBinding } from './materialBindings/types'
 import { MaterialOverride } from './MaterialOverride'
 import {
   ShaderCompiler,
@@ -22,6 +25,7 @@ import {
   type ShaderValidationRenderer,
 } from './ShaderCompiler'
 import { getMaterialInputProfile } from './shaders/materialFactory'
+import { PBR_FRAGMENT_SOURCE } from './shaders/pbrFragment'
 
 const gain: ShaderParameterDefinition = {
   id: 'gain',
@@ -335,5 +339,92 @@ describe('ShaderCompiler', () => {
     expect(channel1Variant.uniforms.uGltfBaseColorMap.value).toBe(channel1Map)
     expect(getMaterialInputProfile(channel0Variant)).toBe('gltf-surface')
     expect(getMaterialInputProfile(channel1Variant)).toBe('gltf-surface')
+  })
+
+  it('validates editable PBR source and bound PMREM variants through default compiler boundaries', async () => {
+    const pmrem = new Texture()
+    const environment: EnvironmentBinding = {
+      environmentMap: { value: pmrem },
+      environmentRotation: { value: new Matrix3() },
+      environmentIntensity: { value: 1.25 },
+    }
+    const channel0Map = new Texture()
+    const channel1NormalMap = new Texture()
+    channel1NormalMap.channel = 1
+    const channel0 = new Mesh(
+      new BoxGeometry(),
+      new MeshStandardMaterial({ metalnessMap: channel0Map, roughnessMap: channel0Map }),
+    )
+    const channel1Geometry = new BoxGeometry()
+    channel1Geometry.setAttribute('uv1', channel1Geometry.getAttribute('uv').clone())
+    const channel1 = new Mesh(
+      channel1Geometry,
+      new MeshStandardMaterial({ normalMap: channel1NormalMap }),
+    )
+    const root = new Group().add(channel0, channel1)
+    const camera = new Camera()
+    const validationPasses: ShaderMaterial[][] = []
+    const renderer: ShaderValidationRenderer = {
+      debug: { checkShaderErrors: false, onShaderError: null },
+      render: (renderRoot) => {
+        expect(renderer.debug.checkShaderErrors).toBe(true)
+        expect(renderer.debug.onShaderError).not.toBeNull()
+        validationPasses.push(shaderMaterialsIn(renderRoot))
+      },
+    }
+    const owner = createGltfPbrBindingOwner(environment)
+    const override = new MaterialOverride(root, owner.createVariant)
+    const prepareRuntime: RuntimeMaterialPreparer = (material) => {
+      const prepared = override.prepare(material)
+      return {
+        validate: (validateRender) => prepared.run(
+          () => validateRender(() => renderer.render(root, camera)),
+        ),
+        commit: () => prepared.commit(),
+        dispose: () => prepared.dispose(),
+      }
+    }
+    const compiler = new ShaderCompiler(renderer)
+    const parameters: ShaderParameterDefinition[] = [
+      { id: 'base-color-tint', type: 'color', uniformName: 'uBaseColorTint', label: 'Base color tint', defaultValue: '#ffffff' },
+      { id: 'use-base-color-map', type: 'boolean', uniformName: 'uUseBaseColorMap', label: 'Use base color map', defaultValue: true },
+      { id: 'metallic-multiplier', type: 'float', uniformName: 'uMetallicMultiplier', label: 'Metallic multiplier', min: 0, max: 2, step: 0.01, defaultValue: 1 },
+      { id: 'roughness-multiplier', type: 'float', uniformName: 'uRoughnessMultiplier', label: 'Roughness multiplier', min: 0, max: 2, step: 0.01, defaultValue: 1 },
+      { id: 'use-metallic-roughness-map', type: 'boolean', uniformName: 'uUseMetallicRoughnessMap', label: 'Use metallic roughness map', defaultValue: true },
+      { id: 'normal-strength', type: 'float', uniformName: 'uNormalStrength', label: 'Normal strength', min: 0, max: 2, step: 0.01, defaultValue: 1 },
+      { id: 'use-normal-map', type: 'boolean', uniformName: 'uUseNormalMap', label: 'Use normal map', defaultValue: true },
+      { id: 'environment-contribution', type: 'float', uniformName: 'uEnvironmentContribution', label: 'Environment contribution', min: 0, max: 4, step: 0.01, defaultValue: 1 },
+    ]
+    const pbrDraft: ShaderDraft = {
+      id: 'editable-pbr',
+      name: 'PBR',
+      origin: 'local',
+      fragmentSource: PBR_FRAGMENT_SOURCE,
+      parameters,
+      parameterValues: Object.fromEntries(parameters.map((parameter) => [parameter.id, parameter.defaultValue])),
+      schemaVersion: 2,
+      materialInputProfile: 'gltf-pbr',
+    }
+
+    const result = await compiler.compile(pbrDraft, prepareRuntime)
+
+    expect(result).toEqual({ status: 'valid', generation: 1 })
+    expect(validationPasses).toHaveLength(2)
+    expect(validationPasses[0]).toHaveLength(1)
+    expect(validationPasses[0][0].fragmentShader).toContain('#include <cube_uv_reflection_fragment>')
+    expect(validationPasses[0][0].fragmentShader.endsWith(PBR_FRAGMENT_SOURCE)).toBe(true)
+    expect(validationPasses[1]).toHaveLength(2)
+    const channel0Variant = channel0.material as unknown as EnvironmentShaderMaterial
+    const channel1Variant = channel1.material as unknown as EnvironmentShaderMaterial
+    expect(channel0Variant.uniforms.uGltfMetallicMap.value).toBe(channel0Map)
+    expect(channel0Variant.uniforms.uGltfRoughnessMap.value).toBe(channel0Map)
+    expect(channel1Variant.uniforms.uGltfNormalMap.value).toBe(channel1NormalMap)
+    expect(channel1Variant.uniforms.uGltfNormalUvChannel.value).toBe(1)
+    expect(channel0Variant.uniforms.uEnvironmentMap).toBe(environment.environmentMap)
+    expect(channel1Variant.uniforms.uEnvironmentMap).toBe(environment.environmentMap)
+    expect(channel0Variant.envMap).toBe(pmrem)
+    expect(channel1Variant.envMap).toBe(pmrem)
+    expect(getMaterialInputProfile(channel0Variant)).toBe('gltf-pbr')
+    expect(getMaterialInputProfile(channel1Variant)).toBe('gltf-pbr')
   })
 })
