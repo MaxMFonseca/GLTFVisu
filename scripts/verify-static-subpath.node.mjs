@@ -95,6 +95,18 @@ test('rejects a missing bundled Suzanne GLB', async () => {
   }
 })
 
+test('rejects a referenced non-Suzanne GLB even when it is the sole bundled model', async () => {
+  const root = await createFixture({ modelFiles: ['other-model-a.glb'] })
+  try {
+    await assert.rejects(
+      verifyStaticSubpath({ distDir: root, repositoryPath: '/GLTFVisu/' }),
+      /Expected 1 emitted Suzanne GLB, found 0/,
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('rejects multiple bundled GLB files', async () => {
   const root = await createFixture({ modelFiles: [DEFAULT_MODEL, 'suzanne-b.glb'] })
   try {
