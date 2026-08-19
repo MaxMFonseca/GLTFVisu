@@ -10,11 +10,16 @@ export interface ParameterControlProps {
 
 export function ParameterControl({ definition, value, readOnly, onChange }: ParameterControlProps) {
   const [colorText, setColorText] = useState(typeof value === 'string' ? value.toLowerCase() : '#000000')
+  const [numberText, setNumberText] = useState(typeof value === 'number' ? String(value) : '')
+  const [numberEditing, setNumberEditing] = useState(false)
   const accessibleName = `${definition.label} (${definition.uniformName})`
 
   useEffect(() => {
     if (definition.type === 'color' && typeof value === 'string') setColorText(value.toLowerCase())
-  }, [definition.type, value])
+    if ((definition.type === 'float' || definition.type === 'integer') && typeof value === 'number' && !numberEditing) {
+      setNumberText(String(value))
+    }
+  }, [definition.type, numberEditing, value])
 
   if (definition.type === 'float' || definition.type === 'integer') {
     const numericValue = typeof value === 'number' ? value : definition.defaultValue
@@ -45,8 +50,20 @@ export function ParameterControl({ definition, value, readOnly, onChange }: Para
               max={definition.max}
               step={definition.step}
               readOnly={readOnly}
-              value={numericValue}
-              onChange={(event) => update(event.currentTarget.value)}
+              value={numberEditing ? numberText : numericValue}
+              onFocus={() => {
+                setNumberText(String(numericValue))
+                setNumberEditing(true)
+              }}
+              onBlur={() => {
+                setNumberEditing(false)
+                setNumberText(String(numericValue))
+              }}
+              onChange={(event) => {
+                const raw = event.currentTarget.value
+                setNumberText(raw)
+                if (raw !== '' && Number.isFinite(Number(raw))) update(raw)
+              }}
             />
           </label>
         </div>

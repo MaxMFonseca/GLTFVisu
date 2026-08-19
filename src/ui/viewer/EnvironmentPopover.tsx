@@ -98,21 +98,21 @@ export function EnvironmentPopover({ environment, environmentCatalog, commands }
           </fieldset>
 
           <label className="environment-popover-section">Bundled environment
-            <select aria-label="Bundled environment" value={activeBundledId} disabled={loading || environmentCatalog.length === 0} onChange={(event) => loadBundled(event.currentTarget.value)}>
+            <select aria-label="Bundled environment" value={activeBundledId} disabled={environmentCatalog.length === 0} onChange={(event) => loadBundled(event.currentTarget.value)}>
               <option value="">{environmentCatalog.length === 0 ? 'No bundled environments available' : 'Choose an environment'}</option>
               {environmentCatalog.map((definition) => <option key={definition.id} value={definition.id}>{definition.name}</option>)}
             </select>
           </label>
 
           <label className="environment-popover-section">Local HDR file
-            <input type="file" accept=".hdr" disabled={loading} onChange={loadLocal} />
+            <input type="file" accept=".hdr" onChange={loadLocal} />
           </label>
 
           <div className="environment-popover-section">
             <label htmlFor={`${popoverId}-url`}>HDR URL</label>
             <div className="environment-url-control">
               <input id={`${popoverId}-url`} type="url" value={remoteUrl} onChange={(event) => setRemoteUrl(event.currentTarget.value)} placeholder="https://example.com/environment.hdr" />
-              <button type="button" disabled={loading} onClick={loadRemote}>Load HDR URL</button>
+              <button type="button" onClick={loadRemote}>Load HDR URL</button>
             </div>
             <p className="environment-help">Remote HDR must be a direct HTTPS URL and allow CORS.</p>
           </div>

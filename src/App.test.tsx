@@ -93,4 +93,50 @@ describe('shader workspace shell', () => {
     result.unmount()
     await vi.waitFor(() => expect(engine.dispose).toHaveBeenCalledOnce())
   })
+
+  it('loads the default environment once for each true provider lifetime', async () => {
+    const repository: ShaderRepository = {
+      list: vi.fn(async () => []),
+      get: vi.fn(async () => undefined),
+      save: vi.fn(async () => undefined),
+      delete: vi.fn(async () => undefined),
+    }
+    const engines = [0, 1].map((): ViewerPort => ({
+      loadModel: vi.fn(async (_files, root) => ({ name: root.name, meshCount: 1, animationClips: [] })),
+      fitModel: vi.fn(),
+      resize: vi.fn(),
+      compileShader: vi.fn(async () => ({ status: 'valid' as const, generation: 1 })),
+      updateParameter: vi.fn(),
+      loadEnvironment: vi.fn(async () => undefined),
+      updateEnvironment: vi.fn(),
+      capturePortrait: vi.fn(async () => ({
+        kind: 'captured' as const, blob: new Blob(), mimeType: 'image/png' as const, width: 1, height: 1,
+      })),
+      selectAnimation: vi.fn(),
+      setAnimationPlaying: vi.fn(),
+      dispose: vi.fn(),
+    }))
+    const createViewer = vi.fn()
+      .mockReturnValueOnce(engines[0])
+      .mockReturnValueOnce(engines[1])
+
+    const first = render(<App repository={repository} createViewer={createViewer} />)
+    await waitFor(() => expect(engines[0].loadEnvironment).toHaveBeenCalledOnce())
+    first.unmount()
+    await waitFor(() => expect(engines[0].dispose).toHaveBeenCalledOnce())
+
+    const second = render(<App repository={repository} createViewer={createViewer} />)
+    await waitFor(() => expect(engines[1].loadEnvironment).toHaveBeenCalledOnce())
+    expect(createViewer).toHaveBeenCalledTimes(2)
+    for (const engine of engines) {
+      expect(engine.loadEnvironment).toHaveBeenCalledWith({
+        kind: 'bundled',
+        id: BUILTIN_ENVIRONMENTS[0].id,
+        url: BUILTIN_ENVIRONMENTS[0].hdrUrl,
+      })
+    }
+
+    second.unmount()
+    await waitFor(() => expect(engines[1].dispose).toHaveBeenCalledOnce())
+  })
 })

@@ -9,6 +9,7 @@ import {
 import type { ShaderRepository } from '../application/ShaderRepository'
 import type { CompileResult, ModelInfo, ViewerPort } from '../application/ViewerPort'
 import { cloneShader } from '../application/workspaceState'
+import { EnvironmentLoadError, type EnvironmentDefinition } from '../domain/environment'
 import type { ShaderDefinition, ShaderDraft, ShaderPortrait } from '../domain/shader'
 import type {
   ShaderSourceEditorHandle,
@@ -112,17 +113,29 @@ function createViewer(): ViewerHarness {
 interface RenderOptions {
   repository: RepositoryHarness
   viewer: ViewerHarness
+  environmentCatalog?: readonly EnvironmentDefinition[]
+  defaultEnvironmentId?: string
   ids?: string[]
   urls?: ObjectUrlPort
   download?: (url: string, filename: string) => void
 }
 
-function renderWorkspace({ repository, viewer, ids = ['local-1', 'local-2'], urls, download }: RenderOptions) {
+function renderWorkspace({
+  repository,
+  viewer,
+  environmentCatalog,
+  defaultEnvironmentId,
+  ids = ['local-1', 'local-2'],
+  urls,
+  download,
+}: RenderOptions) {
   let idIndex = 0
   return render(
     <WorkspaceProvider
       repository={repository}
       viewer={viewer}
+      environmentCatalog={environmentCatalog}
+      defaultEnvironmentId={defaultEnvironmentId}
       idFactory={() => ids[idIndex++] ?? `local-${idIndex}`}
       now={() => 100}
       urls={urls}
@@ -174,6 +187,35 @@ function readBlob(blob: Blob): Promise<string> {
 async function waitForValidCompile(): Promise<void> {
   await waitFor(() => expect(screen.getByText('Valid')).toBeVisible())
 }
+
+function deferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
+const TEST_ENVIRONMENTS: readonly EnvironmentDefinition[] = [
+  {
+    id: 'starfield',
+    name: 'Starfield',
+    hdrUrl: './assets/starfield.hdr',
+    license: 'CC0-1.0',
+    sourceUrl: 'https://example.com/starfield',
+    author: 'Test author',
+  },
+  {
+    id: 'studio',
+    name: 'Studio',
+    hdrUrl: './assets/studio.hdr',
+    license: 'CC0-1.0',
+    sourceUrl: 'https://example.com/studio',
+    author: 'Test author',
+  },
+]
 
 async function waitForBuiltinControls(): Promise<void> {
   await screen.findByRole('heading', { name: 'Shader controls' })
@@ -405,6 +447,130 @@ describe('shader workspace acceptance', () => {
     viewer.failCapture = false
     await user.click(within(editorPanel()).getByRole('button', { name: 'Capture portrait' }))
     expect(await screen.findByText('Captured portrait for Normal copy retry')).toBeVisible()
+  }, 10_000)
+
+  it('updates built-in controls without compilation and preserves current Toon and PBR values when duplicated', async () => {
+    const user = userEvent.setup()
+    const repository = createRepository()
+    const viewer = createViewer()
+    const firstRender = renderWorkspace({ repository, viewer })
+    await waitForBuiltinControls()
+
+    await user.click(within(libraryPanel()).getByRole('button', { name: 'PBR' }))
+    await waitFor(() => expect(viewer.compileShader).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'builtin-pbr' })))
+    expect(within(editorPanel()).queryByLabelText('Shader name')).not.toBeInTheDocument()
+    vi.mocked(viewer.compileShader).mockClear()
+
+    const roughness = within(editorPanel()).getByRole('spinbutton', { name: /Roughness multiplier/ })
+    await user.clear(roughness)
+    await user.type(roughness, '0.35')
+    expect(viewer.updateParameter).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: 'roughness-multiplier' }),
+      0.35,
+    )
+    expect(viewer.compileShader).not.toHaveBeenCalled()
+
+    await user.click(within(libraryPanel()).getByRole('button', { name: 'Toon' }))
+    const bands = within(editorPanel()).getByRole('spinbutton', { name: /Bands/ })
+    await user.clear(bands)
+    await user.type(bands, '5')
+    await user.click(within(libraryPanel()).getByRole('button', { name: 'PBR' }))
+    expect(within(editorPanel()).getByRole('spinbutton', { name: /Roughness multiplier/ })).toHaveValue(0.35)
+    await user.click(within(libraryPanel()).getByRole('button', { name: 'Toon' }))
+    expect(within(editorPanel()).getByRole('spinbutton', { name: /Bands/ })).toHaveValue(5)
+
+    await user.click(within(libraryPanel()).getByRole('button', { name: 'Duplicate shader' }))
+    await within(libraryPanel()).findByRole('button', { name: 'Toon copy' })
+    expect(repository.records.get('local-1')).toMatchObject({
+      origin: 'local',
+      materialInputProfile: 'gltf-surface',
+      schemaVersion: 2,
+      parameterValues: { bands: 5 },
+    })
+    expect(within(editorPanel()).getByRole('heading', { name: 'Shader editor' })).toBeVisible()
+    expect(within(editorPanel()).getByRole('textbox', { name: 'Shader name' })).toHaveValue('Toon copy')
+    expect((within(editorPanel()).getByRole('textbox', { name: 'Fragment shader source' }) as HTMLTextAreaElement).value)
+      .toContain('sampleGltfBaseColor')
+    expect(within(editorPanel()).getByRole('heading', { name: 'Parameter definitions' })).toBeVisible()
+
+    await user.click(within(libraryPanel()).getByRole('button', { name: 'PBR' }))
+    await user.click(within(libraryPanel()).getByRole('button', { name: 'Duplicate shader' }))
+    await within(libraryPanel()).findByRole('button', { name: 'PBR copy' })
+    expect(repository.records.get('local-2')).toMatchObject({
+      origin: 'local',
+      materialInputProfile: 'gltf-pbr',
+      schemaVersion: 2,
+      parameterValues: { 'roughness-multiplier': 0.35 },
+    })
+    expect((within(editorPanel()).getByRole('textbox', { name: 'Fragment shader source' }) as HTMLTextAreaElement).value)
+      .toContain('distributionGGX')
+    expect(within(editorPanel()).getByRole('heading', { name: 'Parameter definitions' })).toBeVisible()
+
+    firstRender.unmount()
+    renderWorkspace({ repository, viewer, ids: ['local-3'] })
+    await waitForBuiltinControls()
+    await user.click(within(libraryPanel()).getByRole('button', { name: 'PBR' }))
+    expect(within(editorPanel()).getByRole('spinbutton', { name: /Roughness multiplier/ })).toHaveValue(1)
+    await user.click(within(libraryPanel()).getByRole('button', { name: 'Toon' }))
+    expect(within(editorPanel()).getByRole('spinbutton', { name: /Bands/ })).toHaveValue(3)
+  }, 10_000)
+
+  it('supersedes a pending environment request while controls and failures remain visible', async () => {
+    const user = userEvent.setup()
+    const repository = createRepository()
+    const viewer = createViewer()
+    const older = deferred()
+    const newest = deferred()
+    vi.mocked(viewer.loadEnvironment).mockImplementation((source) => {
+      if (source.kind === 'bundled') return older.promise
+      if (source.kind === 'remote' && source.url === 'https://example.com/newest.hdr') return newest.promise
+      if (source.kind === 'remote' && source.url === 'https://example.com/broken.hdr') {
+        return Promise.reject(new EnvironmentLoadError('Remote HDR could not be decoded'))
+      }
+      return Promise.resolve()
+    })
+    renderWorkspace({ repository, viewer, environmentCatalog: TEST_ENVIRONMENTS })
+    await waitForBuiltinControls()
+
+    await user.click(screen.getByRole('button', { name: 'Environment' }))
+    const popover = screen.getByRole('region', { name: 'Environment settings' })
+    const bundled = within(popover).getByRole('combobox', { name: 'Bundled environment' })
+    await user.selectOptions(bundled, 'starfield')
+    expect(await within(popover).findByRole('status')).toHaveTextContent('Loading Starfield')
+
+    await user.click(within(popover).getByRole('radio', { name: 'Clear color' }))
+    fireEvent.change(within(popover).getByRole('slider', { name: 'Environment rotation' }), { target: { value: '75' } })
+    fireEvent.change(within(popover).getByRole('slider', { name: 'Environment intensity' }), { target: { value: '1.7' } })
+    expect(viewer.updateEnvironment).toHaveBeenLastCalledWith({
+      backgroundMode: 'clear-color',
+      clearColor: '#17191d',
+      rotation: 75,
+      intensity: 1.7,
+    })
+
+    const remoteUrl = within(popover).getByRole('textbox', { name: 'HDR URL' })
+    await user.type(remoteUrl, 'http://example.com/not-secure.hdr')
+    await user.click(within(popover).getByRole('button', { name: 'Load HDR URL' }))
+    expect(await screen.findByText('Environment URL must use HTTPS')).toBeVisible()
+    expect(viewer.loadEnvironment).toHaveBeenCalledTimes(1)
+
+    await user.clear(remoteUrl)
+    await user.type(remoteUrl, 'https://example.com/newest.hdr')
+    await user.click(within(popover).getByRole('button', { name: 'Load HDR URL' }))
+    expect(viewer.loadEnvironment).toHaveBeenLastCalledWith({ kind: 'remote', url: 'https://example.com/newest.hdr' })
+    await act(async () => newest.resolve())
+    await waitFor(() => expect(within(popover).queryByRole('status')).not.toBeInTheDocument())
+    expect(bundled).toHaveValue('')
+
+    await act(async () => older.resolve())
+    expect(bundled).toHaveValue('')
+
+    await user.clear(remoteUrl)
+    await user.type(remoteUrl, 'https://example.com/broken.hdr')
+    await user.click(within(popover).getByRole('button', { name: 'Load HDR URL' }))
+    expect(await within(popover).findByRole('alert')).toHaveTextContent('Remote HDR could not be decoded')
+    expect(screen.getAllByText('Remote HDR could not be decoded')).toHaveLength(2)
+    expect(bundled).toHaveValue('')
   }, 10_000)
 
   it('connects narrow tab semantics and keyboard activation to the viewer resize port', async () => {
