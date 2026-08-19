@@ -136,6 +136,15 @@ vec2 environmentBrdfApproximation(float roughness, float normalDotView) {
   return vec2(-1.04, 1.04) * response + interpolation.zw;
 }
 
+float specularOcclusion(float normalDotView, float ambientOcclusion, float roughness) {
+  return clamp(
+    pow(normalDotView + ambientOcclusion, exp2(-16.0 * roughness - 1.0))
+      - 1.0 + ambientOcclusion,
+    0.0,
+    1.0
+  );
+}
+
 void main() {
   vec4 sampledBaseColor = sampleGltfBaseColor();
   vec4 factorBaseColor = vec4(uGltfBaseColorFactor, uGltfBaseColorOpacity);
@@ -179,10 +188,24 @@ void main() {
   vec2 environmentBrdf = environmentBrdfApproximation(roughness, normalDotView);
   vec3 specularWeight = reflectanceAtNormal * environmentBrdf.x + environmentBrdf.y;
 
+  float ambientOcclusion = 1.0;
+  if (uGltfHasOcclusionMap) {
+    vec2 occlusionUv = pbrTextureUv(uGltfOcclusionUvChannel, uGltfOcclusionUvTransform);
+    float sampledOcclusion = texture(uGltfOcclusionMap, occlusionUv).r;
+    ambientOcclusion = mix(1.0, sampledOcclusion, uGltfOcclusionStrength);
+  }
+
   vec3 linearColor = (
-    diffuseEnvironment * diffuseLambert(baseColor.rgb) * diffuseWeight
+    diffuseEnvironment * diffuseLambert(baseColor.rgb) * diffuseWeight * ambientOcclusion
     + specularEnvironment * specularWeight
+      * specularOcclusion(normalDotView, ambientOcclusion, roughness)
   ) * uEnvironmentIntensity * uEnvironmentContribution;
+  vec3 emissive = uGltfEmissiveFactor * uGltfEmissiveIntensity;
+  if (uGltfHasEmissiveMap) {
+    vec2 emissiveUv = pbrTextureUv(uGltfEmissiveUvChannel, uGltfEmissiveUvTransform);
+    emissive *= texture(uGltfEmissiveMap, emissiveUv).rgb;
+  }
+  linearColor += emissive;
   linearColor = max(linearColor, vec3(0.0));
   #ifdef TONE_MAPPING
     linearColor = toneMapping(linearColor);

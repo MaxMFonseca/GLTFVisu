@@ -12,6 +12,7 @@ import {
   MeshPhysicalMaterial,
   MeshStandardMaterial,
   NoColorSpace,
+  SRGBColorSpace,
   ShaderMaterial,
   Texture,
   Vector2,
@@ -39,13 +40,25 @@ function environmentBinding(texture: Texture | null = new Texture()): Environmen
 }
 
 describe('createGltfPbrVariant', () => {
-  it('binds physical material factors, packed maps, normal inputs, and shared environment containers', () => {
+  it('binds physical material factors, all PBR maps, and shared environment containers', () => {
     const baseColorMap = new Texture()
     const packedMetallicRoughnessMap = new Texture()
     packedMetallicRoughnessMap.channel = 1
     const normalMap = new Texture()
     normalMap.channel = 1
     const normalScale = new Vector2(0.6, -0.4)
+    const occlusionMap = new Texture()
+    occlusionMap.channel = 1
+    occlusionMap.offset.set(0.15, 0.25)
+    occlusionMap.repeat.set(0.5, 0.75)
+    const emissiveMap = new Texture()
+    emissiveMap.matrixAutoUpdate = false
+    emissiveMap.matrix.set(
+      1, 0, 0.2,
+      0, 1, 0.4,
+      0, 0, 1,
+    )
+    emissiveMap.colorSpace = SRGBColorSpace
     const original = new MeshPhysicalMaterial({
       color: '#8ab4f8',
       map: baseColorMap,
@@ -55,6 +68,11 @@ describe('createGltfPbrVariant', () => {
       roughnessMap: packedMetallicRoughnessMap,
       normalMap,
       normalScale,
+      aoMap: occlusionMap,
+      aoMapIntensity: 0.45,
+      emissive: '#3f7fbf',
+      emissiveMap,
+      emissiveIntensity: 2.25,
     })
     const template = new ShaderMaterial({
       uniforms: {
@@ -84,6 +102,23 @@ describe('createGltfPbrVariant', () => {
     expect(variant.uniforms.uGltfNormalUvChannel.value).toBe(1)
     expect(variant.uniforms.uGltfNormalScale.value).toEqual(normalScale)
     expect(variant.uniforms.uGltfNormalScale.value).not.toBe(normalScale)
+    expect(variant.uniforms.uGltfOcclusionMap.value).toBe(occlusionMap)
+    expect(variant.uniforms.uGltfHasOcclusionMap.value).toBe(true)
+    expect(variant.uniforms.uGltfOcclusionUvChannel.value).toBe(1)
+    expect(variant.uniforms.uGltfOcclusionUvTransform.value).toEqual(
+      new Matrix3().setUvTransform(0.15, 0.25, 0.5, 0.75, 0, 0, 0),
+    )
+    expect(variant.uniforms.uGltfOcclusionStrength.value).toBe(0.45)
+    expect(variant.uniforms.uGltfEmissiveMap.value).toBe(emissiveMap)
+    expect(variant.uniforms.uGltfHasEmissiveMap.value).toBe(true)
+    expect(variant.uniforms.uGltfEmissiveUvChannel.value).toBe(0)
+    expect(variant.uniforms.uGltfEmissiveUvTransform.value).toEqual(emissiveMap.matrix)
+    expect(variant.uniforms.uGltfEmissiveUvTransform.value).not.toBe(emissiveMap.matrix)
+    expect(variant.uniforms.uGltfEmissiveFactor.value).toEqual(new Color('#3f7fbf'))
+    expect(variant.uniforms.uGltfEmissiveFactor.value).not.toBe(original.emissive)
+    expect(variant.uniforms.uGltfEmissiveIntensity.value).toBe(2.25)
+    expect(occlusionMap.colorSpace).toBe(NoColorSpace)
+    expect(emissiveMap.colorSpace).toBe(SRGBColorSpace)
     expect(variant.uniforms.uEnvironmentMap).toBe(environment.environmentMap)
     expect(variant.uniforms.uEnvironmentRotation).toBe(environment.environmentRotation)
     expect(variant.uniforms.uEnvironmentIntensity).toBe(environment.environmentIntensity)
@@ -167,6 +202,11 @@ describe('createGltfPbrVariant', () => {
     expect(incompatibleVariant.uniforms.uGltfHasMetallicMap.value).toBe(false)
     expect(incompatibleVariant.uniforms.uGltfHasRoughnessMap.value).toBe(false)
     expect(incompatibleVariant.uniforms.uGltfHasNormalMap.value).toBe(false)
+    expect(incompatibleVariant.uniforms.uGltfHasOcclusionMap.value).toBe(false)
+    expect(incompatibleVariant.uniforms.uGltfOcclusionStrength.value).toBe(1)
+    expect(incompatibleVariant.uniforms.uGltfHasEmissiveMap.value).toBe(false)
+    expect(incompatibleVariant.uniforms.uGltfEmissiveFactor.value).toEqual(new Color(0x000000))
+    expect(incompatibleVariant.uniforms.uGltfEmissiveIntensity.value).toBe(1)
 
     const whiteFallback = incompatibleVariant.uniforms.uGltfMetallicMap.value as DataTexture
     const normalFallback = incompatibleVariant.uniforms.uGltfNormalMap.value as DataTexture
@@ -236,6 +276,8 @@ describe('createGltfPbrBindingOwner', () => {
     ['metallic', 'metalnessMap'],
     ['roughness', 'roughnessMap'],
     ['normal', 'normalMap'],
+    ['occlusion', 'aoMap'],
+    ['emissive', 'emissiveMap'],
   ] as const)('splits shared-material variants by UV1 availability for the %s map', (_label, property) => {
     const channelOneMap = new Texture()
     channelOneMap.channel = 1
@@ -263,7 +305,11 @@ describe('createGltfPbrBindingOwner', () => {
         ? 'Metallic'
         : property === 'roughnessMap'
           ? 'Roughness'
-          : 'Normal'
+          : property === 'normalMap'
+            ? 'Normal'
+            : property === 'aoMap'
+              ? 'Occlusion'
+              : 'Emissive'
     expect(withoutUv1Variant).toBe(repeatedVariant)
     expect(withoutUv1Variant).not.toBe(withUv1Variant)
     expect(withoutUv1Variant.uniforms[`uGltf${uniformPrefix}UvChannel`].value).toBe(0)
@@ -277,12 +323,14 @@ describe('createGltfPbrBindingOwner', () => {
     const metalnessMap = new Texture()
     const roughnessMap = new Texture()
     const normalMap = new Texture()
+    const occlusionMap = new Texture()
+    const emissiveMap = new Texture()
     const pmrem = new Texture()
-    const disposeBorrowed = [metalnessMap, roughnessMap, normalMap, pmrem]
+    const disposeBorrowed = [metalnessMap, roughnessMap, normalMap, occlusionMap, emissiveMap, pmrem]
       .map((texture) => vi.spyOn(texture, 'dispose'))
     const owner = createGltfPbrBindingOwner(environmentBinding(pmrem))
     const populated = owner.createVariant(
-      new MeshStandardMaterial({ metalnessMap, roughnessMap, normalMap }),
+      new MeshStandardMaterial({ metalnessMap, roughnessMap, normalMap, aoMap: occlusionMap, emissiveMap }),
       new ShaderMaterial(),
     )
     const neutral = owner.createVariant(new Material(), new ShaderMaterial())

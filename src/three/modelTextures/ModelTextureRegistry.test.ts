@@ -65,6 +65,24 @@ describe('ModelTextureRegistry', () => {
     ])
   })
 
+  it('assigns stable identities and disambiguates duplicate non-empty material names', async () => {
+    const first = new MeshStandardMaterial({ name: 'Shared', map: new Texture() })
+    const second = new MeshStandardMaterial({ name: 'Shared', normalMap: new Texture() })
+    const registry = await ModelTextureRegistry.create(
+      new Group().add(new Mesh(undefined, first), new Mesh(undefined, second)),
+      dependencies(),
+    )
+
+    expect(registry.list().map(({ materialId, materialLabel, channel }) => ({
+      materialId,
+      materialLabel,
+      channel,
+    }))).toEqual([
+      { materialId: 'material-0', materialLabel: 'Shared (1)', channel: 'base-color' },
+      { materialId: 'material-1', materialLabel: 'Shared (2)', channel: 'normal' },
+    ])
+  })
+
   it('prepares a base-color replacement before applying it transactionally', async () => {
     const original = new Texture()
     original.channel = 2

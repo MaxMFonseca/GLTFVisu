@@ -16,6 +16,7 @@ export type ModelTextureChannel =
 
 export interface ModelTextureSlotInfo {
   id: string
+  materialId: string
   materialLabel: string
   channel: ModelTextureChannel
   label: string
@@ -79,11 +80,13 @@ export class ModelTextureRegistry {
     dependencies: ModelTextureRegistryDependencies = defaultDependencies(),
   ): Promise<ModelTextureRegistry> {
     const uniqueMaterials = collectMaterials(root)
+    const materialLabels = disambiguateMaterialLabels(uniqueMaterials)
     const slots: SlotRecord[] = []
     try {
       for (let materialIndex = 0; materialIndex < uniqueMaterials.length; materialIndex += 1) {
         const material = uniqueMaterials[materialIndex] as Material & Record<string, unknown>
-        const materialLabel = material.name.trim() || `Material ${materialIndex + 1}`
+        const materialId = `material-${materialIndex}`
+        const materialLabel = materialLabels[materialIndex]
         for (const definition of SLOT_DEFINITIONS) {
           const originals = definition.properties.map((property) => textureOrNull(material[property]))
           const previewTexture = originals.find((texture) => texture !== null)
@@ -91,7 +94,8 @@ export class ModelTextureRegistry {
           const originalPreviewUrl = await dependencies.createPreview(previewTexture)
           slots.push({
             info: {
-              id: `material-${materialIndex}:${definition.channel}`,
+              id: `${materialId}:${definition.channel}`,
+              materialId,
               materialLabel,
               channel: definition.channel,
               label: definition.label,
@@ -231,6 +235,22 @@ export class ModelTextureRegistry {
     if (!this.ownedPreviewUrls.delete(url)) return
     bestEffort(() => this.dependencies.revokePreview(url))
   }
+}
+
+function disambiguateMaterialLabels(materials: readonly Material[]): string[] {
+  const names = materials.map((material) => material.name.trim())
+  const counts = new Map<string, number>()
+  for (const name of names) {
+    if (name.length > 0) counts.set(name, (counts.get(name) ?? 0) + 1)
+  }
+  const occurrences = new Map<string, number>()
+  return names.map((name, index) => {
+    if (name.length === 0) return `Material ${index + 1}`
+    if (counts.get(name) === 1) return name
+    const occurrence = (occurrences.get(name) ?? 0) + 1
+    occurrences.set(name, occurrence)
+    return `${name} (${occurrence})`
+  })
 }
 
 function collectMaterials(root: Object3D): Material[] {

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceProvider } from '../../application/WorkspaceController'
 import type { ShaderRepository } from '../../application/ShaderRepository'
 import type { ViewerPort } from '../../application/ViewerPort'
+import type { ModelTextureSlotInfo } from '../../three/modelTextures/ModelTextureRegistry'
 import { ModelLoader } from './ModelLoader'
 
 afterEach(cleanup)
@@ -37,14 +38,26 @@ function createViewer(): ViewerPort {
   }
 }
 
-function renderLoader() {
-  const modelViewer = createViewer()
+function renderLoader(modelViewer = createViewer()) {
   render(
     <WorkspaceProvider repository={repository()} viewer={modelViewer}>
       <ModelLoader />
     </WorkspaceProvider>,
   )
   return modelViewer
+}
+
+function textureSlot(overrides: Partial<ModelTextureSlotInfo> = {}): ModelTextureSlotInfo {
+  return {
+    id: 'material-0:base-color',
+    materialId: 'material-0',
+    materialLabel: 'Armor',
+    channel: 'base-color',
+    label: 'Base color',
+    previewUrl: 'blob:armor-original',
+    replaced: false,
+    ...overrides,
+  }
 }
 
 describe('ModelLoader', () => {
@@ -90,5 +103,38 @@ describe('ModelLoader', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/include a .glb or .gltf root/i)
     expect(screen.getByText('mesh.bin')).toBeVisible()
+  })
+
+  it('places the loaded texture editor directly after the model summary and wires its actions', async () => {
+    const user = userEvent.setup()
+    const modelViewer = createViewer()
+    const originalSlots = [textureSlot()]
+    const replacedSlots = [textureSlot({ previewUrl: 'blob:armor-replacement', replaced: true })]
+    vi.mocked(modelViewer.loadModel).mockResolvedValueOnce({
+      name: 'armor.glb', meshCount: 1, animationClips: [], textureSlots: originalSlots,
+    })
+    vi.mocked(modelViewer.replaceModelTexture).mockResolvedValueOnce(replacedSlots)
+    vi.mocked(modelViewer.restoreModelTexture).mockResolvedValueOnce(originalSlots)
+    renderLoader(modelViewer)
+
+    await user.upload(
+      screen.getByLabelText('Choose model files'),
+      new File(['model'], 'armor.glb', { type: 'model/gltf-binary' }),
+    )
+
+    const summary = await screen.findByText('armor.glb · 1 renderable')
+    const heading = screen.getByRole('heading', { name: 'Model textures' })
+    expect(summary.nextElementSibling).toBe(heading.closest('section'))
+
+    const replacement = new File(['replacement'], 'armor.png', { type: 'image/png' })
+    await user.upload(screen.getByLabelText('Replace Armor base color'), replacement)
+    await waitFor(() => expect(modelViewer.replaceModelTexture)
+      .toHaveBeenCalledWith('material-0:base-color', replacement))
+    expect(screen.getByRole('img', { name: 'Armor Base color texture preview' }))
+      .toHaveAttribute('src', 'blob:armor-replacement')
+
+    await user.click(screen.getByRole('button', { name: 'Restore Armor base color' }))
+    await waitFor(() => expect(modelViewer.restoreModelTexture).toHaveBeenCalledWith('material-0:base-color'))
+    expect(screen.getByRole('button', { name: 'Restore Armor base color' })).toBeDisabled()
   })
 })

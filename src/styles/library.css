@@ -237,6 +237,107 @@ button:disabled {
   width: 100%;
 }
 
+.model-texture-editor {
+  margin-top: var(--space-3);
+  min-width: 0;
+}
+
+.model-texture-editor h3 {
+  color: var(--color-neutral-700);
+  font-size: var(--font-size-sm);
+  margin: 0 0 var(--space-2);
+}
+
+.model-texture-group {
+  border-top: 1px solid var(--color-neutral-200);
+  min-width: 0;
+  padding-top: var(--space-1);
+}
+
+.model-texture-group + .model-texture-group {
+  margin-top: var(--space-2);
+}
+
+.model-texture-group summary {
+  color: var(--color-neutral-700);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.model-texture-list {
+  display: grid;
+  gap: var(--space-2);
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+}
+
+.model-texture-row {
+  align-items: center;
+  display: grid;
+  gap: var(--space-1) var(--space-2);
+  grid-template-columns: 3rem minmax(0, 1fr);
+  min-width: 0;
+}
+
+.model-texture-row img {
+  aspect-ratio: 1;
+  background: var(--color-neutral-0);
+  border: 1px solid var(--color-neutral-300);
+  border-radius: 0.25rem;
+  height: 3rem;
+  object-fit: cover;
+  width: 3rem;
+}
+
+.model-texture-details {
+  display: grid;
+  min-width: 0;
+}
+
+.model-texture-channel,
+.model-texture-status {
+  font-size: var(--font-size-xs);
+  overflow-wrap: anywhere;
+}
+
+.model-texture-status {
+  color: var(--color-neutral-500);
+}
+
+.model-texture-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  grid-column: 1 / -1;
+}
+
+.model-texture-actions .button-label,
+.model-texture-actions button {
+  background: var(--color-neutral-100);
+  border: 1px solid var(--color-neutral-300);
+  border-radius: 0.25rem;
+  color: var(--color-neutral-900);
+  flex: 1 1 8rem;
+  font-size: var(--font-size-xs);
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: var(--space-1) var(--space-2);
+}
+
+.model-texture-actions .button-label[data-disabled='true'] {
+  color: var(--color-neutral-500);
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.model-texture-actions .button-label:focus-within {
+  border-color: var(--color-focus-ring);
+  outline-color: var(--color-focus-ring);
+}
+
 .visually-hidden {
   height: 1px;
   margin: -1px;

@@ -19,6 +19,11 @@ export interface GltfPbrInputs {
   readonly roughness: TextureInput
   readonly normal: TextureInput
   readonly normalScale: Vector2
+  readonly occlusion: TextureInput
+  readonly occlusionStrength: number
+  readonly emissive: TextureInput
+  readonly emissiveFactor: Color
+  readonly emissiveIntensity: number
 }
 
 interface SurfaceMaterialCapabilities {
@@ -39,6 +44,11 @@ interface PbrMaterialCapabilities {
   roughnessMap?: unknown
   normalMap?: unknown
   normalScale?: unknown
+  aoMap?: unknown
+  aoMapIntensity?: unknown
+  emissiveMap?: unknown
+  emissive?: unknown
+  emissiveIntensity?: unknown
 }
 
 /** Creates the binding owner's neutral texture resource. */
@@ -104,6 +114,13 @@ export function extractGltfPbrInputs(material: object): GltfPbrInputs {
     roughness: extractTextureInput(hasPbrInputs ? capabilities.roughnessMap : null),
     normal: extractTextureInput(hasPbrInputs ? capabilities.normalMap : null),
     normalScale: hasPbrInputs ? finiteVector2(capabilities.normalScale) : new Vector2(1, 1),
+    occlusion: extractTextureInput(hasPbrInputs ? capabilities.aoMap : null),
+    occlusionStrength: hasPbrInputs ? finiteNumber(capabilities.aoMapIntensity, 1) : 1,
+    emissive: extractTextureInput(hasPbrInputs ? capabilities.emissiveMap : null),
+    emissiveFactor: hasPbrInputs && isColor(capabilities.emissive)
+      ? capabilities.emissive.clone()
+      : new Color(0x000000),
+    emissiveIntensity: hasPbrInputs ? finiteNumber(capabilities.emissiveIntensity, 1) : 1,
   }
 }
 
@@ -139,6 +156,11 @@ function hasAnyPbrCapability(material: object): boolean {
     'roughnessMap',
     'normalMap',
     'normalScale',
+    'aoMap',
+    'aoMapIntensity',
+    'emissiveMap',
+    'emissive',
+    'emissiveIntensity',
   ].some((property) => property in material)
 }
 
