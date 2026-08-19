@@ -780,6 +780,52 @@ describe('ViewerEngine', () => {
     })
   })
 
+  it('sets a repeatable portrait camera from model bounds at the 320:200 aspect', async () => {
+    const mesh = new Mesh(new BoxGeometry(2, 4, 6), new MeshBasicMaterial())
+    mesh.position.set(3, 5, 7)
+    const root = new Group().add(mesh)
+    const loader: ModelLoaderPort = { load: vi.fn(async () => ({ scene: root, animations: [] })) }
+    const harness = createHarness({ loader })
+    ;(harness.host as HTMLDivElement & { setTestSize(width: number, height: number): void })
+      .setTestSize(320, 200)
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    harness.resize()
+    const file = modelFile('portrait.glb')
+    await engine.loadModel([file], file)
+    vi.mocked(harness.renderer.render).mockClear()
+
+    engine.setPortraitView()
+    const [, camera] = vi.mocked(harness.renderer.render).mock.calls.at(-1) as [Object3D, PerspectiveCamera]
+    const expectedTarget = new Vector3(3, 5, 7)
+    const expectedDirection = new Vector3(1.35, 0.35, 2.4).normalize()
+    const cameraDirection = camera.position.clone().sub(expectedTarget).normalize()
+    const viewDirection = camera.getWorldDirection(new Vector3())
+    const firstState = {
+      position: camera.position.clone(),
+      quaternion: camera.quaternion.clone(),
+      near: camera.near,
+      far: camera.far,
+      target: harness.controls.target.clone(),
+    }
+
+    expect(camera.aspect).toBe(1.6)
+    expect(cameraDirection.distanceTo(expectedDirection)).toBeLessThan(1e-12)
+    expect(viewDirection.distanceTo(expectedDirection.clone().negate())).toBeLessThan(1e-12)
+    expect(harness.controls.target).toEqual(expectedTarget)
+    expect(camera.near).toBeGreaterThan(0)
+    expect(camera.far).toBeGreaterThan(camera.near)
+
+    engine.setPortraitView()
+
+    expect(harness.renderer.render).toHaveBeenCalledTimes(2)
+    expect(camera.position).toEqual(firstState.position)
+    expect(camera.quaternion.angleTo(firstState.quaternion)).toBeLessThan(1e-12)
+    expect(camera.near).toBe(firstState.near)
+    expect(camera.far).toBe(firstState.far)
+    expect(harness.controls.target).toEqual(firstState.target)
+    engine.dispose()
+  })
+
   it('keeps one RAF pending, resizes imperatively, and tears down idempotently across remounts', () => {
     const first = createHarness()
     const engine: ViewerPort = new ViewerEngine(first.host, {}, first.dependencies)

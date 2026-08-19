@@ -299,6 +299,20 @@ export class ViewerEngine implements ViewerPort {
     applyCameraFit(this.camera, this.controls, fitFor(this.modelRoot, this.camera, this.controls.target))
   }
 
+  setPortraitView(): void {
+    if (this.modelRoot === undefined || this.disposed) return
+    const fit = calculateCameraFit(
+      boundsFor(this.modelRoot),
+      this.camera.fov,
+      this.camera.aspect,
+      new Vector3(1.35, 0.35, 2.4),
+      0.2,
+    )
+    applyCameraFit(this.camera, this.controls, fit)
+    this.camera.lookAt(fit.target)
+    this.renderer.render(this.scene, this.camera)
+  }
+
   async compileShader(draft: ShaderDraft): Promise<CompileResult> {
     if (this.criticalMutation) return mutationRejectedCompileResult(this.compileGeneration)
     this.assertActive()
@@ -889,14 +903,19 @@ function createWebGl2Renderer(): ViewerRenderer {
 }
 
 function fitFor(root: Object3D, camera: PerspectiveCamera, target: Vector3): CameraFit {
+  const bounds = boundsFor(root)
+  const direction = camera.position.clone().sub(target)
+  return calculateCameraFit(bounds, camera.fov, camera.aspect, direction, 0.2)
+}
+
+function boundsFor(root: Object3D): Box3 {
   root.updateWorldMatrix(true, true)
   let bounds = new Box3().setFromObject(root)
   if (bounds.isEmpty()) {
     const center = root.getWorldPosition(new Vector3())
     bounds = new Box3(center.clone().addScalar(-0.5), center.clone().addScalar(0.5))
   }
-  const direction = camera.position.clone().sub(target)
-  return calculateCameraFit(bounds, camera.fov, camera.aspect, direction, 0.2)
+  return bounds
 }
 
 function applyCameraFit(camera: PerspectiveCamera, controls: ViewerControls, fit: CameraFit): void {
