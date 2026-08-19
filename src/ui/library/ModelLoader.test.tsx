@@ -61,18 +61,35 @@ function textureSlot(overrides: Partial<ModelTextureSlotInfo> = {}): ModelTextur
 }
 
 describe('ModelLoader', () => {
+  it('opens the model picker when the drop zone is clicked or keyboard-activated', async () => {
+    const user = userEvent.setup()
+    renderLoader()
+    const picker = screen.getByTestId('model-file-input')
+    const openPicker = vi.spyOn(picker, 'click')
+    const dropZone = screen.getByRole('button', { name: 'Choose or drop model files' })
+
+    await user.click(dropZone)
+    dropZone.focus()
+    await user.keyboard('{Enter}')
+    await user.keyboard(' ')
+
+    expect(openPicker).toHaveBeenCalledTimes(3)
+    expect(screen.getAllByRole('button', { name: /choose.*model files/i })).toHaveLength(1)
+    expect(screen.queryByLabelText('Choose model files')).not.toBeInTheDocument()
+  })
+
   it('loads a single model root with all selected local dependencies', async () => {
     const user = userEvent.setup()
     const modelViewer = renderLoader()
     const root = new File(['model'], 'scene.glb', { type: 'model/gltf-binary' })
     const texture = new File(['image'], 'albedo.custom')
 
-    await user.upload(screen.getByLabelText('Choose model files'), [texture, root])
+    await user.upload(screen.getByTestId('model-file-input'), [texture, root])
 
     await waitFor(() => expect(modelViewer.loadModel).toHaveBeenCalledWith([texture, root], root))
     expect(screen.getByText('2 files selected')).toBeVisible()
     expect(await screen.findByText('scene.glb · 3 renderables')).toBeVisible()
-    expect(screen.getByLabelText('Choose model files')).toHaveValue('')
+    expect(screen.getByTestId('model-file-input')).toHaveValue('')
   })
 
   it('sorts multiple roots and waits for an explicit accessible selection', async () => {
@@ -82,7 +99,7 @@ describe('ModelLoader', () => {
     const first = new File(['model'], 'alpha.glb')
     const dependency = new File(['data'], 'scene.bin')
 
-    await user.upload(screen.getByLabelText('Choose model files'), [last, dependency, first])
+    await user.upload(screen.getByTestId('model-file-input'), [last, dependency, first])
 
     const selector = screen.getByRole('combobox', { name: 'Model root' })
     expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['alpha.glb', 'zebra.gltf'])
@@ -118,7 +135,7 @@ describe('ModelLoader', () => {
     renderLoader(modelViewer)
 
     await user.upload(
-      screen.getByLabelText('Choose model files'),
+      screen.getByTestId('model-file-input'),
       new File(['model'], 'armor.glb', { type: 'model/gltf-binary' }),
     )
 

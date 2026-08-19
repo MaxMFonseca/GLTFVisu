@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent, type DragEvent } from 'react'
+import { useRef, useState, type ChangeEvent, type DragEvent } from 'react'
 import { useWorkspace } from '../../application/WorkspaceController'
 import { ModelTextureEditor } from './ModelTextureEditor'
 
@@ -19,6 +19,7 @@ function isModelRoot(file: File): boolean {
 
 export function ModelLoader() {
   const { state, commands } = useWorkspace()
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [roots, setRoots] = useState<File[]>([])
   const [rootPath, setRootPath] = useState('')
@@ -43,7 +44,7 @@ export function ModelLoader() {
     receiveFiles(files)
   }
 
-  function dropFiles(event: DragEvent<HTMLDivElement>): void {
+  function dropFiles(event: DragEvent<HTMLButtonElement>): void {
     event.preventDefault()
     receiveFiles(Array.from(event.dataTransfer.files))
   }
@@ -60,21 +61,28 @@ export function ModelLoader() {
           <p className="panel-kicker">Asset</p>
           <h2 id="model-loader-heading">Model</h2>
         </div>
-        <label className="button-label">
-          Choose files
-          <input className="visually-hidden" type="file" multiple aria-label="Choose model files" onChange={chooseFiles} />
-        </label>
       </div>
 
-      <div
+      <input
+        ref={fileInputRef}
+        hidden
+        type="file"
+        multiple
+        data-testid="model-file-input"
+        onChange={chooseFiles}
+      />
+      <button
+        type="button"
         className="model-drop-zone"
         data-testid="model-drop-zone"
+        aria-label="Choose or drop model files"
+        onClick={() => fileInputRef.current?.click()}
         onDragOver={(event) => event.preventDefault()}
         onDrop={dropFiles}
       >
-        <p>Drop a GLB or GLTF with its local dependencies.</p>
-        <span>Files stay on this device.</span>
-      </div>
+        <span className="model-drop-zone-main">Choose or drop a GLB or GLTF with its local dependencies.</span>
+        <span className="model-drop-zone-note">Files stay on this device.</span>
+      </button>
 
       {selectedFiles.length > 0 && (
         <details className="selected-files" open>

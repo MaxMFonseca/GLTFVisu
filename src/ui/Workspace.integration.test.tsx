@@ -319,7 +319,9 @@ describe('shader workspace acceptance', () => {
     expect(within(libraryPanel()).getByRole('img', { name: 'No preview for Studio / Glow' })).toBeVisible()
 
     const model = new File(['glb'], 'robot.glb', { type: 'model/gltf-binary' })
-    await user.upload(within(libraryPanel()).getByLabelText('Choose model files'), model)
+    fireEvent.drop(within(libraryPanel()).getByRole('button', { name: 'Choose or drop model files' }), {
+      dataTransfer: { files: [model] },
+    })
     await within(libraryPanel()).findByText('robot.glb · 2 renderables')
     const savesBeforeCapture = vi.mocked(repository.save).mock.calls.length
     await user.click(within(editorPanel()).getByRole('button', { name: 'Capture portrait' }))
@@ -385,10 +387,9 @@ describe('shader workspace acceptance', () => {
     renderWorkspace({ repository, viewer })
     await waitForBuiltinControls()
 
-    await user.upload(
-      within(libraryPanel()).getByLabelText('Choose model files'),
-      new File(['model'], 'armor.glb', { type: 'model/gltf-binary' }),
-    )
+    fireEvent.drop(within(libraryPanel()).getByRole('button', { name: 'Choose or drop model files' }), {
+      dataTransfer: { files: [new File(['model'], 'armor.glb', { type: 'model/gltf-binary' })] },
+    })
     await within(libraryPanel()).findByRole('heading', { name: 'Model textures' })
     const compileCount = vi.mocked(viewer.compileShader).mock.calls.length
     const replacement = new File(['replacement'], 'armor.png', { type: 'image/png' })
@@ -491,11 +492,15 @@ describe('shader workspace acceptance', () => {
     await user.click(screen.getByRole('button', { name: 'Dismiss workspace notices' }))
 
     viewer.failModel = true
-    await user.upload(within(libraryPanel()).getByLabelText('Choose model files'), new File(['bad'], 'bad.glb'))
+    fireEvent.drop(within(libraryPanel()).getByRole('button', { name: 'Choose or drop model files' }), {
+      dataTransfer: { files: [new File(['bad'], 'bad.glb')] },
+    })
     expect((await screen.findAllByText('Model decoder failed')).length).toBeGreaterThan(0)
     await user.click(screen.getByRole('button', { name: 'Dismiss workspace notices' }))
     viewer.failModel = false
-    await user.upload(within(libraryPanel()).getByLabelText('Choose model files'), new File(['good'], 'good.glb'))
+    fireEvent.drop(within(libraryPanel()).getByRole('button', { name: 'Choose or drop model files' }), {
+      dataTransfer: { files: [new File(['good'], 'good.glb')] },
+    })
     await within(libraryPanel()).findByText('good.glb · 2 renderables')
 
     viewer.failCapture = true
