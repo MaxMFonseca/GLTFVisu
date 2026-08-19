@@ -3,10 +3,12 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ShaderParameterDefinition } from '../domain/parameters'
 import type { ShaderDraft } from '../domain/shader'
 import type { CompileDiagnostic } from '../application/ViewerPort'
+import type { MaterialInputProfile } from '../domain/materialInput'
 import {
   ShaderCompiler,
   type ShaderValidationRenderer,
 } from './ShaderCompiler'
+import { getMaterialInputProfile } from './shaders/materialFactory'
 
 const gain: ShaderParameterDefinition = {
   id: 'gain',
@@ -30,7 +32,7 @@ const threshold: ShaderParameterDefinition = {
   defaultValue: 0.5,
 }
 
-function draft(source: string): ShaderDraft {
+function draft(source: string, materialInputProfile: MaterialInputProfile = 'none'): ShaderDraft {
   return {
     id: source,
     name: source,
@@ -39,7 +41,7 @@ function draft(source: string): ShaderDraft {
     parameters: [gain],
     parameterValues: { gain: 1 },
     schemaVersion: 2,
-    materialInputProfile: 'none',
+    materialInputProfile,
   }
 }
 
@@ -112,6 +114,23 @@ describe('ShaderCompiler', () => {
     await expect(compiler.compile(draft('replacement'))).resolves.toEqual({ status: 'valid', generation: 3 })
     expect(compiler.material).toBe(candidates[2])
     expect(disposeWorking).toHaveBeenCalledTimes(1)
+  })
+
+  it('tags candidates with the draft profile and preserves the last valid profile on failure', async () => {
+    const syntaxError: CompileDiagnostic = { severity: 'error', message: 'broken profile', raw: 'broken profile' }
+    const compiler = new ShaderCompiler(unusedRenderer, {
+      validate: async (material) => getMaterialInputProfile(material) === 'gltf-pbr' ? [syntaxError] : [],
+    })
+
+    await expect(compiler.compile(draft('surface', 'gltf-surface')))
+      .resolves.toEqual({ status: 'valid', generation: 1 })
+    const working = compiler.material
+    await expect(compiler.compile(draft('broken', 'gltf-pbr')))
+      .resolves.toEqual({ status: 'error', generation: 2, diagnostics: [syntaxError] })
+
+    expect(compiler.material).toBe(working)
+    expect(getMaterialInputProfile(compiler.material as ShaderMaterial)).toBe('gltf-surface')
+    expect(compiler.material?.userData).not.toHaveProperty('materialInputProfile')
   })
 
   it('updates a live uniform without invoking validation again', async () => {

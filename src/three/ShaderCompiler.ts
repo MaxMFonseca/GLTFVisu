@@ -93,7 +93,12 @@ export class ShaderCompiler {
     }
     let candidate: ShaderMaterial
     try {
-      candidate = this.createMaterial(draft.fragmentSource, draft.parameters, draft.parameterValues)
+      candidate = this.createMaterial(
+        draft.fragmentSource,
+        draft.parameters,
+        draft.parameterValues,
+        draft.materialInputProfile,
+      )
       for (const { definition, value } of this.draftParameterValues.values()) {
         if (candidate.uniforms[definition.uniformName] !== undefined) {
           updateUniformValue(candidate.uniforms, definition, value)
