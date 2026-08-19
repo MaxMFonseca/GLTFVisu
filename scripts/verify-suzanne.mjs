@@ -50,7 +50,10 @@ function verifyBufferViews(json, bin) {
   const buffer = requireSingle(json.buffers, 'buffer')
   assert.equal(buffer.uri, undefined, 'Buffers must be embedded')
   assert.ok(Number.isInteger(buffer.byteLength) && buffer.byteLength >= 0, 'Buffer length must be a non-negative integer')
-  assert.equal(buffer.byteLength, bin.length, 'Declared buffer length must match the BIN chunk')
+  assert.ok(
+    bin.length >= buffer.byteLength && bin.length <= buffer.byteLength + 3,
+    'BIN chunk may contain only up to three alignment-padding bytes',
+  )
 
   for (const view of json.bufferViews ?? []) {
     assert.equal(view.buffer, 0, 'Buffer view must target embedded buffer 0')

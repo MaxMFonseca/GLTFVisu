@@ -50,9 +50,9 @@ function createGlb(json, bin) {
 
 async function writeMalformedFixture(directory, name, mutate) {
   const { json, bin } = readGlbJsonAndBin(await readFile(modelPath))
-  mutate(json, bin)
+  const mutatedBin = mutate(json, bin) ?? bin
   const fixturePath = join(directory, `${name}.glb`)
-  await writeFile(fixturePath, createGlb(json, bin))
+  await writeFile(fixturePath, createGlb(json, mutatedBin))
   return fixturePath
 }
 
@@ -86,11 +86,38 @@ test('verifySuzanne rejects invalid buffer-view domains and declared buffer leng
     ['negative-length', (json) => { json.bufferViews[0].byteLength = -1 }],
     ['fractional-length', (json) => { json.bufferViews[0].byteLength = 0.5 }],
     ['out-of-bounds-view', (json, bin) => { json.bufferViews[0].byteOffset = bin.length; json.bufferViews[0].byteLength = 1 }],
-    ['wrong-declared-length', (json, bin) => { json.buffers[0].byteLength = bin.length - 1 }],
+    ['declared-length-larger-than-bin', (json, bin) => { json.buffers[0].byteLength = bin.length + 1 }],
   ]
 
   for (const [name, mutate] of fixtures) {
-    await assert.rejects(verifySuzanne(await writeMalformedFixture(directory, name, mutate)), /buffer|offset|length/i)
+    await assert.rejects(verifySuzanne(await writeMalformedFixture(directory, name, mutate)), /buffer|offset|length|BIN|padding/i)
+  }
+})
+
+test('verifySuzanne accepts up to three bytes of BIN alignment padding', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'gltfvisu-suzanne-padding-'))
+
+  for (const padding of [0, 1, 2, 3]) {
+    const fixturePath = await writeMalformedFixture(directory, `padding-${padding}`, (json, bin) => {
+      json.buffers[0].byteLength = bin.length - padding
+    })
+    await assert.doesNotReject(verifySuzanne(fixturePath))
+  }
+})
+
+test('verifySuzanne rejects excessive BIN padding and views that only fit in padding', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'gltfvisu-suzanne-padding-invalid-'))
+  const fixtures = [
+    ['four-padding-bytes', (json, bin) => Buffer.concat([bin, Buffer.alloc(4)])],
+    ['view-in-padding', (json, bin) => {
+      json.buffers[0].byteLength = bin.length - 3
+      json.bufferViews[0].byteOffset = bin.length - 2
+      json.bufferViews[0].byteLength = 1
+    }],
+  ]
+
+  for (const [name, mutate] of fixtures) {
+    await assert.rejects(verifySuzanne(await writeMalformedFixture(directory, name, mutate)), /buffer|length|view|BIN|padding/i)
   }
 })
 
