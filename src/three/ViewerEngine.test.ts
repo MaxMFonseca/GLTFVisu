@@ -814,6 +814,13 @@ describe('ViewerEngine', () => {
     expect(harness.controls.target).toEqual(expectedTarget)
     expect(camera.near).toBeGreaterThan(0)
     expect(camera.far).toBeGreaterThan(camera.near)
+    camera.updateMatrixWorld(true)
+    const projected = [-1, 1].flatMap((x) => [-1, 1].flatMap((y) => [-1, 1].map((z) => (
+      new Vector3(3 + x, 5 + y * 2, 7 + z * 3).project(camera)
+    ))))
+    const projectedWidth = Math.max(...projected.map(({ x }) => x)) - Math.min(...projected.map(({ x }) => x))
+    const projectedHeight = Math.max(...projected.map(({ y }) => y)) - Math.min(...projected.map(({ y }) => y))
+    expect(Math.max(projectedWidth, projectedHeight)).toBeGreaterThanOrEqual(1.45)
 
     engine.setPortraitView()
 
@@ -904,7 +911,7 @@ describe('ViewerEngine', () => {
       name: 'second.glb', meshCount: 1, animationClips: [], textureSlots: [],
     })
     expect(onAnimationState).toHaveBeenCalledWith({
-      clips: [{ id: 'clip-0', label: 'Idle' }], selectedClipId: 'clip-0', playing: true,
+      clips: [{ id: 'clip-0', label: 'Idle' }], selectedClipId: 'clip-0', playing: false,
     })
 
     engine.dispose()

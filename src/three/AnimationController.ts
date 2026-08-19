@@ -55,7 +55,6 @@ export class AnimationController {
     })
     const first = sourceClips[0]
     if (first !== undefined) {
-      this.playing = true
       this.activate(first)
     }
   }

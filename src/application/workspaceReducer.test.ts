@@ -101,6 +101,9 @@ describe('workspaceReducer', () => {
     expect(loaded.modelLoad).toEqual({
       status: 'loaded', name: 'robot.glb', meshCount: 2, textureSlots: originalSlots,
     })
+    expect(loaded.animations).toEqual({
+      clips: [{ id: 'clip-0', label: 'Idle' }], selectedClipId: 'clip-0', playing: false,
+    })
     expect(loaded.modelLoad.status === 'loaded' && loaded.modelLoad.textureSlots).not.toBe(originalSlots)
     expect(loading.animations).toEqual(paused.animations)
     expect(failed.modelLoad).toEqual({

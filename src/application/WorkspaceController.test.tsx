@@ -135,7 +135,11 @@ afterEach(() => {
 })
 
 describe('WorkspaceProvider', () => {
-  const defaultModel = { url: '/assets/suzanne.glb', fileName: 'Suzanne.glb' }
+  const defaultModel = {
+    url: '/assets/fox.glb',
+    fileName: 'Fox.glb',
+    initialAnimation: { name: 'Survey', playing: true },
+  }
 
   it('validates remote HDR URLs and loads valid sources through the viewer', async () => {
     expect(validateRemoteEnvironmentUrl('http://example.com/a.hdr')).toEqual({
@@ -703,7 +707,7 @@ describe('WorkspaceProvider', () => {
     expect(workspace.current().state.animations).toEqual({
       clips: [{ id: 'clip-0', label: 'Idle' }, { id: 'clip-1', label: 'Run' }],
       selectedClipId: 'clip-0',
-      playing: true,
+      playing: false,
     })
 
     vi.mocked(viewer.loadModel).mockRejectedValueOnce(new Error('replacement malformed'))
@@ -715,7 +719,7 @@ describe('WorkspaceProvider', () => {
     expect(workspace.current().state.animations).toEqual({
       clips: [{ id: 'clip-0', label: 'Idle' }, { id: 'clip-1', label: 'Run' }],
       selectedClipId: 'clip-0',
-      playing: true,
+      playing: false,
     })
 
     vi.mocked(viewer.compileShader).mockResolvedValueOnce({
@@ -751,7 +755,7 @@ describe('WorkspaceProvider', () => {
 
     expect(workspace.current().state.modelLoad).toEqual({
       status: 'loading',
-      fileName: 'Suzanne.glb',
+      fileName: 'Fox.glb',
     })
   })
 
@@ -760,9 +764,9 @@ describe('WorkspaceProvider', () => {
     const fetchRequest = deferred<Blob>()
     const baseColorSlot = textureSlot()
     vi.mocked(viewer.loadModel).mockResolvedValueOnce({
-      name: 'Suzanne.glb',
+      name: 'Fox.glb',
       meshCount: 1,
-      animationClips: [],
+      animationClips: [{ id: 'clip-survey', label: 'Survey' }],
       textureSlots: [baseColorSlot],
     })
     const workspace = renderWorkspace({
@@ -777,12 +781,19 @@ describe('WorkspaceProvider', () => {
     expect(viewer.loadModel).toHaveBeenCalledOnce()
     const [files, root] = vi.mocked(viewer.loadModel).mock.calls[0]
     expect(files).toEqual([root])
-    expect(root).toMatchObject({ name: 'Suzanne.glb', type: 'model/gltf-binary' })
+    expect(root).toMatchObject({ name: 'Fox.glb', type: 'model/gltf-binary' })
     expect(workspace.current().state.modelLoad).toEqual({
       status: 'loaded',
-      name: 'Suzanne.glb',
+      name: 'Fox.glb',
       meshCount: 1,
       textureSlots: [baseColorSlot],
+    })
+    expect(viewer.selectAnimation).toHaveBeenCalledWith('clip-survey')
+    expect(viewer.setAnimationPlaying).toHaveBeenCalledWith(true)
+    expect(workspace.current().state.animations).toEqual({
+      clips: [{ id: 'clip-survey', label: 'Survey' }],
+      selectedClipId: 'clip-survey',
+      playing: true,
     })
   })
 
@@ -808,6 +819,8 @@ describe('WorkspaceProvider', () => {
     expect(viewer.loadModel).toHaveBeenCalledOnce()
     expect(viewer.loadModel).toHaveBeenCalledWith([userModel], userModel)
     expect(workspace.current().state.modelLoad).toMatchObject({ status: 'loaded', name: 'user.glb' })
+    expect(viewer.selectAnimation).not.toHaveBeenCalled()
+    expect(viewer.setAnimationPlaying).not.toHaveBeenCalled()
   })
 
   it('reports a default fetch failure and still accepts a later user model', async () => {

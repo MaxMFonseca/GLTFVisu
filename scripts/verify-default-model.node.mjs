@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import test from 'node:test'
 
-import { verifySuzanne } from './verify-suzanne.mjs'
+import { verifyDefaultModel } from './verify-default-model.mjs'
 
-const modelPath = resolve('src/assets/models/suzanne.glb')
+const modelPath = resolve('src/assets/models/fox.glb')
 
 function readGlbJsonAndBin(glb) {
   assert.equal(glb.toString('ascii', 0, 4), 'glTF')
@@ -56,16 +56,16 @@ async function writeMalformedFixture(directory, name, mutate) {
   return fixturePath
 }
 
-test('verifySuzanne rejects malformed GLB input', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'gltfvisu-suzanne-'))
+test('verifyDefaultModel rejects malformed GLB input', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'gltfvisu-model-'))
   const malformedPath = join(directory, 'malformed.glb')
   await writeFile(malformedPath, Buffer.from('not a GLB'))
 
-  await assert.rejects(verifySuzanne(malformedPath), /GLB|magic|header/i)
+  await assert.rejects(verifyDefaultModel(malformedPath), /GLB|magic|header/i)
 })
 
-test('verifySuzanne rejects dangling accessor, image view, and material links', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'gltfvisu-suzanne-links-'))
+test('verifyDefaultModel rejects dangling accessor, image view, and material links', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'gltfvisu-model-links-'))
   const fixtures = [
     ['dangling-accessor', (json) => { json.meshes[0].primitives[0].attributes.POSITION = json.accessors.length }],
     ['dangling-image-view', (json) => { json.images[0].bufferView = json.bufferViews.length }],
@@ -73,12 +73,12 @@ test('verifySuzanne rejects dangling accessor, image view, and material links', 
   ]
 
   for (const [name, mutate] of fixtures) {
-    await assert.rejects(verifySuzanne(await writeMalformedFixture(directory, name, mutate)), /index|buffer view|material/i)
+    await assert.rejects(verifyDefaultModel(await writeMalformedFixture(directory, name, mutate)), /index|buffer view|material/i)
   }
 })
 
-test('verifySuzanne rejects invalid buffer-view domains and declared buffer lengths', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'gltfvisu-suzanne-buffers-'))
+test('verifyDefaultModel rejects invalid buffer-view domains and declared buffer lengths', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'gltfvisu-model-buffers-'))
   const fixtures = [
     ['wrong-buffer', (json) => { json.bufferViews[json.images[0].bufferView].buffer = 1 }],
     ['negative-offset', (json) => { json.bufferViews[0].byteOffset = -1 }],
@@ -90,23 +90,25 @@ test('verifySuzanne rejects invalid buffer-view domains and declared buffer leng
   ]
 
   for (const [name, mutate] of fixtures) {
-    await assert.rejects(verifySuzanne(await writeMalformedFixture(directory, name, mutate)), /buffer|offset|length|BIN|padding/i)
+    await assert.rejects(verifyDefaultModel(await writeMalformedFixture(directory, name, mutate)), /buffer|offset|length|BIN|padding/i)
   }
 })
 
-test('verifySuzanne accepts up to three bytes of BIN alignment padding', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'gltfvisu-suzanne-padding-'))
+test('verifyDefaultModel accepts up to three bytes of BIN alignment padding', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'gltfvisu-model-padding-'))
 
   for (const padding of [0, 1, 2, 3]) {
     const fixturePath = await writeMalformedFixture(directory, `padding-${padding}`, (json, bin) => {
-      json.buffers[0].byteLength = bin.length - padding
+      if (padding === 0) return bin
+      json.buffers[0].byteLength = bin.length + 4 - padding
+      return Buffer.concat([bin, Buffer.alloc(4)])
     })
-    await assert.doesNotReject(verifySuzanne(fixturePath))
+    await assert.doesNotReject(verifyDefaultModel(fixturePath))
   }
 })
 
-test('verifySuzanne rejects excessive BIN padding and views that only fit in padding', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'gltfvisu-suzanne-padding-invalid-'))
+test('verifyDefaultModel rejects excessive BIN padding and views that only fit in padding', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'gltfvisu-model-padding-invalid-'))
   const fixtures = [
     ['four-padding-bytes', (json, bin) => Buffer.concat([bin, Buffer.alloc(4)])],
     ['view-in-padding', (json, bin) => {
@@ -117,34 +119,26 @@ test('verifySuzanne rejects excessive BIN padding and views that only fit in pad
   ]
 
   for (const [name, mutate] of fixtures) {
-    await assert.rejects(verifySuzanne(await writeMalformedFixture(directory, name, mutate)), /buffer|length|view|BIN|padding/i)
+    await assert.rejects(verifyDefaultModel(await writeMalformedFixture(directory, name, mutate)), /buffer|length|view|BIN|padding/i)
   }
 })
 
-test('verifySuzanne accepts the bundled textured Suzanne model', async () => {
-  assert.deepEqual(await verifySuzanne(modelPath), {
-    meshCount: 1,
-    imageCount: 1,
-    baseColorTextureCount: 1,
-  })
+test('verifyDefaultModel accepts the bundled textured, skinned, animated Fox model', async () => {
+  const result = await verifyDefaultModel(modelPath)
+  assert.ok(result.meshCount >= 1)
+  assert.ok(result.imageCount >= 1)
+  assert.ok(result.baseColorTextureCount >= 1)
+  assert.ok(result.skinCount >= 1)
+  for (const clip of ['Survey', 'Walk', 'Run']) {
+    assert.ok(result.animationNames.includes(clip), `Expected ${clip} animation`)
+  }
 })
 
-test('bundled Suzanne GLB has loader-safe buffer views and matching UV data', async () => {
+test('bundled Fox GLB has loader-safe embedded images and no external URIs', async () => {
   const { json, bin } = readGlbJsonAndBin(await readFile(modelPath))
-  const primitive = json.meshes[0].primitives[0]
-  const position = json.accessors[primitive.attributes.POSITION]
-  const texcoord = json.accessors[primitive.attributes.TEXCOORD_0]
-
-  assert.equal(texcoord.count, position.count)
   for (const view of json.bufferViews) {
     assert.ok(view.byteOffset + view.byteLength <= bin.length)
   }
-
-  const image = json.images[0]
-  const imageView = json.bufferViews[image.bufferView]
-  assert.deepEqual(
-    bin.subarray(imageView.byteOffset, imageView.byteOffset + 8),
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    `Expected PNG image in ${basename(modelPath)}`,
-  )
+  assert.ok(json.images.every((image) => image.uri === undefined && Number.isInteger(image.bufferView)))
+  assert.ok(json.buffers.every((buffer) => buffer.uri === undefined), `Expected self-contained ${basename(modelPath)}`)
 })

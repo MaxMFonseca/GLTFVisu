@@ -308,6 +308,10 @@ export class ViewerEngine implements ViewerPort {
       new Vector3(1.35, 0.35, 2.4),
       0.2,
     )
+    const originalDistance = fit.position.distanceTo(fit.target)
+    const portraitScale = 0.85
+    fit.position.lerp(fit.target, 1 - portraitScale)
+    fit.near = Math.max(1e-6, fit.near - originalDistance * (1 - portraitScale))
     applyCameraFit(this.camera, this.controls, fit)
     this.camera.lookAt(fit.target)
     this.renderer.render(this.scene, this.camera)
