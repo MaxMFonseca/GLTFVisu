@@ -71,6 +71,7 @@ describe('workspaceReducer', () => {
         name: 'robot.glb',
         meshCount: 2,
         animationClips: [{ id: 'clip-0', label: 'Idle' }],
+        textureSlots: [],
       },
     })
     const paused = workspaceReducer(loaded, { type: 'animationsChanged', selectedClipId: 'clip-0', playing: false })

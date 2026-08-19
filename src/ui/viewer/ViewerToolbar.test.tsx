@@ -23,7 +23,10 @@ function createViewer(): ViewerPort {
       name: root.name,
       meshCount: 2,
       animationClips: [{ id: 'clip-0', label: 'Idle' }, { id: 'clip-1', label: 'Run' }],
+      textureSlots: [],
     })),
+    replaceModelTexture: vi.fn(async () => []),
+    restoreModelTexture: vi.fn(async () => []),
     fitModel: vi.fn(),
     resize: vi.fn(),
     compileShader: vi.fn(async () => ({ status: 'valid' as const, generation: 1 })),
@@ -93,6 +96,7 @@ describe('ViewerToolbar', () => {
         { id: 'clip-0', label: 'Idle (1)' },
         { id: 'clip-1', label: 'Idle (2)' },
       ],
+      textureSlots: [],
     })
     const user = userEvent.setup()
     render(

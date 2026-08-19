@@ -38,6 +38,14 @@ class MountedViewerPort implements ViewerPort {
     return (await this.mounted()).loadModel(files, root)
   }
 
+  async replaceModelTexture(slotId: string, file: File): Promise<ModelInfo['textureSlots']> {
+    return (await this.mounted()).replaceModelTexture(slotId, file)
+  }
+
+  async restoreModelTexture(slotId: string): Promise<ModelInfo['textureSlots']> {
+    return (await this.mounted()).restoreModelTexture(slotId)
+  }
+
   fitModel(): void {
     this.engine?.fitModel()
   }

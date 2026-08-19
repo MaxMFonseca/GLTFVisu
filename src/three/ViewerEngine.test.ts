@@ -35,6 +35,10 @@ import {
 } from '../domain/environment'
 import type { EnvironmentShaderMaterial } from './materialBindings/GltfPbrBinding'
 import type { EnvironmentBinding, MaterialVariantFactory } from './materialBindings/types'
+import {
+  ModelTextureRegistry,
+  type ModelTextureRegistryDependencies,
+} from './modelTextures/ModelTextureRegistry'
 import { ShaderCompiler, type PreparedRuntimeMaterial } from './ShaderCompiler'
 import {
   ViewerEngine,
@@ -158,6 +162,11 @@ function createHarness(
     cancelAnimationFrame: cancelFrame,
     clock: { elapsedTime: 2, getDelta: () => 0.25 },
     devicePixelRatio: 1,
+    createTextureRegistry: (root) => ModelTextureRegistry.create(root, {
+      decode: async () => { throw new Error('Unexpected texture decode') },
+      createPreview: async (texture) => `preview:${texture.uuid}`,
+      revokePreview: vi.fn(),
+    }),
     ...overrides,
   }
   return {
@@ -217,6 +226,299 @@ function deferred<T>(): {
 }
 
 describe('ViewerEngine', () => {
+  it('creates texture slots from original model materials before installing the active override', async () => {
+    const originalTexture = new Texture()
+    const originalMaterial = new MeshStandardMaterial({ name: 'Hull', map: originalTexture })
+    const mesh = new Mesh(new BoxGeometry(), originalMaterial)
+    const root = new Group().add(mesh)
+    const loader: ModelLoaderPort = { load: vi.fn(async () => ({ scene: root, animations: [] })) }
+    const template = new ShaderMaterial()
+    setMaterialInputProfile(template, 'gltf-surface')
+    const compiler: CompilerPort = {
+      material: template,
+      compile: vi.fn(async () => ({ status: 'valid' as const, generation: 1 })),
+      updateParameter: vi.fn(),
+      dispose: vi.fn(),
+    }
+    const registryDependencies: ModelTextureRegistryDependencies = {
+      decode: vi.fn(),
+      createPreview: vi.fn(async () => 'preview:original'),
+      revokePreview: vi.fn(),
+    }
+    const lifecycle: string[] = []
+    const harness = createHarness({
+      loader,
+      createCompiler: () => compiler,
+      createTextureRegistry: async (candidateRoot) => {
+        lifecycle.push('registry')
+        expect(candidateRoot).toBe(root)
+        expect(mesh.material).toBe(originalMaterial)
+        return ModelTextureRegistry.create(candidateRoot, registryDependencies)
+      },
+      createVariantFactory: () => (original, candidateTemplate) => {
+        lifecycle.push('variant')
+        expect(original).toBe(originalMaterial)
+        return candidateTemplate.clone()
+      },
+    })
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    const file = modelFile('textured.glb')
+
+    await expect(engine.loadModel([file], file)).resolves.toEqual({
+      name: 'textured.glb',
+      meshCount: 1,
+      animationClips: [],
+      textureSlots: [{
+        id: 'material-0:base-color',
+        materialLabel: 'Hull',
+        channel: 'base-color',
+        label: 'Base color',
+        previewUrl: 'preview:original',
+        replaced: false,
+      }],
+    })
+    expect(lifecycle).toEqual(['registry', 'variant'])
+    expect(mesh.material).not.toBe(originalMaterial)
+    engine.dispose()
+  })
+
+  it('rebuilds the active material variants after replacing and restoring a texture slot', async () => {
+    const originalBaseColor = new Texture()
+    const originalNormal = new Texture()
+    const replacement = new Texture()
+    const originalMaterial = new MeshStandardMaterial({
+      map: originalBaseColor,
+      normalMap: originalNormal,
+    })
+    const mesh = new Mesh(new BoxGeometry(), originalMaterial)
+    const root = new Group().add(mesh)
+    const loader: ModelLoaderPort = { load: vi.fn(async () => ({ scene: root, animations: [] })) }
+    const template = new ShaderMaterial()
+    setMaterialInputProfile(template, 'gltf-surface')
+    const compiler: CompilerPort = {
+      material: template,
+      compile: vi.fn(async () => ({ status: 'valid' as const, generation: 1 })),
+      updateParameter: vi.fn(),
+      dispose: vi.fn(),
+    }
+    const registryDependencies: ModelTextureRegistryDependencies = {
+      decode: vi.fn(async () => replacement),
+      createPreview: vi.fn(async (texture) => `preview:${texture.uuid}`),
+      revokePreview: vi.fn(),
+    }
+    const harness = createHarness({
+      loader,
+      createCompiler: () => compiler,
+      createTextureRegistry: (candidateRoot) => ModelTextureRegistry.create(candidateRoot, registryDependencies),
+      createVariantFactory: () => (original, candidateTemplate) => {
+        const variant = candidateTemplate.clone()
+        variant.uniforms = {
+          uBoundTexture: { value: (original as MeshStandardMaterial).map },
+        }
+        return variant
+      },
+    })
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    const file = modelFile('replaceable.glb')
+    const loaded = await engine.loadModel([file], file)
+
+    const replacedSlots = await engine.replaceModelTexture(
+      loaded.textureSlots.find(({ channel }) => channel === 'base-color')!.id,
+      new File(['replacement'], 'albedo.png', { type: 'image/png' }),
+    )
+
+    expect(replacedSlots).toHaveLength(2)
+    expect(replacedSlots.map(({ channel, replaced }) => [channel, replaced])).toEqual([
+      ['base-color', true],
+      ['normal', false],
+    ])
+    expect((mesh.material as unknown as ShaderMaterial).uniforms.uBoundTexture.value).toBe(replacement)
+
+    const restoredSlots = await engine.restoreModelTexture('material-0:base-color')
+
+    expect(restoredSlots).toHaveLength(2)
+    expect(restoredSlots.every(({ replaced }) => !replaced)).toBe(true)
+    expect((mesh.material as unknown as ShaderMaterial).uniforms.uBoundTexture.value).toBe(originalBaseColor)
+    engine.dispose()
+  })
+
+  it('rolls back texture properties and rebuilds the predecessor variants when rebinding fails', async () => {
+    const originalTexture = new Texture()
+    const failedReplacement = new Texture()
+    const disposeFailedReplacement = vi.spyOn(failedReplacement, 'dispose')
+    const originalMaterial = new MeshStandardMaterial({ map: originalTexture })
+    const mesh = new Mesh(new BoxGeometry(), originalMaterial)
+    const root = new Group().add(mesh)
+    const loader: ModelLoaderPort = { load: vi.fn(async () => ({ scene: root, animations: [] })) }
+    const template = new ShaderMaterial()
+    setMaterialInputProfile(template, 'gltf-surface')
+    const compiler: CompilerPort = {
+      material: template,
+      compile: vi.fn(async () => ({ status: 'valid' as const, generation: 1 })),
+      updateParameter: vi.fn(),
+      dispose: vi.fn(),
+    }
+    const revokePreview = vi.fn()
+    const registryDependencies: ModelTextureRegistryDependencies = {
+      decode: vi.fn(async () => failedReplacement),
+      createPreview: vi.fn(async (texture) => texture === failedReplacement
+        ? 'preview:failed-replacement'
+        : 'preview:original'),
+      revokePreview,
+    }
+    const harness = createHarness({
+      loader,
+      createCompiler: () => compiler,
+      createTextureRegistry: (candidateRoot) => ModelTextureRegistry.create(candidateRoot, registryDependencies),
+      createVariantFactory: () => (original, candidateTemplate) => {
+        const boundTexture = (original as MeshStandardMaterial).map
+        if (boundTexture === failedReplacement) throw new Error('variant rebind failed')
+        const variant = candidateTemplate.clone()
+        variant.uniforms = { uBoundTexture: { value: boundTexture } }
+        return variant
+      },
+    })
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    const file = modelFile('rollback.glb')
+    const loaded = await engine.loadModel([file], file)
+    const workingVariant = mesh.material as unknown as ShaderMaterial
+    const disposeWorkingVariant = vi.spyOn(workingVariant, 'dispose')
+
+    await expect(engine.replaceModelTexture(loaded.textureSlots[0].id, {} as File))
+      .rejects.toThrow('variant rebind failed')
+
+    expect(originalMaterial.map).toBe(originalTexture)
+    expect(mesh.material).not.toBe(originalMaterial)
+    expect(mesh.material).not.toBe(workingVariant)
+    expect((mesh.material as unknown as ShaderMaterial).uniforms.uBoundTexture.value).toBe(originalTexture)
+    expect(disposeWorkingVariant).toHaveBeenCalledOnce()
+    expect(disposeFailedReplacement).toHaveBeenCalledOnce()
+    expect(revokePreview).toHaveBeenCalledWith('preview:failed-replacement')
+    engine.dispose()
+  })
+
+  it('rejects texture mutations without a current registry and for unknown slots', async () => {
+    const material = new MeshStandardMaterial({ map: new Texture() })
+    const root = new Group().add(new Mesh(new BoxGeometry(), material))
+    const loader: ModelLoaderPort = { load: vi.fn(async () => ({ scene: root, animations: [] })) }
+    const harness = createHarness({ loader })
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+
+    await expect(engine.replaceModelTexture('material-0:base-color', {} as File))
+      .rejects.toThrow('No model is loaded')
+    await expect(engine.restoreModelTexture('material-0:base-color'))
+      .rejects.toThrow('No model is loaded')
+
+    const file = modelFile('known-slots.glb')
+    await engine.loadModel([file], file)
+    await expect(engine.replaceModelTexture('unknown', {} as File))
+      .rejects.toThrow('Unknown model texture slot')
+    await expect(engine.restoreModelTexture('unknown'))
+      .rejects.toThrow('Unknown model texture slot')
+
+    engine.dispose()
+    await expect(engine.restoreModelTexture('material-0:base-color'))
+      .rejects.toThrow('Viewer engine is disposed')
+  })
+
+  it('releases active variants before registry-owned replacements on model replacement and disposal', async () => {
+    const firstMaterial = new MeshStandardMaterial({ map: new Texture() })
+    const firstMesh = new Mesh(new BoxGeometry(), firstMaterial)
+    const firstRoot = new Group().add(firstMesh)
+    const secondMaterial = new MeshStandardMaterial({ map: new Texture() })
+    const secondMesh = new Mesh(new BoxGeometry(), secondMaterial)
+    const secondRoot = new Group().add(secondMesh)
+    const loader: ModelLoaderPort = {
+      load: vi.fn()
+        .mockResolvedValueOnce({ scene: firstRoot, animations: [] })
+        .mockResolvedValueOnce({ scene: secondRoot, animations: [] }),
+    }
+    const template = new ShaderMaterial()
+    setMaterialInputProfile(template, 'gltf-surface')
+    const compiler: CompilerPort = {
+      material: template,
+      compile: vi.fn(async () => ({ status: 'valid' as const, generation: 1 })),
+      updateParameter: vi.fn(),
+      dispose: vi.fn(),
+    }
+    const firstReplacement = new Texture()
+    const secondReplacement = new Texture()
+    const replacements = [firstReplacement, secondReplacement]
+    let replacementIndex = 0
+    const events: string[] = []
+    firstReplacement.addEventListener('dispose', () => events.push('texture:first'))
+    secondReplacement.addEventListener('dispose', () => events.push('texture:second'))
+    const registryDependencies: ModelTextureRegistryDependencies = {
+      decode: vi.fn(async () => replacements[replacementIndex++]),
+      createPreview: vi.fn(async (texture) => `preview:${texture.uuid}`),
+      revokePreview: vi.fn(),
+    }
+    const harness = createHarness({
+      loader,
+      createCompiler: () => compiler,
+      createTextureRegistry: (candidateRoot) => ModelTextureRegistry.create(candidateRoot, registryDependencies),
+      createVariantFactory: () => (_original, candidateTemplate) => candidateTemplate.clone(),
+    })
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    const firstFile = modelFile('first-textured.glb')
+    const firstInfo = await engine.loadModel([firstFile], firstFile)
+    await engine.replaceModelTexture(firstInfo.textureSlots[0].id, {} as File)
+    ;(firstMesh.material as unknown as ShaderMaterial).addEventListener('dispose', () => events.push('variant:first'))
+
+    const secondFile = modelFile('second-textured.glb')
+    const secondInfo = await engine.loadModel([secondFile], secondFile)
+
+    expect(events).toEqual(['variant:first', 'texture:first'])
+    await engine.replaceModelTexture(secondInfo.textureSlots[0].id, {} as File)
+    ;(secondMesh.material as unknown as ShaderMaterial).addEventListener('dispose', () => events.push('variant:second'))
+
+    engine.dispose()
+    engine.dispose()
+
+    expect(events).toEqual([
+      'variant:first',
+      'texture:first',
+      'variant:second',
+      'texture:second',
+    ])
+  })
+
+  it('flushes disposal requested by a variant listener during texture rebinding', async () => {
+    const originalMaterial = new MeshStandardMaterial({ map: new Texture() })
+    const mesh = new Mesh(new BoxGeometry(), originalMaterial)
+    const root = new Group().add(mesh)
+    const loader: ModelLoaderPort = { load: vi.fn(async () => ({ scene: root, animations: [] })) }
+    const template = new ShaderMaterial()
+    setMaterialInputProfile(template, 'gltf-surface')
+    const compiler: CompilerPort = {
+      material: template,
+      compile: vi.fn(async () => ({ status: 'valid' as const, generation: 1 })),
+      updateParameter: vi.fn(),
+      dispose: vi.fn(),
+    }
+    const replacement = new Texture()
+    const registryDependencies: ModelTextureRegistryDependencies = {
+      decode: vi.fn(async () => replacement),
+      createPreview: vi.fn(async (texture) => `preview:${texture.uuid}`),
+      revokePreview: vi.fn(),
+    }
+    const harness = createHarness({
+      loader,
+      createCompiler: () => compiler,
+      createTextureRegistry: (candidateRoot) => ModelTextureRegistry.create(candidateRoot, registryDependencies),
+      createVariantFactory: () => (_original, candidateTemplate) => candidateTemplate.clone(),
+    })
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    const file = modelFile('dispose-during-rebind.glb')
+    const info = await engine.loadModel([file], file)
+    ;(mesh.material as unknown as ShaderMaterial).addEventListener('dispose', () => engine.dispose())
+
+    await expect(engine.replaceModelTexture(info.textureSlots[0].id, {} as File)).resolves.toHaveLength(1)
+
+    expect(harness.host.childElementCount).toBe(0)
+    expect(harness.renderer.dispose).toHaveBeenCalledOnce()
+  })
+
   it('delegates environment loading and display updates to its environment owner', async () => {
     const harness = createHarness()
     const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
@@ -317,6 +619,7 @@ describe('ViewerEngine', () => {
       name: 'first.glb',
       meshCount: 1,
       animationClips: [{ id: 'clip-0', label: 'Idle' }],
+      textureSlots: [],
     })
     engine.setAnimationPlaying(false)
     expect(onAnimationState).toHaveBeenLastCalledWith({
@@ -331,7 +634,9 @@ describe('ViewerEngine', () => {
     await engine.loadModel([secondFile], secondFile)
     expect(disposeGeometry).toHaveBeenCalledTimes(1)
     expect(disposeMaterial).toHaveBeenCalledTimes(1)
-    expect(onModelInfo).toHaveBeenLastCalledWith({ name: 'second.glb', meshCount: 1, animationClips: [] })
+    expect(onModelInfo).toHaveBeenLastCalledWith({
+      name: 'second.glb', meshCount: 1, animationClips: [], textureSlots: [],
+    })
     expect(onAnimationState).toHaveBeenCalledWith({
       clips: [{ id: 'clip-0', label: 'Idle' }], selectedClipId: 'clip-0', playing: true,
     })
@@ -372,7 +677,18 @@ describe('ViewerEngine', () => {
         .mockResolvedValueOnce({ scene: firstRoot, animations: [] })
         .mockResolvedValueOnce({ scene: secondRoot, animations: [] }),
     }
-    const harness = createHarness({ loader })
+    const disposeFirstRegistry = vi.fn()
+    const disposeSecondRegistry = vi.fn()
+    const createTextureRegistry = vi.fn()
+      .mockResolvedValueOnce({
+        list: () => [],
+        dispose: disposeFirstRegistry,
+      } as unknown as ModelTextureRegistry)
+      .mockResolvedValueOnce({
+        list: () => [],
+        dispose: disposeSecondRegistry,
+      } as unknown as ModelTextureRegistry)
+    const harness = createHarness({ loader, createTextureRegistry })
     const onModelInfo = vi.fn()
     const engine = new ViewerEngine(harness.host, { onModelInfo }, harness.dependencies)
     const firstFile = modelFile('first.glb')
@@ -394,6 +710,8 @@ describe('ViewerEngine', () => {
     expect(disposeFirstMaterial).not.toHaveBeenCalled()
     expect(disposeSecondGeometry).toHaveBeenCalledTimes(1)
     expect(disposeSecondMaterial).toHaveBeenCalledTimes(1)
+    expect(disposeSecondRegistry).toHaveBeenCalledTimes(1)
+    expect(disposeFirstRegistry).not.toHaveBeenCalled()
     expect(camera.position).toEqual(cameraPosition)
     expect(camera.near).toBe(cameraNear)
     expect(camera.far).toBe(cameraFar)
@@ -401,6 +719,7 @@ describe('ViewerEngine', () => {
     expect(onModelInfo).toHaveBeenCalledTimes(1)
 
     engine.dispose()
+    expect(disposeFirstRegistry).toHaveBeenCalledTimes(1)
   })
 
   it('disposes a candidate model when its profile provider throws before override setup', async () => {
@@ -426,7 +745,18 @@ describe('ViewerEngine', () => {
       if (providerCalls === 2) throw new Error('profile provider failed')
       return createProfileVariantFactory(binding)
     })
-    const harness = createHarness({ loader, createVariantFactory })
+    const disposeFirstRegistry = vi.fn()
+    const disposeCandidateRegistry = vi.fn(() => { throw new Error('candidate registry cleanup failed') })
+    const createTextureRegistry = vi.fn()
+      .mockResolvedValueOnce({
+        list: () => [],
+        dispose: disposeFirstRegistry,
+      } as unknown as ModelTextureRegistry)
+      .mockResolvedValueOnce({
+        list: () => [],
+        dispose: disposeCandidateRegistry,
+      } as unknown as ModelTextureRegistry)
+    const harness = createHarness({ loader, createVariantFactory, createTextureRegistry })
     const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
     const firstFile = modelFile('provider-first.glb')
     await engine.loadModel([firstFile], firstFile)
@@ -437,11 +767,14 @@ describe('ViewerEngine', () => {
     expect(candidateRoot.parent).toBeNull()
     expect(disposeCandidateGeometry).toHaveBeenCalledOnce()
     expect(disposeCandidateMaterial).toHaveBeenCalledOnce()
+    expect(disposeCandidateRegistry).toHaveBeenCalledOnce()
+    expect(disposeFirstRegistry).not.toHaveBeenCalled()
     expect(firstRoot.parent).not.toBeNull()
     expect(firstMesh.material).toBe(firstMaterial)
     expect(disposeFirstGeometry).not.toHaveBeenCalled()
     expect(disposeFirstMaterial).not.toHaveBeenCalled()
     engine.dispose()
+    expect(disposeFirstRegistry).toHaveBeenCalledOnce()
     expect(disposeCandidateGeometry).toHaveBeenCalledOnce()
     expect(disposeCandidateMaterial).toHaveBeenCalledOnce()
   })
@@ -460,6 +793,7 @@ describe('ViewerEngine', () => {
       name: 'notified.glb',
       meshCount: 1,
       animationClips: [],
+      textureSlots: [],
     })
     expect(onModelInfo).toHaveBeenCalledTimes(1)
     expect(onAnimationState).toHaveBeenCalledTimes(1)
