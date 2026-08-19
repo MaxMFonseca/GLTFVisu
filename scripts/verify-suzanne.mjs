@@ -41,36 +41,53 @@ function requireSingle(items, description) {
   return items[0]
 }
 
+function requireIndex(index, items, description) {
+  assert.ok(Number.isInteger(index) && index >= 0 && index < items.length, `Invalid ${description} index`)
+  return items[index]
+}
+
+function verifyBufferViews(json, bin) {
+  const buffer = requireSingle(json.buffers, 'buffer')
+  assert.equal(buffer.uri, undefined, 'Buffers must be embedded')
+  assert.ok(Number.isInteger(buffer.byteLength) && buffer.byteLength >= 0, 'Buffer length must be a non-negative integer')
+  assert.equal(buffer.byteLength, bin.length, 'Declared buffer length must match the BIN chunk')
+
+  for (const view of json.bufferViews ?? []) {
+    assert.equal(view.buffer, 0, 'Buffer view must target embedded buffer 0')
+    const start = view.byteOffset ?? 0
+    assert.ok(Number.isInteger(start) && start >= 0, 'Buffer view offset must be a non-negative integer')
+    assert.ok(Number.isInteger(view.byteLength) && view.byteLength >= 0, 'Buffer view length must be a non-negative integer')
+    assert.ok(start + view.byteLength <= buffer.byteLength, 'Buffer view extends beyond the declared buffer length')
+  }
+}
+
 export async function verifySuzanne(path) {
   const { json, bin } = parseGlb(await readFile(path))
+  verifyBufferViews(json, bin)
   const mesh = requireSingle(json.meshes, 'mesh')
   const primitive = requireSingle(mesh.primitives, 'mesh primitive')
   for (const attribute of ['POSITION', 'NORMAL', 'TEXCOORD_0']) {
-    assert.ok(Number.isInteger(primitive.attributes?.[attribute]), `Mesh primitive must include ${attribute}`)
+    requireIndex(primitive.attributes?.[attribute], json.accessors ?? [], attribute)
   }
 
+  const material = requireSingle(json.materials, 'material')
+  assert.equal(primitive.material, 0, 'Mesh primitive must use the sole material')
+
   const image = requireSingle(json.images, 'embedded image')
-  assert.ok(Number.isInteger(image.bufferView), 'Image must be backed by a buffer view')
+  requireIndex(image.bufferView, json.bufferViews ?? [], 'image buffer view')
   assert.equal(image.mimeType, 'image/png', 'Embedded image must be PNG')
   const sampler = requireSingle(json.samplers, 'sampler')
   const texture = requireSingle(json.textures, 'texture')
-  assert.equal(texture.source, 0, 'Texture must reference the embedded image')
-  assert.equal(texture.sampler, 0, 'Texture must reference the sampler')
+  assert.equal(requireIndex(texture.source, json.images, 'texture image'), image, 'Texture must reference the embedded image')
+  assert.equal(requireIndex(texture.sampler, json.samplers, 'texture sampler'), sampler, 'Texture must reference the sampler')
   assert.ok(sampler, 'Texture requires a sampler')
 
-  const material = requireSingle(json.materials, 'material')
   const pbr = material.pbrMetallicRoughness
-  assert.ok(Number.isInteger(pbr?.baseColorTexture?.index), 'Material must have a baseColorTexture index')
-  assert.equal(pbr.baseColorTexture.index, 0, 'Material must use the embedded texture')
+  assert.equal(requireIndex(pbr?.baseColorTexture?.index, json.textures, 'base color texture'), texture, 'Material must use the embedded texture')
   assert.equal(pbr.metallicFactor, 0, 'Material must be non-metallic')
   assert.ok(Math.abs(pbr.roughnessFactor - 0.8) <= 1e-6, 'Material must have roughness 0.8')
 
-  for (const buffer of json.buffers ?? []) assert.equal(buffer.uri, undefined, 'Buffers must be embedded')
   for (const embeddedImage of json.images ?? []) assert.equal(embeddedImage.uri, undefined, 'Images must be embedded')
-  for (const view of json.bufferViews ?? []) {
-    const start = view.byteOffset ?? 0
-    assert.ok(start + view.byteLength <= bin.length, 'Buffer view extends beyond the BIN chunk')
-  }
   return {
     meshCount: json.meshes.length,
     imageCount: json.images.length,

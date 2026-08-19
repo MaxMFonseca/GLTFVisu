@@ -26,12 +26,72 @@ function readGlbJsonAndBin(glb) {
   return { json, bin }
 }
 
+function paddedChunk(content, padding) {
+  const paddingLength = (4 - (content.length % 4)) % 4
+  return Buffer.concat([content, Buffer.alloc(paddingLength, padding)])
+}
+
+function createGlb(json, bin) {
+  const jsonChunk = paddedChunk(Buffer.from(JSON.stringify(json)), 0x20)
+  const binChunk = paddedChunk(bin, 0)
+  const totalLength = 12 + 8 + jsonChunk.length + 8 + binChunk.length
+  const header = Buffer.alloc(12)
+  header.writeUInt32LE(0x46546c67, 0)
+  header.writeUInt32LE(2, 4)
+  header.writeUInt32LE(totalLength, 8)
+  const jsonHeader = Buffer.alloc(8)
+  jsonHeader.writeUInt32LE(jsonChunk.length, 0)
+  jsonHeader.writeUInt32LE(0x4e4f534a, 4)
+  const binHeader = Buffer.alloc(8)
+  binHeader.writeUInt32LE(binChunk.length, 0)
+  binHeader.writeUInt32LE(0x004e4942, 4)
+  return Buffer.concat([header, jsonHeader, jsonChunk, binHeader, binChunk])
+}
+
+async function writeMalformedFixture(directory, name, mutate) {
+  const { json, bin } = readGlbJsonAndBin(await readFile(modelPath))
+  mutate(json, bin)
+  const fixturePath = join(directory, `${name}.glb`)
+  await writeFile(fixturePath, createGlb(json, bin))
+  return fixturePath
+}
+
 test('verifySuzanne rejects malformed GLB input', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'gltfvisu-suzanne-'))
   const malformedPath = join(directory, 'malformed.glb')
   await writeFile(malformedPath, Buffer.from('not a GLB'))
 
   await assert.rejects(verifySuzanne(malformedPath), /GLB|magic|header/i)
+})
+
+test('verifySuzanne rejects dangling accessor, image view, and material links', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'gltfvisu-suzanne-links-'))
+  const fixtures = [
+    ['dangling-accessor', (json) => { json.meshes[0].primitives[0].attributes.POSITION = json.accessors.length }],
+    ['dangling-image-view', (json) => { json.images[0].bufferView = json.bufferViews.length }],
+    ['dangling-material', (json) => { json.meshes[0].primitives[0].material = json.materials.length }],
+  ]
+
+  for (const [name, mutate] of fixtures) {
+    await assert.rejects(verifySuzanne(await writeMalformedFixture(directory, name, mutate)), /index|buffer view|material/i)
+  }
+})
+
+test('verifySuzanne rejects invalid buffer-view domains and declared buffer lengths', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'gltfvisu-suzanne-buffers-'))
+  const fixtures = [
+    ['wrong-buffer', (json) => { json.bufferViews[json.images[0].bufferView].buffer = 1 }],
+    ['negative-offset', (json) => { json.bufferViews[0].byteOffset = -1 }],
+    ['fractional-offset', (json) => { json.bufferViews[0].byteOffset = 0.5 }],
+    ['negative-length', (json) => { json.bufferViews[0].byteLength = -1 }],
+    ['fractional-length', (json) => { json.bufferViews[0].byteLength = 0.5 }],
+    ['out-of-bounds-view', (json, bin) => { json.bufferViews[0].byteOffset = bin.length; json.bufferViews[0].byteLength = 1 }],
+    ['wrong-declared-length', (json, bin) => { json.buffers[0].byteLength = bin.length - 1 }],
+  ]
+
+  for (const [name, mutate] of fixtures) {
+    await assert.rejects(verifySuzanne(await writeMalformedFixture(directory, name, mutate)), /buffer|offset|length/i)
+  }
 })
 
 test('verifySuzanne accepts the bundled textured Suzanne model', async () => {
