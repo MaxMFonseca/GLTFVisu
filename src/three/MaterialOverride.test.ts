@@ -198,6 +198,34 @@ describe('MaterialOverride', () => {
     for (const disposeTemplate of templateDisposers) expect(disposeTemplate).not.toHaveBeenCalled()
   })
 
+  it('finalizes transferred assignments and disposes every predecessor when a dispose listener throws', () => {
+    const originalA = new MeshBasicMaterial()
+    const originalB = new MeshBasicMaterial()
+    const meshA = new Mesh(new BoxGeometry(), originalA)
+    const meshB = new Mesh(new BoxGeometry(), originalB)
+    const root = new Group().add(meshA, meshB)
+    const override = new MaterialOverride(root, (_original, template) => template.clone())
+    const activeTemplate = new ShaderMaterial()
+    const replacementTemplate = new ShaderMaterial()
+    override.apply(activeTemplate)
+    const predecessors = [...override.materials]
+    const disposePredecessors = predecessors.map((material) => vi.spyOn(material, 'dispose'))
+    predecessors[0].addEventListener('dispose', () => {
+      throw new Error('predecessor disposal failed')
+    })
+    const prepared = override.prepare(replacementTemplate)
+
+    expect(() => prepared.commit()).not.toThrow()
+
+    expect(meshA.material).not.toBe(originalA)
+    expect(meshB.material).not.toBe(originalB)
+    expect(override.materials).toEqual([meshA.material, meshB.material])
+    for (const disposePredecessor of disposePredecessors) expect(disposePredecessor).toHaveBeenCalledOnce()
+    const disposeReplacements = override.materials.map((material) => vi.spyOn(material, 'dispose'))
+    override.dispose()
+    for (const disposeReplacement of disposeReplacements) expect(disposeReplacement).toHaveBeenCalledOnce()
+  })
+
   it('rejects one injected variant returned for two distinct originals and disposes it once', () => {
     const originalA = new MeshBasicMaterial()
     const originalB = new MeshBasicMaterial()
@@ -295,6 +323,23 @@ describe('MaterialOverride', () => {
     expect(disposeOriginal).not.toHaveBeenCalled()
     expect(disposeOriginalTexture).not.toHaveBeenCalled()
     expect(disposeTemplate).not.toHaveBeenCalled()
+  })
+
+  it('releases owned materials without overwriting successor assignments during an ownership handoff', () => {
+    const original = new MeshBasicMaterial()
+    const mesh = new Mesh(new BoxGeometry(), original)
+    const override = new MaterialOverride(mesh)
+    override.apply(new ShaderMaterial())
+    const predecessor = mesh.material as unknown as ShaderMaterial
+    const disposePredecessor = vi.spyOn(predecessor, 'dispose')
+    const successor = new ShaderMaterial()
+    mesh.material = successor as unknown as MeshBasicMaterial
+
+    override.dispose({ restoreAssignments: false })
+
+    expect(mesh.material).toBe(successor)
+    expect(disposePredecessor).toHaveBeenCalledOnce()
+    expect(() => override.prepare(new ShaderMaterial())).toThrow('Material override is disposed')
   })
 
   it('overrides and restores mesh, line, and point renderables', () => {

@@ -207,6 +207,8 @@ export class ViewerEngine implements ViewerPort {
   private modelMaterials?: ModelMaterialSnapshot
   private materialRuntime?: ProfileMaterialRuntime
   private animation?: AnimationPort
+  private criticalMutation = false
+  private disposalRequested = false
   private disposed = false
 
   constructor(
@@ -243,6 +245,7 @@ export class ViewerEngine implements ViewerPort {
   }
 
   async loadModel(files: File[], root: File): Promise<ModelInfo> {
+    this.assertMutationAvailable()
     this.assertActive()
     const generation = ++this.loadGeneration
     this.loadAbort?.abort()
@@ -255,9 +258,15 @@ export class ViewerEngine implements ViewerPort {
         disposeObjectTree(loaded.scene)
         throw new ModelLoadError('aborted', 'Model loading was superseded')
       }
-      return this.installModel(loaded, root.name)
+      const info = this.installModel(loaded, root.name)
+      if (this.disposalRequested) {
+        this.performDispose()
+        throw new ModelLoadError('aborted', 'Model loading was interrupted by viewer disposal')
+      }
+      return info
     } finally {
       if (generation === this.loadGeneration) this.loadAbort = undefined
+      this.flushDeferredDisposal()
     }
   }
 
@@ -267,15 +276,25 @@ export class ViewerEngine implements ViewerPort {
   }
 
   async compileShader(draft: ShaderDraft): Promise<CompileResult> {
+    if (this.criticalMutation) return mutationRejectedCompileResult(this.compileGeneration)
     this.assertActive()
     const generation = ++this.compileGeneration
-    this.disposePendingMaterialVariants()
-    this.disposePendingMaterialOwners()
-    const result = await this.compiler.compile(
-      draft,
-      (material) => this.prepareRuntimeMaterial(material, generation),
-    )
-    if (this.disposed || generation !== this.compileGeneration) return result
+    this.runCriticalMutation(() => this.disposePendingMaterialRuntimes())
+    if (this.disposalRequested) {
+      this.performDispose()
+      return { status: 'error', generation, diagnostics: [] }
+    }
+    let result: CompileResult
+    try {
+      result = await this.compiler.compile(
+        draft,
+        (material) => this.prepareRuntimeMaterial(material, generation),
+      )
+    } finally {
+      this.flushDeferredDisposal()
+    }
+    if (this.disposed) return { status: 'error', generation, diagnostics: [] }
+    if (generation !== this.compileGeneration) return result
     return result
   }
 
@@ -318,26 +337,37 @@ export class ViewerEngine implements ViewerPort {
   }
 
   dispose(): void {
+    if (this.disposed || this.disposalRequested) return
+    if (this.criticalMutation) {
+      this.disposalRequested = true
+      return
+    }
+    this.performDispose()
+  }
+
+  private performDispose(): void {
     if (this.disposed) return
+    this.disposalRequested = false
     this.disposed = true
     this.loadGeneration += 1
     this.compileGeneration += 1
     this.environmentGeneration += 1
-    this.loadAbort?.abort()
+    const loadAbort = this.loadAbort
     this.loadAbort = undefined
-    if (this.frameHandle !== undefined) {
-      this.cancelFrame(this.frameHandle)
-      this.frameHandle = undefined
-    }
-    this.observer.disconnect()
-    this.controls.dispose()
-    this.disposePendingMaterialVariants()
-    this.disposeModel()
-    this.disposePendingMaterialOwners()
-    this.compiler.dispose()
-    this.environment.dispose()
-    this.renderer.dispose()
-    this.renderer.domElement.remove()
+    const frameHandle = this.frameHandle
+    this.frameHandle = undefined
+    runBestEffortCleanup([
+      () => loadAbort?.abort(),
+      () => { if (frameHandle !== undefined) this.cancelFrame(frameHandle) },
+      () => this.observer.disconnect(),
+      () => this.controls.dispose(),
+      () => this.disposePendingMaterialRuntimes(),
+      () => this.disposeModel(),
+      () => this.compiler.dispose(),
+      () => this.environment.dispose(),
+      () => this.renderer.dispose(),
+      () => this.renderer.domElement.remove(),
+    ])
   }
 
   readonly resize = (): void => {
@@ -380,6 +410,7 @@ export class ViewerEngine implements ViewerPort {
     if (this.disposed || compileGeneration !== this.compileGeneration) {
       throw new Error('Material runtime transaction is stale')
     }
+    this.assertMutationAvailable()
 
     const profile = getMaterialInputProfile(material)
     if (profile === current.profile) {
@@ -412,17 +443,19 @@ export class ViewerEngine implements ViewerPort {
       ),
       commit: () => {
         prepared.commit()
-        const candidateAssignments = snapshotModelMaterials(root)
-        current.override.dispose()
-        assignModelMaterials(candidateAssignments)
+        current.override.dispose({ restoreAssignments: false })
         this.materialRuntime = replacement
-        current.bindingOwner?.dispose()
+        runBestEffortCleanup([() => current.bindingOwner?.dispose()])
       },
       dispose: () => prepared.dispose(),
     }, root, current, compileGeneration, () => replacement.bindingOwner?.dispose())
   }
 
   private installModel(loaded: LoadedModel, name: string): ModelInfo {
+    return this.runCriticalMutation(() => this.commitModel(loaded, name))
+  }
+
+  private commitModel(loaded: LoadedModel, name: string): ModelInfo {
     const prepared = (() => {
       let runtime: ProfileMaterialRuntime | undefined
       let animation: AnimationPort | undefined
@@ -486,18 +519,19 @@ export class ViewerEngine implements ViewerPort {
       throw error
     }
 
-    this.disposePendingMaterialVariants()
+    this.disposePendingMaterialRuntimes()
     this.modelRoot = loaded.scene
     this.modelMaterials = nextMaterials
     this.materialRuntime = nextRuntime
     this.animation = nextAnimation
 
     if (previousRoot !== undefined) {
-      previousRuntime?.override.dispose()
-      previousAnimation?.dispose()
-      this.disposePendingMaterialOwners()
-      previousRuntime?.bindingOwner?.dispose()
-      disposeObjectTree(previousRoot)
+      runBestEffortCleanup([
+        () => previousRuntime?.override.dispose(),
+        () => previousAnimation?.dispose(),
+        () => previousRuntime?.bindingOwner?.dispose(),
+        () => disposeObjectTree(previousRoot),
+      ])
     }
 
     const info: ModelInfo = {
@@ -612,13 +646,11 @@ export class ViewerEngine implements ViewerPort {
         state = 'committing'
         let committed = false
         try {
-          try {
-            this.disposePendingMaterialVariants(pending)
+          this.runCriticalMutation(() => {
+            this.disposePendingMaterialRuntimes(pending)
             runtime.commit()
             committed = true
-          } finally {
-            this.disposePendingMaterialOwners(pending)
-          }
+          })
         } finally {
           try {
             if (!committed) {
@@ -686,6 +718,13 @@ export class ViewerEngine implements ViewerPort {
     if (failed) throw failure
   }
 
+  private disposePendingMaterialRuntimes(except?: PendingMaterialRuntime): void {
+    runBestEffortCleanup([
+      () => this.disposePendingMaterialVariants(except),
+      () => this.disposePendingMaterialOwners(except),
+    ])
+  }
+
   private disposeModel(): void {
     const root = this.modelRoot
     const runtime = this.materialRuntime
@@ -695,15 +734,35 @@ export class ViewerEngine implements ViewerPort {
     this.materialRuntime = undefined
     this.animation = undefined
     if (root === undefined) return
-    this.scene.remove(root)
-    runtime?.override.dispose()
-    animation?.dispose()
-    runtime?.bindingOwner?.dispose()
-    disposeObjectTree(root)
+    runBestEffortCleanup([
+      () => this.scene.remove(root),
+      () => runtime?.override.dispose(),
+      () => animation?.dispose(),
+      () => runtime?.bindingOwner?.dispose(),
+      () => disposeObjectTree(root),
+    ])
   }
 
   private assertActive(): void {
-    if (this.disposed) throw new Error('Viewer engine is disposed')
+    if (this.disposed || this.disposalRequested) throw new Error('Viewer engine is disposed')
+  }
+
+  private assertMutationAvailable(): void {
+    if (this.criticalMutation) throw new Error('Viewer mutation is in progress')
+  }
+
+  private runCriticalMutation<T>(operation: () => T): T {
+    this.assertMutationAvailable()
+    this.criticalMutation = true
+    try {
+      return operation()
+    } finally {
+      this.criticalMutation = false
+    }
+  }
+
+  private flushDeferredDisposal(): void {
+    if (this.disposalRequested && !this.criticalMutation) this.performDispose()
   }
 }
 
@@ -777,10 +836,31 @@ function disposePreparedModel(
   runtime: ProfileMaterialRuntime,
   animation: AnimationPort,
 ): void {
-  runtime.override.dispose()
-  animation.dispose()
-  runtime.bindingOwner?.dispose()
-  disposeObjectTree(root)
+  runBestEffortCleanup([
+    () => runtime.override.dispose(),
+    () => animation.dispose(),
+    () => runtime.bindingOwner?.dispose(),
+    () => disposeObjectTree(root),
+  ])
+}
+
+function runBestEffortCleanup(operations: readonly (() => void)[]): void {
+  for (const operation of operations) {
+    try {
+      operation()
+    } catch {
+      // Cleanup callbacks cannot interrupt an ownership transition or terminal teardown.
+    }
+  }
+}
+
+function mutationRejectedCompileResult(generation: number): CompileResult {
+  const message = 'Viewer mutation is in progress'
+  return {
+    status: 'error',
+    generation,
+    diagnostics: [{ severity: 'error', message, raw: message }],
+  }
 }
 
 function notify<T>(callback: ((value: T) => void) | undefined, value: T): void {

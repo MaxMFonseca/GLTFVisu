@@ -26,7 +26,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ShaderParameterDefinition } from '../domain/parameters'
 import type { MaterialInputProfile } from '../domain/materialInput'
 import type { ShaderDraft } from '../domain/shader'
-import type { CompileDiagnostic, CompileResult, ViewerPort } from '../application/ViewerPort'
+import type { CompileDiagnostic, CompileResult, ModelInfo, ViewerPort } from '../application/ViewerPort'
 import {
   DEFAULT_ENVIRONMENT_DISPLAY_SETTINGS,
   ENVIRONMENT_LOAD_ERROR_MESSAGE,
@@ -992,6 +992,124 @@ describe('ViewerEngine', () => {
     await compiling
   })
 
+  it('serializes generation cleanup when a throwing variant listener starts another compile', async () => {
+    const mesh = new Mesh(new BoxGeometry(), new MeshStandardMaterial())
+    const root = new Group().add(mesh)
+    const loader: ModelLoaderPort = { load: vi.fn(async () => ({ scene: root, animations: [] })) }
+    const firstResult = deferred<CompileResult>()
+    let compileCount = 0
+    let activeTemplate: ShaderMaterial | undefined
+    let firstCandidate!: EnvironmentShaderMaterial
+    let nestedCompile: Promise<CompileResult> | undefined
+    const compiler: CompilerPort = {
+      get material() { return activeTemplate },
+      compile: vi.fn((draft, prepareRuntime) => {
+        compileCount += 1
+        const template = new ShaderMaterial()
+        setMaterialInputProfile(template, draft.materialInputProfile)
+        const prepared = prepareRuntime?.(template) as PreparedRuntimeMaterial
+        prepared.validate((render) => {
+          render()
+          return []
+        })
+        if (compileCount === 1) return firstResult.promise
+        prepared.commit()
+        activeTemplate = template
+        return Promise.resolve({ status: 'valid' as const, generation: compileCount })
+      }),
+      updateParameter: vi.fn(),
+      dispose: vi.fn(),
+    }
+    const harness = createHarness({ loader, createCompiler: () => compiler })
+    harness.renderer.render = vi.fn(() => {
+      if (compileCount === 1 && mesh.material instanceof ShaderMaterial) {
+        firstCandidate = mesh.material as EnvironmentShaderMaterial
+      }
+    })
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    const file = modelFile('throwing-generation-sweep.glb')
+    await engine.loadModel([file], file)
+    const firstCompile = engine.compileShader(shader('pending PBR generation', 'gltf-pbr'))
+    const fallback = firstCandidate.uniforms.uGltfNormalMap.value as Texture
+    const disposeCandidate = vi.spyOn(firstCandidate, 'dispose')
+    const disposeFallback = vi.spyOn(fallback, 'dispose')
+    firstCandidate.addEventListener('dispose', () => {
+      nestedCompile = engine.compileShader(shader('nested generation compile', 'gltf-surface'))
+      throw new Error('pending generation variant disposal failed')
+    })
+
+    await expect(engine.compileShader(shader('new surface generation', 'gltf-surface'))).resolves.toMatchObject({ status: 'valid' })
+    await expect(nestedCompile).resolves.toMatchObject({ status: 'error', generation: 2 })
+
+    expect(compileCount).toBe(2)
+    expect(disposeCandidate).toHaveBeenCalledOnce()
+    expect(disposeFallback).toHaveBeenCalledOnce()
+    firstResult.resolve({ status: 'error', generation: 1, diagnostics: [] })
+    await firstCompile
+    engine.dispose()
+    expect(disposeCandidate).toHaveBeenCalledOnce()
+    expect(disposeFallback).toHaveBeenCalledOnce()
+  })
+
+  it('continues terminal teardown after pending, compiler, environment, and renderer disposal failures', async () => {
+    const compileResult = deferred<CompileResult>()
+    let candidate!: EnvironmentShaderMaterial
+    const compiler: CompilerPort = {
+      material: undefined,
+      compile: vi.fn((_draft, prepareRuntime) => {
+        const template = new ShaderMaterial()
+        setMaterialInputProfile(template, 'gltf-pbr')
+        const prepared = prepareRuntime?.(template) as PreparedRuntimeMaterial
+        prepared.validate((render) => {
+          render()
+          return []
+        })
+        return compileResult.promise
+      }),
+      updateParameter: vi.fn(),
+      dispose: vi.fn(() => { throw new Error('compiler disposal failed') }),
+    }
+    const original = new MeshStandardMaterial()
+    const geometry = new BoxGeometry()
+    const mesh = new Mesh(geometry, original)
+    const root = new Group().add(mesh)
+    const loader: ModelLoaderPort = { load: vi.fn(async () => ({ scene: root, animations: [] })) }
+    const harness = createHarness({ loader, createCompiler: () => compiler })
+    harness.renderer.render = vi.fn(() => {
+      if (mesh.material instanceof ShaderMaterial) candidate = mesh.material as EnvironmentShaderMaterial
+    })
+    vi.mocked(harness.environment.dispose).mockImplementation(() => { throw new Error('environment disposal failed') })
+    vi.mocked(harness.renderer.dispose).mockImplementation(() => { throw new Error('renderer disposal failed') })
+    const disposeGeometry = vi.spyOn(geometry, 'dispose')
+    const disposeOriginal = vi.spyOn(original, 'dispose')
+    original.addEventListener('dispose', () => {
+      throw new Error('model material disposal failed')
+    })
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    const file = modelFile('best-effort-terminal.glb')
+    await engine.loadModel([file], file)
+    const compiling = engine.compileShader(shader('pending terminal PBR', 'gltf-pbr'))
+    const fallback = candidate.uniforms.uGltfNormalMap.value as Texture
+    const disposeCandidate = vi.spyOn(candidate, 'dispose')
+    const disposeFallback = vi.spyOn(fallback, 'dispose')
+    candidate.addEventListener('dispose', () => {
+      throw new Error('pending terminal variant disposal failed')
+    })
+
+    expect(() => engine.dispose()).not.toThrow()
+
+    expect(disposeCandidate).toHaveBeenCalledOnce()
+    expect(disposeFallback).toHaveBeenCalledOnce()
+    expect(disposeGeometry).toHaveBeenCalledOnce()
+    expect(disposeOriginal).toHaveBeenCalledOnce()
+    expect(compiler.dispose).toHaveBeenCalledOnce()
+    expect(harness.environment.dispose).toHaveBeenCalledOnce()
+    expect(harness.renderer.dispose).toHaveBeenCalledOnce()
+    expect(harness.renderer.domElement.parentElement).toBeNull()
+    compileResult.resolve({ status: 'error', generation: 1, diagnostics: [] })
+    await compiling
+  })
+
   it('invalidates a retained profile candidate before replacing its model root', async () => {
     const firstMesh = new Mesh(new BoxGeometry(), new MeshStandardMaterial())
     const firstRoot = new Group().add(firstMesh)
@@ -1109,26 +1227,20 @@ describe('ViewerEngine', () => {
     await firstCompile
   })
 
-  it('keeps a committing profile owner alive through a reentrant compile from predecessor disposal', async () => {
+  it('rejects a reentrant compile before it can mutate a half-disposed predecessor', async () => {
     const mesh = new Mesh(new BoxGeometry(), new MeshStandardMaterial())
     const root = new Group().add(mesh)
     const loader: ModelLoaderPort = { load: vi.fn(async () => ({ scene: root, animations: [] })) }
     let activeTemplate: ShaderMaterial | undefined
     let compileCount = 0
     let nestedCompile: Promise<CompileResult> | undefined
+    let nestedStarted = false
     let outerCandidate!: EnvironmentShaderMaterial
     let outerFallbackDisposals = 0
     const compiler: CompilerPort = {
       get material() { return activeTemplate },
       compile: vi.fn((draft, prepareRuntime) => {
         compileCount += 1
-        if (compileCount === 3) {
-          return Promise.resolve({
-            status: 'error' as const,
-            generation: compileCount,
-            diagnostics: [{ severity: 'error' as const, message: 'nested compile stopped', raw: 'nested compile stopped' }],
-          })
-        }
         const template = new ShaderMaterial()
         setMaterialInputProfile(template, draft.materialInputProfile)
         const prepared = prepareRuntime?.(template) as PreparedRuntimeMaterial
@@ -1156,13 +1268,15 @@ describe('ViewerEngine', () => {
     await engine.compileShader(shader('surface predecessor', 'gltf-surface'))
     const predecessor = mesh.material as unknown as ShaderMaterial
     predecessor.addEventListener('dispose', () => {
+      if (nestedStarted) return
+      nestedStarted = true
       nestedCompile = engine.compileShader(shader('nested compile'))
     })
 
     await expect(engine.compileShader(shader('outer PBR', 'gltf-pbr'))).resolves.toMatchObject({ status: 'valid' })
-    await expect(nestedCompile).resolves.toMatchObject({ status: 'error' })
+    await expect(nestedCompile).resolves.toMatchObject({ status: 'error', generation: 2 })
 
-    expect(compileCount).toBe(3)
+    expect(compileCount).toBe(2)
     expect(mesh.material).toBe(outerCandidate)
     expect(outerFallbackDisposals).toBe(0)
     const nextEnvironment = environmentTexture(512, 256)
@@ -1173,7 +1287,199 @@ describe('ViewerEngine', () => {
     expect(outerFallbackDisposals).toBe(1)
   })
 
-  it('releases every sibling owner when a pending variant throws during the commit sweep', async () => {
+  it('rejects a reentrant model load before its loader can observe a material commit', async () => {
+    const firstMesh = new Mesh(new BoxGeometry(), new MeshStandardMaterial())
+    const firstRoot = new Group().add(firstMesh)
+    const secondRoot = new Group().add(new Mesh(new BoxGeometry(), new MeshStandardMaterial()))
+    const loader: ModelLoaderPort = {
+      load: vi.fn()
+        .mockResolvedValueOnce({ scene: firstRoot, animations: [] })
+        .mockResolvedValueOnce({ scene: secondRoot, animations: [] }),
+    }
+    let activeTemplate: ShaderMaterial | undefined
+    let compileCount = 0
+    const compiler: CompilerPort = {
+      get material() { return activeTemplate },
+      compile: vi.fn((draft, prepareRuntime) => {
+        compileCount += 1
+        const template = new ShaderMaterial()
+        setMaterialInputProfile(template, draft.materialInputProfile)
+        const prepared = prepareRuntime?.(template) as PreparedRuntimeMaterial
+        prepared.validate((render) => {
+          render()
+          return []
+        })
+        prepared.commit()
+        activeTemplate = template
+        return Promise.resolve({ status: 'valid' as const, generation: compileCount })
+      }),
+      updateParameter: vi.fn(),
+      dispose: vi.fn(),
+    }
+    const harness = createHarness({ loader, createCompiler: () => compiler })
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    const firstFile = modelFile('reentrant-model-first.glb')
+    const secondFile = modelFile('reentrant-model-second.glb')
+    await engine.loadModel([firstFile], firstFile)
+    await engine.compileShader(shader('surface before nested model', 'gltf-surface'))
+    const predecessor = firstMesh.material as unknown as ShaderMaterial
+    let nestedLoad: Promise<ModelInfo> | undefined
+    predecessor.addEventListener('dispose', () => {
+      nestedLoad ??= engine.loadModel([secondFile], secondFile)
+    })
+
+    await expect(engine.compileShader(shader('outer PBR before nested model', 'gltf-pbr'))).resolves.toMatchObject({ status: 'valid' })
+    await expect(nestedLoad).rejects.toThrow('Viewer mutation is in progress')
+
+    expect(loader.load).toHaveBeenCalledOnce()
+    expect(firstMesh.material).toBeInstanceOf(ShaderMaterial)
+    engine.dispose()
+  })
+
+  it('defers reentrant engine disposal until the committing runtime can be torn down coherently', async () => {
+    const original = new MeshStandardMaterial()
+    const mesh = new Mesh(new BoxGeometry(), original)
+    const root = new Group().add(mesh)
+    const loader: ModelLoaderPort = { load: vi.fn(async () => ({ scene: root, animations: [] })) }
+    let activeTemplate: ShaderMaterial | undefined
+    let compileCount = 0
+    let candidate!: EnvironmentShaderMaterial
+    let disposeCandidate: ReturnType<typeof vi.spyOn> | undefined
+    let fallbackDisposals = 0
+    const compiler: CompilerPort = {
+      get material() { return activeTemplate },
+      compile: vi.fn((draft, prepareRuntime) => {
+        compileCount += 1
+        const template = new ShaderMaterial()
+        setMaterialInputProfile(template, draft.materialInputProfile)
+        const prepared = prepareRuntime?.(template) as PreparedRuntimeMaterial
+        prepared.validate((render) => {
+          render()
+          return []
+        })
+        prepared.commit()
+        activeTemplate = template
+        return Promise.resolve({ status: 'valid' as const, generation: compileCount })
+      }),
+      updateParameter: vi.fn(),
+      dispose: vi.fn(),
+    }
+    const harness = createHarness({ loader, createCompiler: () => compiler })
+    harness.renderer.render = vi.fn(() => {
+      if (compileCount !== 2 || !(mesh.material instanceof ShaderMaterial)) return
+      candidate = mesh.material as EnvironmentShaderMaterial
+      disposeCandidate ??= vi.spyOn(candidate, 'dispose')
+      const fallback = candidate.uniforms.uGltfNormalMap.value as Texture
+      fallback.addEventListener('dispose', () => { fallbackDisposals += 1 })
+    })
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    const file = modelFile('reentrant-dispose.glb')
+    await engine.loadModel([file], file)
+    await engine.compileShader(shader('surface before disposal', 'gltf-surface'))
+    const predecessor = mesh.material as unknown as ShaderMaterial
+    let disposalRequested = false
+    predecessor.addEventListener('dispose', () => {
+      if (disposalRequested) return
+      disposalRequested = true
+      engine.dispose()
+    })
+
+    await expect(engine.compileShader(shader('PBR interrupted by disposal', 'gltf-pbr'))).resolves.toMatchObject({
+      status: 'error',
+      generation: 2,
+    })
+
+    expect(mesh.material).toBe(original)
+    expect(disposeCandidate).toHaveBeenCalledOnce()
+    expect(fallbackDisposals).toBe(1)
+    expect(compiler.dispose).toHaveBeenCalledOnce()
+    expect(harness.environment.dispose).toHaveBeenCalledOnce()
+    expect(harness.renderer.dispose).toHaveBeenCalledOnce()
+    expect(harness.renderer.domElement.parentElement).toBeNull()
+    engine.dispose()
+    expect(disposeCandidate).toHaveBeenCalledOnce()
+    expect(fallbackDisposals).toBe(1)
+  })
+
+  it('finalizes a cross-profile replacement when predecessor material disposal throws after transfer', async () => {
+    const original = new MeshStandardMaterial()
+    const mesh = new Mesh(new BoxGeometry(), original)
+    const root = new Group().add(mesh)
+    const loader: ModelLoaderPort = { load: vi.fn(async () => ({ scene: root, animations: [] })) }
+    const harness = createHarness({
+      loader,
+      createCompiler: (renderer) => new ShaderCompiler(renderer, { validate: async () => [] }),
+    })
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    const file = modelFile('throwing-cross-profile.glb')
+    await engine.loadModel([file], file)
+    await engine.compileShader(shader('surface predecessor throws', 'gltf-surface'))
+    const predecessor = mesh.material as unknown as ShaderMaterial
+    const disposePredecessor = vi.spyOn(predecessor, 'dispose')
+    predecessor.addEventListener('dispose', () => {
+      throw new Error('cross-profile predecessor disposal failed')
+    })
+    let candidate!: EnvironmentShaderMaterial
+    harness.renderer.render = vi.fn(() => {
+      if (!(mesh.material instanceof ShaderMaterial) || mesh.material === predecessor) return
+      candidate = mesh.material as EnvironmentShaderMaterial
+    })
+
+    await expect(engine.compileShader(shader('PBR replacement survives cleanup', 'gltf-pbr'))).resolves.toMatchObject({ status: 'valid' })
+
+    expect(mesh.material).toBe(candidate)
+    expect(disposePredecessor).toHaveBeenCalledOnce()
+    const fallback = candidate.uniforms.uGltfNormalMap.value as Texture
+    const disposeCandidate = vi.spyOn(candidate, 'dispose')
+    const disposeFallback = vi.spyOn(fallback, 'dispose')
+    const nextEnvironment = environmentTexture(256, 128)
+    harness.environment.binding.environmentMap.value = nextEnvironment
+    await engine.loadEnvironment({ kind: 'bundled', id: 'cross-profile', url: 'cross-profile.hdr' })
+    expect(candidate.envMap).toBe(nextEnvironment)
+    expect(disposeFallback).not.toHaveBeenCalled()
+    engine.dispose()
+    expect(disposeCandidate).toHaveBeenCalledOnce()
+    expect(disposeFallback).toHaveBeenCalledOnce()
+  })
+
+  it('finalizes a same-profile replacement when predecessor material disposal throws after transfer', async () => {
+    const original = new MeshStandardMaterial()
+    const mesh = new Mesh(new BoxGeometry(), original)
+    const root = new Group().add(mesh)
+    const loader: ModelLoaderPort = { load: vi.fn(async () => ({ scene: root, animations: [] })) }
+    const harness = createHarness({
+      loader,
+      createCompiler: (renderer) => new ShaderCompiler(renderer, { validate: async () => [] }),
+    })
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    const file = modelFile('throwing-same-profile.glb')
+    await engine.loadModel([file], file)
+    await engine.compileShader(shader('first PBR predecessor', 'gltf-pbr'))
+    const predecessor = mesh.material as unknown as EnvironmentShaderMaterial
+    const fallback = predecessor.uniforms.uGltfNormalMap.value as Texture
+    const disposePredecessor = vi.spyOn(predecessor, 'dispose')
+    predecessor.addEventListener('dispose', () => {
+      throw new Error('same-profile predecessor disposal failed')
+    })
+    let candidate!: EnvironmentShaderMaterial
+    harness.renderer.render = vi.fn(() => {
+      if (!(mesh.material instanceof ShaderMaterial) || mesh.material === predecessor) return
+      candidate = mesh.material as EnvironmentShaderMaterial
+    })
+
+    await expect(engine.compileShader(shader('second PBR survives cleanup', 'gltf-pbr'))).resolves.toMatchObject({ status: 'valid' })
+
+    expect(mesh.material).toBe(candidate)
+    expect(disposePredecessor).toHaveBeenCalledOnce()
+    expect(candidate.uniforms.uGltfNormalMap.value).toBe(fallback)
+    const disposeCandidate = vi.spyOn(candidate, 'dispose')
+    const disposeFallback = vi.spyOn(fallback, 'dispose')
+    engine.dispose()
+    expect(disposeCandidate).toHaveBeenCalledOnce()
+    expect(disposeFallback).toHaveBeenCalledOnce()
+  })
+
+  it('releases every sibling owner and commits coherently when a pending variant listener throws', async () => {
     const original = new MeshStandardMaterial()
     const mesh = new Mesh(new BoxGeometry(), original)
     const root = new Group().add(mesh)
@@ -1206,11 +1512,13 @@ describe('ViewerEngine', () => {
         } catch (error) {
           commitError = error
         }
-        return Promise.resolve({
-          status: 'error' as const,
-          generation: 1,
-          diagnostics: [{ severity: 'error' as const, message: 'commit rejected', raw: 'commit rejected' }],
-        })
+        return Promise.resolve(commitError === undefined
+          ? { status: 'valid' as const, generation: 1 }
+          : {
+              status: 'error' as const,
+              generation: 1,
+              diagnostics: [{ severity: 'error' as const, message: 'commit rejected', raw: 'commit rejected' }],
+            })
       }),
       updateParameter: vi.fn(),
       dispose: vi.fn(),
@@ -1227,13 +1535,15 @@ describe('ViewerEngine', () => {
     const file = modelFile('throwing-sibling.glb')
     await engine.loadModel([file], file)
 
-    await expect(engine.compileShader(shader('throwing sibling', 'gltf-pbr'))).resolves.toMatchObject({ status: 'error' })
+    await expect(engine.compileShader(shader('throwing sibling', 'gltf-pbr'))).resolves.toMatchObject({ status: 'valid' })
 
-    expect(commitError).toEqual(new Error('sibling variant disposal failed'))
-    expect(mesh.material).toBe(original)
+    expect(commitError).toBeUndefined()
+    expect(mesh.material).toBe(candidates[2])
     expect(disposeCandidates).toHaveLength(3)
-    for (const disposeCandidate of disposeCandidates) expect(disposeCandidate).toHaveBeenCalledOnce()
-    expect(fallbackDisposals).toEqual([1, 1, 1])
+    expect(disposeCandidates[0]).toHaveBeenCalledOnce()
+    expect(disposeCandidates[1]).toHaveBeenCalledOnce()
+    expect(disposeCandidates[2]).not.toHaveBeenCalled()
+    expect(fallbackDisposals).toEqual([1, 1, 0])
     engine.dispose()
     for (const disposeCandidate of disposeCandidates) expect(disposeCandidate).toHaveBeenCalledOnce()
     expect(fallbackDisposals).toEqual([1, 1, 1])
