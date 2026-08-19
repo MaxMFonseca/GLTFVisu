@@ -11,6 +11,8 @@ import {
   type ShaderSourceEditorHandle,
   type ShaderSourceEditorProps,
 } from './ShaderEditorPanel'
+import '../../styles/editor.css'
+import '../../styles/parameters.css'
 
 function localShader(): ShaderDefinition {
   return {
@@ -146,6 +148,36 @@ describe('ShaderEditorPanel', () => {
     expect(screen.queryByRole('button', { name: 'Add parameter' })).not.toBeInTheDocument()
     expect(screen.queryByText('Shader contract')).not.toBeInTheDocument()
     expect(screen.queryByRole('textbox', { name: 'Fragment shader source' })).not.toBeInTheDocument()
+  })
+
+  it('allows built-in controls to shrink with the right panel without horizontal overflow', () => {
+    const { container } = renderPanel({ builtins: [builtinWithFloatAndColor()] })
+
+    const panel = container.querySelector('.shader-editor-panel')
+    const controls = container.querySelector('.parameter-controls')
+    const control = container.querySelector('.parameter-control')
+    const pair = container.querySelector('.parameter-control-pair')
+    const slider = screen.getByRole('slider', { name: /Power.*uPower/ })
+    const sliderLabel = slider.closest('label')
+
+    for (const element of [panel, controls, control, pair, sliderLabel, slider]) {
+      expect(element).not.toBeNull()
+      expect(getComputedStyle(element as Element).minWidth).toBe('0')
+    }
+    expect(getComputedStyle(panel as Element).maxWidth).toBe('100%')
+    expect(getComputedStyle(slider).maxWidth).toBe('100%')
+  })
+
+  it('allows the local shader source editor to shrink with the right panel', () => {
+    const { container } = renderPanel()
+    const panel = container.querySelector('.shader-editor-panel')
+    const sourceEditor = container.querySelector('.shader-source-editor')
+
+    for (const element of [panel, sourceEditor]) {
+      expect(element).not.toBeNull()
+      expect(getComputedStyle(element as Element).minWidth).toBe('0')
+      expect(getComputedStyle(element as Element).maxWidth).toBe('100%')
+    }
   })
 
   it('shows the no-controls message for a parameterless built-in shader', () => {
