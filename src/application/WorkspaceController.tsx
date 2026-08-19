@@ -20,6 +20,7 @@ import { validateParameterDefinitions } from '../domain/uniformValidation'
 import {
   ENVIRONMENT_LOAD_ERROR_MESSAGE,
   EnvironmentLoadError,
+  normalizeEnvironmentBlur,
   normalizeEnvironmentClearColor,
   normalizeEnvironmentIntensity,
   normalizeEnvironmentRotation,
@@ -630,6 +631,10 @@ export function WorkspaceProvider({
     setEnvironmentIntensity(intensity) {
       const normalized = normalizeEnvironmentIntensity(intensity)
       if (normalized !== undefined) updateEnvironmentSettings({ intensity: normalized })
+    },
+    setEnvironmentBlur(blur) {
+      const normalized = normalizeEnvironmentBlur(blur)
+      if (normalized !== undefined) updateEnvironmentSettings({ blur: normalized })
     },
     fitModel() {
       viewer.fitModel()

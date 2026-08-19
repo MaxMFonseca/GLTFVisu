@@ -27,6 +27,7 @@ export interface WorkspaceCommands {
   setEnvironmentClearColor(color: string): void
   setEnvironmentRotation(rotation: number): void
   setEnvironmentIntensity(intensity: number): void
+  setEnvironmentBlur(blur: number): void
   fitModel(): void
   resizeViewer(): void
   selectAnimation(name: string): void

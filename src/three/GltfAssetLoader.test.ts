@@ -80,4 +80,16 @@ describe('GltfAssetLoader', () => {
       code: 'unsupported-resource',
     })
   })
+
+  it('passes GLTFLoader-generated blob URLs through without treating them as local files', async () => {
+    parse.mockImplementation((manager: { resolveURL(url: string): string }, _data: unknown, _basePath: string, onLoad: (value: unknown) => void) => {
+      expect(manager.resolveURL('blob:embedded-base-color')).toBe('blob:embedded-base-color')
+      onLoad({ scene: {} })
+    })
+    const root = localFile('embedded.glb', 'embedded.glb')
+    Object.defineProperty(root, 'arrayBuffer', { value: async () => new ArrayBuffer(0) })
+
+    await expect(new GltfAssetLoader().load([root], root)).resolves.toEqual({ scene: {} })
+    expect(createObjectURL).not.toHaveBeenCalled()
+  })
 })

@@ -30,7 +30,7 @@ export class GltfAssetLoader {
     const requestedByObjectUrl = new Map<string, string>()
     let failedRequest: string | undefined
     manager.setURLModifier((url) => {
-      if (url.startsWith('data:')) return url
+      if (url.startsWith('data:') || url.startsWith('blob:')) return url
       const objectUrl = assets.resolve(url)
       requestedByObjectUrl.set(objectUrl, url)
       return objectUrl

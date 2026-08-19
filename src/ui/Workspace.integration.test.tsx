@@ -604,6 +604,7 @@ describe('shader workspace acceptance', () => {
       clearColor: '#17191d',
       rotation: 75,
       intensity: 1.7,
+      blur: 0,
     })
 
     const remoteUrl = within(popover).getByRole('textbox', { name: 'HDR URL' })

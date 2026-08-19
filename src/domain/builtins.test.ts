@@ -28,7 +28,7 @@ describe('BUILTIN_SHADERS', () => {
       expect(shader.origin).toBe('builtin')
       expect(shader.schemaVersion).toBe(2)
       expect(shader.materialInputProfile).toBe(
-        shader.id === 'builtin-toon'
+        shader.id === 'builtin-toon' || shader.id === 'builtin-unlit-color'
           ? 'gltf-surface'
           : shader.id === 'builtin-pbr'
             ? 'gltf-pbr'
@@ -48,7 +48,7 @@ describe('BUILTIN_SHADERS', () => {
   it('exercises the documented built-in parameter types', () => {
     const byName = Object.fromEntries(BUILTIN_SHADERS.map((shader) => [shader.name, shader]))
     expect(byName.Fresnel.parameters.map((parameter) => parameter.type)).toEqual(['float', 'color'])
-    expect(byName.Toon.parameters.map((parameter) => parameter.type)).toEqual(['integer', 'color', 'color'])
+    expect(byName.Toon.parameters.map((parameter) => parameter.type)).toEqual(['integer', 'color', 'color', 'color', 'float'])
     expect(byName['Rim Light'].parameters.map((parameter) => parameter.type)).toEqual(['float', 'float', 'color'])
   })
 
@@ -70,6 +70,8 @@ describe('BUILTIN_SHADERS', () => {
         { id: 'normal-strength', uniformName: 'uNormalStrength', type: 'float', min: 0, max: 2, step: 0.01, defaultValue: 1 },
         { id: 'use-normal-map', uniformName: 'uUseNormalMap', type: 'boolean', defaultValue: true },
         { id: 'environment-contribution', uniformName: 'uEnvironmentContribution', type: 'float', min: 0, max: 4, step: 0.01, defaultValue: 1 },
+        { id: 'ambient-color', uniformName: 'uAmbientColor', type: 'color', defaultValue: '#ffffff' },
+        { id: 'ambient-intensity', uniformName: 'uAmbientIntensity', type: 'float', min: 0, max: 2, step: 0.01, defaultValue: 0 },
       ],
       parameterValues: {
         'base-color-tint': '#ffffff',
@@ -80,27 +82,32 @@ describe('BUILTIN_SHADERS', () => {
         'normal-strength': 1,
         'use-normal-map': true,
         'environment-contribution': 1,
+        'ambient-color': '#ffffff',
+        'ambient-intensity': 0,
       },
     })
     expect(validateParameterDefinitions(pbr?.parameters ?? [])).toEqual([])
   })
 
-  it('registers Unlit Color with one exact color control and no material profile', () => {
+  it('makes Unlit Color texture-aware while retaining its exact color control', () => {
     const color = BUILTIN_SHADERS.find((shader) => shader.id === 'builtin-unlit-color')
 
     expect(color).toMatchObject({
       name: 'Unlit Color',
-      materialInputProfile: 'none',
+      materialInputProfile: 'gltf-surface',
       schemaVersion: 2,
       portrait: { kind: 'bundled' },
       parameters: [
         { id: 'color', uniformName: 'uColor', type: 'color', defaultValue: '#7aa2f7' },
+        { id: 'ambient-color', uniformName: 'uAmbientColor', type: 'color', defaultValue: '#ffffff' },
+        { id: 'ambient-intensity', uniformName: 'uAmbientIntensity', type: 'float', min: 0, max: 2, step: 0.01, defaultValue: 0 },
       ],
-      parameterValues: { color: '#7aa2f7' },
+      parameterValues: { color: '#7aa2f7', 'ambient-color': '#ffffff', 'ambient-intensity': 0 },
     })
-    expect(color?.fragmentSource).toBe(`void main() {
-  outColor = vec4(uColor, 1.0);
-}`)
+    expect(color?.fragmentSource).toContain('vec4 albedo = sampleGltfBaseColor();')
+    expect(color?.fragmentSource).toContain(
+      'vec3 color = albedo.rgb * (uColor + uAmbientColor * uAmbientIntensity);',
+    )
     expect(validateParameterDefinitions(color?.parameters ?? [])).toEqual([])
   })
 
@@ -113,10 +120,12 @@ describe('BUILTIN_SHADERS', () => {
       { id: 'bands', uniformName: 'uBands', label: 'Bands' },
       { id: 'shadow-color', uniformName: 'uShadowColor', label: 'Shadow tint' },
       { id: 'light-color', uniformName: 'uLightColor', label: 'Light tint' },
+      { id: 'ambient-color', uniformName: 'uAmbientColor', label: 'Ambient color' },
+      { id: 'ambient-intensity', uniformName: 'uAmbientIntensity', label: 'Ambient intensity' },
     ])
     expect(toon?.fragmentSource).toContain('vec4 albedo = sampleGltfBaseColor();')
     expect(toon?.fragmentSource).toContain(
-      'outColor = vec4(albedo.rgb * mix(uShadowColor, uLightColor, stepped), albedo.a);',
+      'vec3 lighting = mix(uShadowColor, uLightColor, stepped) + uAmbientColor * uAmbientIntensity;',
     )
     expect(toon?.fragmentSource).toContain(
       'if (uGltfAlphaCutoff > 0.0 && albedo.a < uGltfAlphaCutoff) discard;',

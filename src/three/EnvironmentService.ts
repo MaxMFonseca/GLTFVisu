@@ -179,6 +179,7 @@ export class EnvironmentService {
     this.scene.environmentRotation.set(0, radians, 0)
     this.scene.backgroundIntensity = this.settings.intensity
     this.scene.environmentIntensity = this.settings.intensity
+    this.scene.backgroundBlurriness = this.settings.backgroundMode === 'skybox' ? this.settings.blur : 0
 
     this.clearColor.set(this.settings.clearColor)
     if (this.settings.backgroundMode === 'clear-color') {

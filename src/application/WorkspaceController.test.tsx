@@ -205,7 +205,7 @@ describe('WorkspaceProvider', () => {
       status: 'error',
       activeSource: { kind: 'remote', url: 'https://example.com/active.hdr' },
       error: 'Unable to load environment',
-      settings: { backgroundMode: 'skybox', clearColor: '#17191d', rotation: 0, intensity: 2 },
+      settings: { backgroundMode: 'skybox', clearColor: '#17191d', rotation: 0, intensity: 2, blur: 0 },
     })
     expect(workspace.current().state.notices.at(-1)).toEqual({
       kind: 'error', scope: 'environment', message: 'Unable to load environment',
@@ -220,12 +220,13 @@ describe('WorkspaceProvider', () => {
     act(() => workspace.current().commands.setEnvironmentClearColor('#ABCDEF'))
     act(() => workspace.current().commands.setEnvironmentRotation(-90))
     act(() => workspace.current().commands.setEnvironmentIntensity(8))
+    act(() => workspace.current().commands.setEnvironmentBlur(2))
 
     expect(workspace.current().state.environment.settings).toEqual({
-      backgroundMode: 'skybox', clearColor: '#abcdef', rotation: 270, intensity: 4,
+      backgroundMode: 'skybox', clearColor: '#abcdef', rotation: 270, intensity: 4, blur: 1,
     })
     expect(viewer.updateEnvironment).toHaveBeenLastCalledWith({
-      backgroundMode: 'skybox', clearColor: '#abcdef', rotation: 270, intensity: 4,
+      backgroundMode: 'skybox', clearColor: '#abcdef', rotation: 270, intensity: 4, blur: 1,
     })
     expect(workspace.current().state.dirty).toEqual({ name: false, source: false, schema: false, values: false, portrait: false })
   })
@@ -239,9 +240,10 @@ describe('WorkspaceProvider', () => {
       workspace.current().commands.setEnvironmentRotation(90)
       workspace.current().commands.setEnvironmentIntensity(2)
       workspace.current().commands.setEnvironmentClearColor('#ABCDEF')
+      workspace.current().commands.setEnvironmentBlur(0.4)
     })
 
-    const expected = { backgroundMode: 'skybox' as const, clearColor: '#abcdef', rotation: 90, intensity: 2 }
+    const expected = { backgroundMode: 'skybox' as const, clearColor: '#abcdef', rotation: 90, intensity: 2, blur: 0.4 }
     expect(workspace.current().state.environment.settings).toEqual(expected)
     expect(viewer.updateEnvironment).toHaveBeenLastCalledWith(expected)
   })

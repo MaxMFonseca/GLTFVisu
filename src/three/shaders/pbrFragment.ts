@@ -200,6 +200,8 @@ void main() {
     + specularEnvironment * specularWeight
       * specularOcclusion(normalDotView, ambientOcclusion, roughness)
   ) * uEnvironmentIntensity * uEnvironmentContribution;
+  linearColor += baseColor.rgb * (1.0 - metallic) * uAmbientColor * uAmbientIntensity
+    * ambientOcclusion;
   vec3 emissive = uGltfEmissiveFactor * uGltfEmissiveIntensity;
   if (uGltfHasEmissiveMap) {
     vec2 emissiveUv = pbrTextureUv(uGltfEmissiveUvChannel, uGltfEmissiveUvTransform);

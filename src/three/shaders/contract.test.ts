@@ -214,6 +214,8 @@ describe('buildFragmentShader', () => {
       { id: 'normal-strength', type: 'float', uniformName: 'uNormalStrength', label: 'Normal strength', min: 0, max: 2, step: 0.01, defaultValue: 1 },
       { id: 'use-normal-map', type: 'boolean', uniformName: 'uUseNormalMap', label: 'Use normal map', defaultValue: true },
       { id: 'environment-contribution', type: 'float', uniformName: 'uEnvironmentContribution', label: 'Environment contribution', min: 0, max: 4, step: 0.01, defaultValue: 1 },
+      { id: 'ambient-color', type: 'color', uniformName: 'uAmbientColor', label: 'Ambient color', defaultValue: '#ffffff' },
+      { id: 'ambient-intensity', type: 'float', uniformName: 'uAmbientIntensity', label: 'Ambient intensity', min: 0, max: 2, step: 0.01, defaultValue: 0 },
     ]
 
     const built = buildFragmentShader(PBR_FRAGMENT_SOURCE, pbrDefinitions, 'gltf-pbr')
@@ -282,6 +284,7 @@ describe('buildFragmentShader', () => {
     expect(PBR_FRAGMENT_SOURCE).toMatch(/textureCubeUV\(uEnvironmentMap,\s*diffuseDirection,\s*1\.0\)/)
     expect(PBR_FRAGMENT_SOURCE).toMatch(/textureCubeUV\(uEnvironmentMap,\s*specularDirection,\s*roughness\)/)
     expect(PBR_FRAGMENT_SOURCE).toContain('uEnvironmentIntensity * uEnvironmentContribution')
+    expect(PBR_FRAGMENT_SOURCE).toContain('baseColor.rgb * (1.0 - metallic) * uAmbientColor * uAmbientIntensity')
     expect(PBR_FRAGMENT_SOURCE).toContain('toneMapping(linearColor)')
     expect(PBR_FRAGMENT_SOURCE).toContain('linearToOutputTexel')
     expect(PBR_FRAGMENT_SOURCE).toContain('outColor =')

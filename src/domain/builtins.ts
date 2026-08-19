@@ -32,11 +32,16 @@ const builtins: ShaderDefinition[] = [
   {
     id: 'builtin-unlit-color', name: 'Unlit Color', origin: 'builtin', portrait: { kind: 'bundled', url: unlitColorPortrait },
     fragmentSource: `void main() {
-  outColor = vec4(uColor, 1.0);
+  vec4 albedo = sampleGltfBaseColor();
+  if (uGltfAlphaCutoff > 0.0 && albedo.a < uGltfAlphaCutoff) discard;
+  vec3 color = albedo.rgb * (uColor + uAmbientColor * uAmbientIntensity);
+  outColor = vec4(color, albedo.a);
 }`,
     parameters: [
       { id: 'color', type: 'color', uniformName: 'uColor', label: 'Color', defaultValue: '#7aa2f7' },
-    ], materialInputProfile: 'none', parameterValues: { color: '#7aa2f7' }, schemaVersion: 2,
+      { id: 'ambient-color', type: 'color', uniformName: 'uAmbientColor', label: 'Ambient color', defaultValue: '#ffffff' },
+      { id: 'ambient-intensity', type: 'float', uniformName: 'uAmbientIntensity', label: 'Ambient intensity', min: 0, max: 2, step: 0.01, defaultValue: 0 },
+    ], materialInputProfile: 'gltf-surface', parameterValues: { color: '#7aa2f7', 'ambient-color': '#ffffff', 'ambient-intensity': 0 }, schemaVersion: 2,
   },
   {
     id: 'builtin-uv-grid', name: 'UV Grid', origin: 'builtin', portrait: { kind: 'bundled', url: uvGridPortrait },
@@ -67,13 +72,16 @@ const builtins: ShaderDefinition[] = [
   float bands = float(max(uBands, 1));
   float light = max(dot(normalize(vWorldNormal), normalize(vec3(0.4, 0.8, 0.6))), 0.0);
   float stepped = floor(light * bands) / bands;
-  outColor = vec4(albedo.rgb * mix(uShadowColor, uLightColor, stepped), albedo.a);
+  vec3 lighting = mix(uShadowColor, uLightColor, stepped) + uAmbientColor * uAmbientIntensity;
+  outColor = vec4(albedo.rgb * lighting, albedo.a);
 }`,
     parameters: [
       { id: 'bands', type: 'integer', uniformName: 'uBands', label: 'Bands', min: 1, max: 8, step: 1, defaultValue: 3 },
       { id: 'shadow-color', type: 'color', uniformName: 'uShadowColor', label: 'Shadow tint', defaultValue: '#18223b' },
       { id: 'light-color', type: 'color', uniformName: 'uLightColor', label: 'Light tint', defaultValue: '#f7c75f' },
-    ], materialInputProfile: 'gltf-surface', parameterValues: { bands: 3, 'shadow-color': '#18223b', 'light-color': '#f7c75f' }, schemaVersion: 2,
+      { id: 'ambient-color', type: 'color', uniformName: 'uAmbientColor', label: 'Ambient color', defaultValue: '#ffffff' },
+      { id: 'ambient-intensity', type: 'float', uniformName: 'uAmbientIntensity', label: 'Ambient intensity', min: 0, max: 2, step: 0.01, defaultValue: 0 },
+    ], materialInputProfile: 'gltf-surface', parameterValues: { bands: 3, 'shadow-color': '#18223b', 'light-color': '#f7c75f', 'ambient-color': '#ffffff', 'ambient-intensity': 0 }, schemaVersion: 2,
   },
   {
     id: 'builtin-pbr', name: 'PBR', origin: 'builtin', portrait: { kind: 'bundled', url: pbrPortrait },
@@ -87,6 +95,8 @@ const builtins: ShaderDefinition[] = [
       { id: 'normal-strength', type: 'float', uniformName: 'uNormalStrength', label: 'Normal strength', min: 0, max: 2, step: 0.01, defaultValue: 1 },
       { id: 'use-normal-map', type: 'boolean', uniformName: 'uUseNormalMap', label: 'Use normal map', defaultValue: true },
       { id: 'environment-contribution', type: 'float', uniformName: 'uEnvironmentContribution', label: 'Environment contribution', min: 0, max: 4, step: 0.01, defaultValue: 1 },
+      { id: 'ambient-color', type: 'color', uniformName: 'uAmbientColor', label: 'Ambient color', defaultValue: '#ffffff' },
+      { id: 'ambient-intensity', type: 'float', uniformName: 'uAmbientIntensity', label: 'Ambient intensity', min: 0, max: 2, step: 0.01, defaultValue: 0 },
     ],
     materialInputProfile: 'gltf-pbr',
     parameterValues: {
@@ -98,6 +108,8 @@ const builtins: ShaderDefinition[] = [
       'normal-strength': 1,
       'use-normal-map': true,
       'environment-contribution': 1,
+      'ambient-color': '#ffffff',
+      'ambient-intensity': 0,
     },
     schemaVersion: 2,
   },
