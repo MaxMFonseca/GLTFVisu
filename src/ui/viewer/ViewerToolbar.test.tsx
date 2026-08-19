@@ -155,6 +155,10 @@ describe('ViewerToolbar', () => {
     expect(trigger).toHaveAttribute('aria-controls', region.id)
     expect(screen.getByRole('radio', { name: 'Perspective' })).toBeChecked()
     expect(screen.getByLabelText('Field of view value')).toHaveValue(45)
+    expect(screen.getByLabelText('Near clipping plane')).toHaveAttribute('min', '0.001')
+    expect(screen.getByLabelText('Near clipping plane')).toHaveAttribute('max', '1')
+    expect(screen.getByLabelText('Far clipping plane')).toHaveAttribute('min', '1')
+    expect(screen.getByLabelText('Far clipping plane')).toHaveAttribute('max', '10000')
     expect(screen.queryByLabelText('Orthographic zoom value')).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('radio', { name: 'Orthographic' }))

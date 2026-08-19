@@ -5,6 +5,7 @@ import {
   Color,
   CubeReflectionMapping,
   CubeUVReflectionMapping,
+  EquirectangularReflectionMapping,
   DoubleSide,
   BufferGeometry,
   Group,
@@ -24,6 +25,7 @@ import {
   Vector3,
   type Object3D,
   type Camera,
+  type Scene,
 } from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import type { ShaderParameterDefinition } from '../domain/parameters'
@@ -113,8 +115,11 @@ function createHarness(
   })
   const canvas = document.createElement('canvas')
   const renderer: ViewerRenderer = {
+    autoClear: true,
     debug: { checkShaderErrors: true, onShaderError: null },
     domElement: canvas,
+    clear: vi.fn(),
+    clearDepth: vi.fn(),
     dispose: vi.fn(),
     getDrawingBufferSize: vi.fn((target: Vector2) => target.set(canvas.width, canvas.height)),
     render: vi.fn(),
@@ -246,6 +251,7 @@ describe('ViewerEngine', () => {
     harness.frames.values().next().value?.(0)
 
     const camera = vi.mocked(harness.renderer.render).mock.calls.at(-1)?.[1]
+    expect(harness.renderer.render).toHaveBeenCalledTimes(1)
     expect(camera).toBeInstanceOf(OrthographicCamera)
     expect((camera as OrthographicCamera).near).toBe(0.25)
     expect((camera as OrthographicCamera).far).toBe(250)
@@ -269,9 +275,67 @@ describe('ViewerEngine', () => {
     harness.frames.values().next().value?.(0)
 
     const camera = vi.mocked(harness.renderer.render).mock.calls.at(-1)?.[1] as PerspectiveCamera
-    expect(camera.near).toBe(0.0001)
-    expect(camera.far).toBeGreaterThan(camera.near)
+    expect(camera.near).toBe(0.001)
+    expect(camera.far).toBe(1)
     expect(camera.fov).toBe(179)
+  })
+
+  it('renders a textured orthographic background before the model with a perspective skybox camera', () => {
+    const harness = createHarness()
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    harness.frames.values().next().value?.(0)
+    const viewerScene = vi.mocked(harness.renderer.render).mock.calls.at(-1)?.[0] as Scene
+    const background = new Texture()
+    background.mapping = EquirectangularReflectionMapping
+    viewerScene.background = background
+    viewerScene.backgroundBlurriness = 0.4
+    viewerScene.backgroundIntensity = 2
+    viewerScene.backgroundRotation.y = 0.7
+    engine.updateCamera({ projection: 'orthographic', near: 0.001, far: 10000, fov: 45, zoom: 1 })
+    vi.mocked(harness.renderer.render).mockClear()
+    const renderedBackgrounds: Scene['background'][] = []
+    vi.mocked(harness.renderer.render).mockImplementation((scene) => {
+      renderedBackgrounds.push((scene as Scene).background)
+    })
+
+    harness.frames.values().next().value?.(0)
+
+    expect(harness.renderer.render).toHaveBeenCalledTimes(2)
+    const backgroundScene = vi.mocked(harness.renderer.render).mock.calls[0]?.[0] as Scene
+    expect(backgroundScene).not.toBe(viewerScene)
+    expect(backgroundScene.background).toBeNull()
+    expect(backgroundScene.backgroundBlurriness).toBe(0.4)
+    expect(backgroundScene.backgroundIntensity).toBe(2)
+    expect(backgroundScene.backgroundRotation.y).toBe(0.7)
+    expect(renderedBackgrounds).toEqual([background, null])
+    expect(vi.mocked(harness.renderer.render).mock.calls[0]?.[1]).toBeInstanceOf(PerspectiveCamera)
+    expect(vi.mocked(harness.renderer.render).mock.calls[1]).toEqual([viewerScene, expect.any(OrthographicCamera)])
+    expect(viewerScene.background).toBe(background)
+    expect(harness.renderer.clear).toHaveBeenCalledWith(true, true, true)
+    expect(harness.renderer.clearDepth).toHaveBeenCalledOnce()
+    expect(harness.renderer.autoClear).toBe(true)
+  })
+
+  it('restores scene and renderer state when the orthographic model pass throws', () => {
+    const harness = createHarness()
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    harness.frames.values().next().value?.(0)
+    const viewerScene = vi.mocked(harness.renderer.render).mock.calls.at(-1)?.[0] as Scene
+    const background = new Texture()
+    background.mapping = EquirectangularReflectionMapping
+    viewerScene.background = background
+    engine.updateCamera({ projection: 'orthographic', near: 0.001, far: 10000, fov: 45, zoom: 1 })
+    vi.mocked(harness.renderer.render)
+      .mockReset()
+      .mockImplementationOnce(() => undefined)
+      .mockImplementationOnce(() => { throw new Error('model render failed') })
+
+    expect(() => harness.frames.values().next().value?.(0)).toThrow('model render failed')
+
+    const backgroundScene = vi.mocked(harness.renderer.render).mock.calls[0]?.[0] as Scene
+    expect(viewerScene.background).toBe(background)
+    expect(backgroundScene.background).toBeNull()
+    expect(harness.renderer.autoClear).toBe(true)
   })
 
   it('fits an orthographic view from its current orbit direction', async () => {

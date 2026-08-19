@@ -78,8 +78,8 @@ export function CameraPopover({ commands }: CameraPopoverProps) {
           {settings.projection === 'orthographic' && (
             <CameraNumberControl label="Orthographic zoom" valueLabel="Orthographic zoom value" value={settings.zoom} min={0.01} max={100} step={0.01} onChange={(event) => updateNumber('zoom', event)} />
           )}
-          <CameraNumberControl label="Near clipping plane" valueLabel="Near clipping plane value" value={settings.near} min={0.0001} max={settings.far - 0.0001} step={0.01} onChange={(event) => updateNumber('near', event)} />
-          <CameraNumberControl label="Far clipping plane" valueLabel="Far clipping plane value" value={settings.far} min={settings.near + 0.0001} max={1_000_000_000} step={1} onChange={(event) => updateNumber('far', event)} />
+          <CameraNumberControl label="Near clipping plane" valueLabel="Near clipping plane value" value={settings.near} min={0.001} max={1} step={0.001} onChange={(event) => updateNumber('near', event)} />
+          <CameraNumberControl label="Far clipping plane" valueLabel="Far clipping plane value" value={settings.far} min={1} max={10_000} step={1} onChange={(event) => updateNumber('far', event)} />
         </div>
       )}
     </div>

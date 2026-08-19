@@ -16,15 +16,17 @@ export const DEFAULT_CAMERA_SETTINGS: Readonly<CameraSettings> = Object.freeze({
   zoom: 1,
 })
 
-const MIN_NEAR = 0.0001
-const MAX_FAR = 1_000_000_000
-const MIN_CLIP_SPAN = 0.0001
+const MIN_NEAR = 0.001
+const MAX_NEAR = 1
+const MIN_FAR = 1
+const MAX_FAR = 10_000
+const MIN_CLIP_SPAN = 0.001
 
 export function normalizeCameraSettings(settings: CameraSettings): CameraSettings {
-  const near = clamp(finiteOr(settings.near, DEFAULT_CAMERA_SETTINGS.near), MIN_NEAR, MAX_FAR - MIN_CLIP_SPAN)
+  const near = clamp(finiteOr(settings.near, DEFAULT_CAMERA_SETTINGS.near), MIN_NEAR, MAX_NEAR)
   const far = clamp(
-    Math.max(finiteOr(settings.far, DEFAULT_CAMERA_SETTINGS.far), near + MIN_CLIP_SPAN),
-    near + MIN_CLIP_SPAN,
+    Math.max(finiteOr(settings.far, DEFAULT_CAMERA_SETTINGS.far), MIN_FAR, near + MIN_CLIP_SPAN),
+    MIN_FAR,
     MAX_FAR,
   )
   return {

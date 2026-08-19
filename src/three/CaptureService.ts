@@ -15,6 +15,7 @@ export interface CaptureRenderer {
 export interface CaptureOptions {
   maxDimension?: number
   createCanvas?: () => HTMLCanvasElement
+  render?: () => void
 }
 
 export class CaptureError extends Error {
@@ -28,6 +29,7 @@ export class CaptureError extends Error {
 export class CaptureService {
   private readonly maxDimension: number
   private readonly createCanvas: () => HTMLCanvasElement
+  private readonly renderView?: () => void
 
   constructor(
     private readonly renderer: CaptureRenderer,
@@ -37,13 +39,18 @@ export class CaptureService {
   ) {
     this.maxDimension = Math.max(1, Math.floor(options.maxDimension ?? 512))
     this.createCanvas = options.createCanvas ?? (() => document.createElement('canvas'))
+    this.renderView = options.render
   }
 
   async capture(): Promise<CapturedImage> {
     const source = this.renderer.domElement
     if (source.width < 1 || source.height < 1) throw new CaptureError('Viewer canvas is empty')
 
-    this.renderer.render(this.scene, typeof this.camera === 'function' ? this.camera() : this.camera)
+    if (this.renderView === undefined) {
+      this.renderer.render(this.scene, typeof this.camera === 'function' ? this.camera() : this.camera)
+    } else {
+      this.renderView()
+    }
     const scale = Math.min(1, this.maxDimension / source.width, this.maxDimension / source.height)
     const width = Math.max(1, Math.round(source.width * scale))
     const height = Math.max(1, Math.round(source.height * scale))

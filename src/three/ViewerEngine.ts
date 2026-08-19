@@ -86,7 +86,10 @@ export interface ModelLoaderPort {
 }
 
 export interface ViewerRenderer extends ShaderValidationRenderer {
+  autoClear: boolean
   domElement: HTMLCanvasElement
+  clear(color?: boolean, depth?: boolean, stencil?: boolean): void
+  clearDepth(): void
   dispose(): void
   getDrawingBufferSize(target: Vector2): Vector2
   setPixelRatio(value: number): void
@@ -150,7 +153,12 @@ export interface ViewerEngineDependencies {
     profile: MaterialInputProfile,
     binding: EnvironmentBinding,
   ) => MaterialVariantFactory
-  createCapture?: (renderer: ViewerRenderer, scene: Scene, getCamera: () => Camera) => CapturePort
+  createCapture?: (
+    renderer: ViewerRenderer,
+    scene: Scene,
+    getCamera: () => Camera,
+    render: () => void,
+  ) => CapturePort
   createAnimation?: (root: Object3D, clips: readonly AnimationClip[]) => AnimationPort
   createTextureRegistry?: (root: Object3D) => Promise<ModelTextureRegistry>
   loader?: ModelLoaderPort
@@ -196,6 +204,8 @@ interface PendingMaterialRuntime {
 /** Imperative owner of the complete Three viewer lifecycle. */
 export class ViewerEngine implements ViewerPort {
   private readonly scene = createViewerScene()
+  private readonly backgroundScene = new Scene()
+  private readonly backgroundCamera = new PerspectiveCamera(50, 1, 0.1, 10)
   private readonly perspectiveCamera = new PerspectiveCamera(45, 1, 0.01, 1000)
   private readonly orthographicCamera = new OrthographicCamera(-1, 1, 1, -1, 0.01, 1000)
   private activeCamera: PerspectiveCamera | OrthographicCamera = this.perspectiveCamera
@@ -232,6 +242,7 @@ export class ViewerEngine implements ViewerPort {
   private criticalMutation = false
   private disposalRequested = false
   private disposed = false
+  private readonly renderActiveScene = (): void => this.renderScene(this.scene, this.activeCamera)
 
   constructor(
     private readonly host: HTMLElement,
@@ -255,8 +266,12 @@ export class ViewerEngine implements ViewerPort {
       ?? new EnvironmentService(this.renderer as WebGLRenderer, this.scene)
     this.createVariantFactory = dependencies.createVariantFactory
     const getActiveCamera = () => this.activeCamera
-    this.capture = dependencies.createCapture?.(this.renderer, this.scene, getActiveCamera)
-      ?? new CaptureService(this.renderer, this.scene, getActiveCamera)
+    this.capture = dependencies.createCapture?.(
+      this.renderer,
+      this.scene,
+      getActiveCamera,
+      this.renderActiveScene,
+    ) ?? new CaptureService(this.renderer, this.scene, getActiveCamera, { render: this.renderActiveScene })
     this.clock = dependencies.clock ?? new Clock()
     this.createAnimation = dependencies.createAnimation ?? ((root, clips) => new AnimationController(root, clips))
     this.createTextureRegistry = dependencies.createTextureRegistry ?? ((root) => ModelTextureRegistry.create(root))
@@ -329,7 +344,7 @@ export class ViewerEngine implements ViewerPort {
     fit.near = Math.max(1e-6, fit.near - originalDistance * (1 - portraitScale))
     this.applyFit(fit)
     this.activeCamera.lookAt(fit.target)
-    this.renderer.render(this.scene, this.activeCamera)
+    this.renderActiveScene()
   }
 
   updateCamera(settings: CameraSettings): void {
@@ -468,6 +483,37 @@ export class ViewerEngine implements ViewerPort {
     this.controls.saveState()
   }
 
+  private renderScene(scene: Scene, camera: PerspectiveCamera | OrthographicCamera): void {
+    const background = scene.background
+    if (!(camera instanceof OrthographicCamera) || background === null || background instanceof Color) {
+      this.renderer.render(scene, camera)
+      return
+    }
+
+    this.backgroundCamera.position.copy(camera.position)
+    this.backgroundCamera.quaternion.copy(camera.quaternion)
+    this.backgroundCamera.aspect = this.viewportAspect
+    this.backgroundCamera.updateProjectionMatrix()
+    this.backgroundScene.background = background
+    this.backgroundScene.backgroundBlurriness = scene.backgroundBlurriness
+    this.backgroundScene.backgroundIntensity = scene.backgroundIntensity
+    this.backgroundScene.backgroundRotation.copy(scene.backgroundRotation)
+
+    const autoClear = this.renderer.autoClear
+    scene.background = null
+    this.renderer.autoClear = false
+    try {
+      this.renderer.clear(true, true, true)
+      this.renderer.render(this.backgroundScene, this.backgroundCamera)
+      this.renderer.clearDepth()
+      this.renderer.render(scene, camera)
+    } finally {
+      scene.background = background
+      this.backgroundScene.background = null
+      this.renderer.autoClear = autoClear
+    }
+  }
+
   dispose(): void {
     if (this.disposed || this.disposalRequested) return
     if (this.criticalMutation) {
@@ -519,7 +565,7 @@ export class ViewerEngine implements ViewerPort {
     this.controls.update(delta)
     this.animation?.update(delta)
     this.updateFrameUniforms()
-    this.renderer.render(this.scene, this.activeCamera)
+    this.renderActiveScene()
     if (!this.disposed) this.frameHandle = this.requestFrame(this.frame)
   }
 
@@ -551,7 +597,7 @@ export class ViewerEngine implements ViewerPort {
       const prepared = current.override.prepare(material)
       return this.trackPendingMaterialRuntime({
         validate: (validateRender) => prepared.run(
-          () => validateRender(() => this.renderer.render(this.scene, this.activeCamera)),
+          () => validateRender(this.renderActiveScene),
         ),
         commit: () => prepared.commit(),
         dispose: () => prepared.dispose(),
@@ -573,7 +619,7 @@ export class ViewerEngine implements ViewerPort {
 
     return this.trackPendingMaterialRuntime({
       validate: (validateRender) => prepared.run(
-        () => validateRender(() => this.renderer.render(this.scene, this.activeCamera)),
+        () => validateRender(this.renderActiveScene),
       ),
       commit: () => {
         prepared.commit()
@@ -763,7 +809,7 @@ export class ViewerEngine implements ViewerPort {
   private renderCandidateModel(root: Object3D): void {
     try {
       this.scene.add(root)
-      this.renderer.render(this.scene, this.activeCamera)
+      this.renderActiveScene()
     } finally {
       if (root.parent === this.scene) this.scene.remove(root)
     }

@@ -86,4 +86,19 @@ describe('CaptureService', () => {
 
     expect(renderer.render).toHaveBeenCalledWith(expect.any(Scene), activeCamera)
   })
+
+  it('uses an injected viewer render path before copying the canvas', async () => {
+    const renderer: CaptureRenderer = { domElement: rendererCanvas(10, 10), render: vi.fn() }
+    const output = outputCanvas([new Blob(['webp'], { type: 'image/webp' })])
+    const renderViewer = vi.fn()
+    const capture = new CaptureService(renderer, new Scene(), new PerspectiveCamera(), {
+      createCanvas: () => output.canvas,
+      render: renderViewer,
+    })
+
+    await capture.capture()
+
+    expect(renderViewer).toHaveBeenCalledOnce()
+    expect(renderer.render).not.toHaveBeenCalled()
+  })
 })
