@@ -191,21 +191,34 @@ button:disabled {
 }
 
 .model-drop-zone {
+  background: transparent;
   border: 1px dashed var(--color-neutral-300);
   border-radius: 0.3rem;
+  color: var(--color-neutral-900);
+  cursor: pointer;
+  display: block;
+  font: inherit;
   margin-top: var(--space-3);
   padding: var(--space-3);
   text-align: center;
+  width: 100%;
 }
 
-.model-drop-zone p,
-.model-drop-zone span {
+.model-drop-zone-main,
+.model-drop-zone-note {
+  display: block;
   font-size: var(--font-size-xs);
   margin: 0;
 }
 
-.model-drop-zone span {
+.model-drop-zone-note {
   color: var(--color-neutral-500);
+}
+
+.model-drop-zone:focus-visible {
+  border-color: var(--color-accent);
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
 .selected-files {
