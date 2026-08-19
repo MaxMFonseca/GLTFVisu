@@ -39,7 +39,9 @@ function repository(): ShaderRepository {
 
 function viewer(): ViewerPort {
   return {
-    loadModel: vi.fn(async () => ({ name: 'model.glb', meshCount: 1, animationClips: [] })),
+    loadModel: vi.fn(async () => ({ name: 'model.glb', meshCount: 1, animationClips: [], textureSlots: [] })),
+    replaceModelTexture: vi.fn(async () => []),
+    restoreModelTexture: vi.fn(async () => []),
     fitModel: vi.fn(),
     resize: vi.fn(),
     compileShader: vi.fn(async () => ({ status: 'valid' as const, generation: 1 })),

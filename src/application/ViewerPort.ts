@@ -1,6 +1,7 @@
 import type { ShaderParameterDefinition, ShaderParameterValue } from '../domain/parameters'
 import type { ShaderDraft, ShaderPortrait } from '../domain/shader'
 import type { EnvironmentDisplaySettings, EnvironmentLoadSource } from '../domain/environment'
+import type { ModelTextureSlotInfo } from '../three/modelTextures/ModelTextureRegistry'
 
 export interface CompileDiagnostic {
   severity: 'error' | 'warning'
@@ -22,11 +23,14 @@ export interface ModelInfo {
   name: string
   meshCount: number
   animationClips: readonly AnimationClipInfo[]
+  textureSlots: readonly ModelTextureSlotInfo[]
 }
 
 /** Application-facing boundary for the imperative viewer runtime. */
 export interface ViewerPort {
   loadModel(files: File[], root: File): Promise<ModelInfo>
+  replaceModelTexture(slotId: string, file: File): Promise<readonly ModelTextureSlotInfo[]>
+  restoreModelTexture(slotId: string): Promise<readonly ModelTextureSlotInfo[]>
   fitModel(): void
   resize(): void
   compileShader(draft: ShaderDraft): Promise<CompileResult>

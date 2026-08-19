@@ -18,7 +18,9 @@ describe('shader workspace shell', () => {
       delete: vi.fn(async () => undefined),
     }
     const engine: ViewerPort = {
-      loadModel: vi.fn(async (_files, root) => ({ name: root.name, meshCount: 1, animationClips: [] })),
+      loadModel: vi.fn(async (_files, root) => ({ name: root.name, meshCount: 1, animationClips: [], textureSlots: [] })),
+      replaceModelTexture: vi.fn(async () => []),
+      restoreModelTexture: vi.fn(async () => []),
       fitModel: vi.fn(),
       resize: vi.fn(),
       compileShader: vi.fn(async () => ({ status: 'valid' as const, generation: 1 })),
@@ -53,7 +55,9 @@ describe('shader workspace shell', () => {
   it('hydrates and runs commands with one viewer through a Strict Mode probe', async () => {
     const user = userEvent.setup()
     const engine: ViewerPort = {
-      loadModel: vi.fn(async (_files, root) => ({ name: root.name, meshCount: 1, animationClips: [] })),
+      loadModel: vi.fn(async (_files, root) => ({ name: root.name, meshCount: 1, animationClips: [], textureSlots: [] })),
+      replaceModelTexture: vi.fn(async () => []),
+      restoreModelTexture: vi.fn(async () => []),
       fitModel: vi.fn(),
       resize: vi.fn(),
       compileShader: vi.fn(async () => ({ status: 'valid' as const, generation: 1 })),
@@ -102,7 +106,9 @@ describe('shader workspace shell', () => {
       delete: vi.fn(async () => undefined),
     }
     const engines = [0, 1].map((): ViewerPort => ({
-      loadModel: vi.fn(async (_files, root) => ({ name: root.name, meshCount: 1, animationClips: [] })),
+      loadModel: vi.fn(async (_files, root) => ({ name: root.name, meshCount: 1, animationClips: [], textureSlots: [] })),
+      replaceModelTexture: vi.fn(async () => []),
+      restoreModelTexture: vi.fn(async () => []),
       fitModel: vi.fn(),
       resize: vi.fn(),
       compileShader: vi.fn(async () => ({ status: 'valid' as const, generation: 1 })),

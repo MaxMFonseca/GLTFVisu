@@ -37,6 +37,11 @@ import { disposeObjectTree } from './disposeObject'
 import { EnvironmentService } from './EnvironmentService'
 import { GltfAssetLoader, ModelLoadError } from './GltfAssetLoader'
 import { isMaterialRenderable, MaterialOverride } from './MaterialOverride'
+import {
+  ModelTextureRegistry,
+  type ModelTextureMutation,
+  type ModelTextureSlotInfo,
+} from './modelTextures/ModelTextureRegistry'
 import { createGltfPbrBindingOwner, type EnvironmentShaderMaterial } from './materialBindings/GltfPbrBinding'
 import { createGltfSurfaceBindingOwner } from './materialBindings/GltfSurfaceBinding'
 import {
@@ -139,6 +144,7 @@ export interface ViewerEngineDependencies {
   ) => MaterialVariantFactory
   createCapture?: (renderer: ViewerRenderer, scene: Scene, camera: PerspectiveCamera) => CapturePort
   createAnimation?: (root: Object3D, clips: readonly AnimationClip[]) => AnimationPort
+  createTextureRegistry?: (root: Object3D) => Promise<ModelTextureRegistry>
   loader?: ModelLoaderPort
   clock?: ClockPort
   requestAnimationFrame?: (callback: FrameRequestCallback) => number
@@ -194,6 +200,7 @@ export class ViewerEngine implements ViewerPort {
   private readonly requestFrame: (callback: FrameRequestCallback) => number
   private readonly cancelFrame: (handle: number) => void
   private readonly createAnimation: (root: Object3D, clips: readonly AnimationClip[]) => AnimationPort
+  private readonly createTextureRegistry: (root: Object3D) => Promise<ModelTextureRegistry>
   private readonly createVariantFactory?: ViewerEngineDependencies['createVariantFactory']
   private readonly drawingBufferSize = new Vector2()
   private readonly pendingMaterialRuntimes = new Set<PendingMaterialRuntime>()
@@ -202,10 +209,12 @@ export class ViewerEngine implements ViewerPort {
   private loadAbort?: AbortController
   private loadGeneration = 0
   private compileGeneration = 0
+  private textureMutationGeneration = 0
   private environmentGeneration = 0
   private modelRoot?: Object3D
   private modelMaterials?: ModelMaterialSnapshot
   private materialRuntime?: ProfileMaterialRuntime
+  private textureRegistry?: ModelTextureRegistry
   private animation?: AnimationPort
   private criticalMutation = false
   private disposalRequested = false
@@ -235,6 +244,7 @@ export class ViewerEngine implements ViewerPort {
       ?? new CaptureService(this.renderer, this.scene, this.camera)
     this.clock = dependencies.clock ?? new Clock()
     this.createAnimation = dependencies.createAnimation ?? ((root, clips) => new AnimationController(root, clips))
+    this.createTextureRegistry = dependencies.createTextureRegistry ?? ((root) => ModelTextureRegistry.create(root))
     this.requestFrame = dependencies.requestAnimationFrame ?? ((callback) => window.requestAnimationFrame(callback))
     this.cancelFrame = dependencies.cancelAnimationFrame ?? ((handle) => window.cancelAnimationFrame(handle))
     this.observer = dependencies.createResizeObserver?.(this.resize)
@@ -258,7 +268,21 @@ export class ViewerEngine implements ViewerPort {
         disposeObjectTree(loaded.scene)
         throw new ModelLoadError('aborted', 'Model loading was superseded')
       }
-      const info = this.installModel(loaded, root.name)
+      let textureRegistry: ModelTextureRegistry
+      try {
+        textureRegistry = await this.createTextureRegistry(loaded.scene)
+      } catch (error) {
+        disposeObjectTree(loaded.scene)
+        throw error
+      }
+      if (this.disposed || generation !== this.loadGeneration) {
+        runBestEffortCleanup([
+          () => textureRegistry.dispose(),
+          () => disposeObjectTree(loaded.scene),
+        ])
+        throw new ModelLoadError('aborted', 'Model loading was superseded')
+      }
+      const info = this.installModel(loaded, root.name, textureRegistry)
       if (this.disposalRequested) {
         this.performDispose()
         throw new ModelLoadError('aborted', 'Model loading was interrupted by viewer disposal')
@@ -300,6 +324,14 @@ export class ViewerEngine implements ViewerPort {
 
   updateParameter(definition: ShaderParameterDefinition, value: ShaderParameterValue): void {
     if (!this.disposed) this.compiler.updateParameter(definition, value)
+  }
+
+  async replaceModelTexture(slotId: string, file: File): Promise<readonly ModelTextureSlotInfo[]> {
+    return this.mutateModelTexture((registry) => registry.prepareReplace(slotId, file))
+  }
+
+  async restoreModelTexture(slotId: string): Promise<readonly ModelTextureSlotInfo[]> {
+    return this.mutateModelTexture((registry) => registry.prepareRestore(slotId))
   }
 
   async loadEnvironment(source: EnvironmentLoadSource): Promise<void> {
@@ -451,11 +483,19 @@ export class ViewerEngine implements ViewerPort {
     }, root, current, compileGeneration, () => replacement.bindingOwner?.dispose())
   }
 
-  private installModel(loaded: LoadedModel, name: string): ModelInfo {
-    return this.runCriticalMutation(() => this.commitModel(loaded, name))
+  private installModel(
+    loaded: LoadedModel,
+    name: string,
+    textureRegistry: ModelTextureRegistry,
+  ): ModelInfo {
+    return this.runCriticalMutation(() => this.commitModel(loaded, name, textureRegistry))
   }
 
-  private commitModel(loaded: LoadedModel, name: string): ModelInfo {
+  private commitModel(
+    loaded: LoadedModel,
+    name: string,
+    textureRegistry: ModelTextureRegistry,
+  ): ModelInfo {
     const prepared = (() => {
       let runtime: ProfileMaterialRuntime | undefined
       let animation: AnimationPort | undefined
@@ -481,10 +521,13 @@ export class ViewerEngine implements ViewerPort {
         const fit = fitFor(loaded.scene, this.camera, this.controls.target)
         return { runtime, animation, fit, materials }
       } catch (error) {
-        runtime?.override.dispose()
-        animation?.dispose()
-        runtime?.bindingOwner?.dispose()
-        disposeObjectTree(loaded.scene)
+        runBestEffortCleanup([
+          () => runtime?.override.dispose(),
+          () => animation?.dispose(),
+          () => runtime?.bindingOwner?.dispose(),
+          () => textureRegistry.dispose(),
+          () => disposeObjectTree(loaded.scene),
+        ])
         throw error
       }
     })()
@@ -498,13 +541,14 @@ export class ViewerEngine implements ViewerPort {
     const previousRoot = this.modelRoot
     const previousRuntime = this.materialRuntime
     const previousAnimation = this.animation
+    const previousTextureRegistry = this.textureRegistry
     const cameraState = snapshotCamera(this.camera, this.controls)
 
     try {
       applyCameraFit(this.camera, this.controls, fit)
     } catch (error) {
       restoreCamera(this.camera, this.controls, cameraState)
-      disposePreparedModel(loaded.scene, nextRuntime, nextAnimation)
+      disposePreparedModel(loaded.scene, nextRuntime, nextAnimation, textureRegistry)
       throw error
     }
 
@@ -515,7 +559,7 @@ export class ViewerEngine implements ViewerPort {
       if (loaded.scene.parent === this.scene) this.scene.remove(loaded.scene)
       if (previousRoot !== undefined && previousRoot.parent !== this.scene) this.scene.add(previousRoot)
       restoreCamera(this.camera, this.controls, cameraState)
-      disposePreparedModel(loaded.scene, nextRuntime, nextAnimation)
+      disposePreparedModel(loaded.scene, nextRuntime, nextAnimation, textureRegistry)
       throw error
     }
 
@@ -523,6 +567,7 @@ export class ViewerEngine implements ViewerPort {
     this.modelRoot = loaded.scene
     this.modelMaterials = nextMaterials
     this.materialRuntime = nextRuntime
+    this.textureRegistry = textureRegistry
     this.animation = nextAnimation
 
     if (previousRoot !== undefined) {
@@ -530,6 +575,7 @@ export class ViewerEngine implements ViewerPort {
         () => previousRuntime?.override.dispose(),
         () => previousAnimation?.dispose(),
         () => previousRuntime?.bindingOwner?.dispose(),
+        () => previousTextureRegistry?.dispose(),
         () => disposeObjectTree(previousRoot),
       ])
     }
@@ -538,6 +584,7 @@ export class ViewerEngine implements ViewerPort {
       name,
       meshCount: countMaterialRenderables(loaded.scene),
       animationClips: nextAnimation.clips.map((clip) => ({ ...clip })),
+      textureSlots: textureRegistry.list(),
     }
     notify(this.events.onModelInfo, info)
     this.emitAnimationState()
@@ -551,6 +598,59 @@ export class ViewerEngine implements ViewerPort {
       selectedClipId: this.animation.selectedClipId,
       playing: this.animation.playing,
     })
+  }
+
+  private async mutateModelTexture(
+    prepare: (registry: ModelTextureRegistry) => ModelTextureMutation | Promise<ModelTextureMutation>,
+  ): Promise<readonly ModelTextureSlotInfo[]> {
+    this.assertMutationAvailable()
+    this.assertActive()
+    const registry = this.textureRegistry
+    const root = this.modelRoot
+    const runtime = this.materialRuntime
+    if (registry === undefined || root === undefined || runtime === undefined) {
+      throw new Error('No model is loaded')
+    }
+    const generation = ++this.textureMutationGeneration
+    const mutation = await prepare(registry)
+    if (
+      this.disposed
+      || this.disposalRequested
+      || generation !== this.textureMutationGeneration
+      || registry !== this.textureRegistry
+      || root !== this.modelRoot
+      || runtime !== this.materialRuntime
+    ) {
+      runBestEffortCleanup([() => mutation.rollback()])
+      this.assertActive()
+      throw new Error('Model texture mutation is stale')
+    }
+
+    try {
+      return this.runCriticalMutation(() => {
+        const material = this.compiler.material
+        let preparedOverride: ReturnType<MaterialOverride['prepare']> | undefined
+        try {
+          this.compileGeneration += 1
+          this.disposePendingMaterialRuntimes()
+          mutation.apply()
+          if (material !== undefined) {
+            preparedOverride = runtime.override.prepare(material)
+            preparedOverride.commit()
+          }
+          mutation.commit()
+          return registry.list()
+        } catch (error) {
+          runBestEffortCleanup([
+            () => preparedOverride?.dispose(),
+            () => mutation.rollback(),
+          ])
+          throw error
+        }
+      })
+    } finally {
+      this.flushDeferredDisposal()
+    }
   }
 
   private renderCandidateModel(root: Object3D): void {
@@ -729,9 +829,11 @@ export class ViewerEngine implements ViewerPort {
     const root = this.modelRoot
     const runtime = this.materialRuntime
     const animation = this.animation
+    const textureRegistry = this.textureRegistry
     this.modelRoot = undefined
     this.modelMaterials = undefined
     this.materialRuntime = undefined
+    this.textureRegistry = undefined
     this.animation = undefined
     if (root === undefined) return
     runBestEffortCleanup([
@@ -739,6 +841,7 @@ export class ViewerEngine implements ViewerPort {
       () => runtime?.override.dispose(),
       () => animation?.dispose(),
       () => runtime?.bindingOwner?.dispose(),
+      () => textureRegistry?.dispose(),
       () => disposeObjectTree(root),
     ])
   }
@@ -835,11 +938,13 @@ function disposePreparedModel(
   root: Object3D,
   runtime: ProfileMaterialRuntime,
   animation: AnimationPort,
+  textureRegistry: ModelTextureRegistry,
 ): void {
   runBestEffortCleanup([
     () => runtime.override.dispose(),
     () => animation.dispose(),
     () => runtime.bindingOwner?.dispose(),
+    () => textureRegistry.dispose(),
     () => disposeObjectTree(root),
   ])
 }

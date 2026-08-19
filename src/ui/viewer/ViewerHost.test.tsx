@@ -29,10 +29,12 @@ function deferred<T>() {
 }
 
 function createViewer(loadModel: ViewerPort['loadModel'] = vi.fn(async (_files, root) => ({
-  name: root.name, meshCount: 1, animationClips: [],
+  name: root.name, meshCount: 1, animationClips: [], textureSlots: [],
 }))): ViewerPort {
   return {
     loadModel,
+    replaceModelTexture: vi.fn(async () => []),
+    restoreModelTexture: vi.fn(async () => []),
     fitModel: vi.fn(),
     resize: vi.fn(),
     compileShader: vi.fn(async () => ({ status: 'valid' as const, generation: 1 })),
@@ -109,7 +111,12 @@ describe('ViewerHost', () => {
 
   it('shows loading and recoverable model errors outside the canvas host', async () => {
     const user = userEvent.setup()
-    const load = deferred<{ name: string; meshCount: number; animationClips: readonly { id: string; label: string }[] }>()
+    const load = deferred<{
+      name: string
+      meshCount: number
+      animationClips: readonly { id: string; label: string }[]
+      textureSlots: []
+    }>()
     const modelViewer = createViewer(vi.fn(() => load.promise))
     const mount: ViewerMountFactory = () => ({ dispose: vi.fn() })
     render(
