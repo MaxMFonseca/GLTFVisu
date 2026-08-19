@@ -1,16 +1,23 @@
 import {
+  BoxGeometry,
   Color,
   DataTexture,
+  Group,
   LineBasicMaterial,
   Material,
   Matrix3,
+  Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  NoColorSpace,
   PointsMaterial,
   ShaderMaterial,
+  SRGBColorSpace,
   Texture,
 } from 'three'
 import { describe, expect, it, vi } from 'vitest'
+import { MaterialOverride } from '../MaterialOverride'
+import { buildFragmentShader } from '../shaders/contract'
 import { createGltfSurfaceBindingOwner } from './GltfSurfaceBinding'
 
 describe('createGltfSurfaceBindingOwner', () => {
@@ -42,7 +49,7 @@ describe('createGltfSurfaceBindingOwner', () => {
     const template = new ShaderMaterial({ uniforms: { uBands: { value: 3 } } })
     const owner = createGltfSurfaceBindingOwner()
 
-    const firstVariant = owner.createVariant(first, template)
+    const firstVariant = owner.createVariant(first, template, { hasUv1: true })
     const secondVariant = owner.createVariant(second, template)
 
     expect(firstVariant).not.toBe(secondVariant)
@@ -142,5 +149,62 @@ describe('createGltfSurfaceBindingOwner', () => {
     owner.dispose()
 
     expect(disposeMap).not.toHaveBeenCalled()
+  })
+
+  it('preserves texture color-space transfer and leaves sampled alpha untouched', () => {
+    const srgbMap = new Texture()
+    srgbMap.colorSpace = SRGBColorSpace
+    const untaggedMap = new Texture()
+    untaggedMap.colorSpace = NoColorSpace
+    const owner = createGltfSurfaceBindingOwner()
+    const srgbVariant = owner.createVariant(new MeshStandardMaterial({ map: srgbMap }), new ShaderMaterial())
+    const untaggedVariant = owner.createVariant(
+      new MeshStandardMaterial({ map: untaggedMap }),
+      new ShaderMaterial(),
+    )
+    const fragmentSource = buildFragmentShader(
+      'void main() { outColor = sampleGltfBaseColor(); }',
+      [],
+      'gltf-surface',
+    ).source
+
+    expect(srgbVariant.uniforms.uGltfBaseColorMap.value).toBe(srgbMap)
+    expect(untaggedVariant.uniforms.uGltfBaseColorMap.value).toBe(untaggedMap)
+    expect(srgbMap.colorSpace).toBe(SRGBColorSpace)
+    expect(untaggedMap.colorSpace).toBe(NoColorSpace)
+    expect(fragmentSource).not.toContain('gltfSrgbToLinear')
+    expect(fragmentSource).not.toContain('sRGBTransferEOTF')
+    expect(fragmentSource).toContain(
+      'return vec4(uGltfBaseColorFactor * texel.rgb, uGltfBaseColorOpacity * texel.a);',
+    )
+  })
+
+  it('uses UV0 for a channel-1 map when shared-material geometry lacks uv1', () => {
+    const map = new Texture()
+    map.channel = 1
+    const original = new MeshStandardMaterial({ map })
+    const withoutUv1A = new Mesh(new BoxGeometry(), original)
+    const withoutUv1B = new Mesh(new BoxGeometry(), original)
+    const withUv1Geometry = new BoxGeometry()
+    withUv1Geometry.setAttribute('uv1', withUv1Geometry.getAttribute('uv').clone())
+    const withUv1 = new Mesh(withUv1Geometry, original)
+    const root = new Group().add(withoutUv1A, withoutUv1B, withUv1)
+    const owner = createGltfSurfaceBindingOwner()
+    const override = new MaterialOverride(root, owner.createVariant)
+
+    override.apply(new ShaderMaterial())
+
+    const withoutUv1Variant = withoutUv1A.material as unknown as ShaderMaterial
+    const repeatedCompatibleVariant = withoutUv1B.material as unknown as ShaderMaterial
+    const withUv1Variant = withUv1.material as unknown as ShaderMaterial
+    expect(withoutUv1Variant).toBe(repeatedCompatibleVariant)
+    expect(withoutUv1Variant).not.toBe(withUv1Variant)
+    expect(withoutUv1Variant.uniforms.uGltfBaseColorUvChannel.value).toBe(0)
+    expect(withoutUv1Variant.defines?.USE_UV1).toBeUndefined()
+    expect(withUv1Variant.uniforms.uGltfBaseColorUvChannel.value).toBe(1)
+    expect(withUv1Variant.defines?.USE_UV1).toBe('')
+    expect(withoutUv1Variant.uniforms.uGltfBaseColorMap.value).toBe(map)
+    expect(withUv1Variant.uniforms.uGltfBaseColorMap.value).toBe(map)
+    expect(override.materials).toHaveLength(2)
   })
 })

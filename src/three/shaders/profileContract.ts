@@ -19,20 +19,12 @@ const surfaceDeclarations = Object.freeze(GLTF_SURFACE_CONTRACT_IDENTIFIERS.map(
   (identifier) => `uniform ${GLTF_SURFACE_UNIFORM_TYPES[identifier]} ${identifier};`,
 ))
 
-const SURFACE_HELPERS = /* glsl */ `vec3 gltfSrgbToLinear(vec3 value) {
-  bvec3 cutoff = lessThanEqual(value, vec3(0.04045));
-  vec3 lower = value / 12.92;
-  vec3 higher = pow((value + 0.055) / 1.055, vec3(2.4));
-  return mix(higher, lower, cutoff);
-}
-
-vec4 sampleGltfBaseColor() {
+const SURFACE_HELPERS = /* glsl */ `vec4 sampleGltfBaseColor() {
   vec2 sourceUv = uGltfBaseColorUvChannel == 1 ? vGltfUv1 : vUv;
   vec2 transformedUv = (uGltfBaseColorUvTransform * vec3(sourceUv, 1.0)).xy;
   vec4 texel = uGltfHasBaseColorMap
     ? texture(uGltfBaseColorMap, transformedUv)
     : vec4(1.0);
-  if (uGltfHasBaseColorMap) texel.rgb = gltfSrgbToLinear(texel.rgb);
   return vec4(uGltfBaseColorFactor * texel.rgb, uGltfBaseColorOpacity * texel.a);
 }`
 

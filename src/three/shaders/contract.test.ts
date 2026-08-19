@@ -153,7 +153,8 @@ describe('buildFragmentShader', () => {
     }
     expect(built.source.split('in vec2 vGltfUv1;')).toHaveLength(2)
     expect(built.source).toContain('vec4 sampleGltfBaseColor()')
-    expect(built.source).toContain('gltfSrgbToLinear(texel.rgb)')
+    expect(built.source).not.toContain('gltfSrgbToLinear')
+    expect(built.source).not.toContain('sRGBTransferEOTF')
     expect(built.source).toContain('uGltfBaseColorOpacity * texel.a')
     expect(built.source.endsWith(toon.fragmentSource)).toBe(true)
     expect(built.source.split('\n')[built.injectedLineCount - 1]).toBe('#line 1 1')
