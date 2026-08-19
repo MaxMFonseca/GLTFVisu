@@ -8,6 +8,7 @@ export interface EnvironmentDisplaySettings {
   clearColor: string
   rotation: number
   intensity: number
+  blur: number
 }
 
 export interface WorkspaceEnvironmentState {
@@ -32,6 +33,7 @@ export const DEFAULT_ENVIRONMENT_DISPLAY_SETTINGS: EnvironmentDisplaySettings = 
   clearColor: '#17191d',
   rotation: 0,
   intensity: 1,
+  blur: 0,
 }
 
 export const ENVIRONMENT_LOAD_ERROR_MESSAGE = 'Unable to load environment'
@@ -78,4 +80,9 @@ export function normalizeEnvironmentRotation(value: number): number | undefined 
 export function normalizeEnvironmentIntensity(value: number): number | undefined {
   if (!Number.isFinite(value)) return undefined
   return Math.min(4, Math.max(0, value))
+}
+
+export function normalizeEnvironmentBlur(value: number): number | undefined {
+  if (!Number.isFinite(value)) return undefined
+  return Math.min(1, Math.max(0, value))
 }

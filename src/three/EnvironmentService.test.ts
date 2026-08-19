@@ -61,6 +61,7 @@ function settings(overrides: Partial<EnvironmentDisplaySettings> = {}): Environm
     clearColor: '#17191d',
     rotation: 0,
     intensity: 1,
+    blur: 0,
     ...overrides,
   }
 }
@@ -418,6 +419,29 @@ describe('EnvironmentService', () => {
     service.update(settings({ backgroundMode: 'clear-color', clearColor: '#abcdef' }))
     expect(scene.background).toBe(clearColor)
     expect(clearColor.getHexString()).toBe('abcdef')
+  })
+
+  it('blurs only the visible skybox and restores the setting after clear-color mode', async () => {
+    const scene = new Scene()
+    const source = textureFixture()
+    const pmrem = targetFixture()
+    const service = serviceFixture(scene, {
+      loadHdr: async () => source.texture,
+      createPmrem: () => pmrem.target,
+    })
+    await service.load({ kind: 'bundled', id: 'city', url: 'city.hdr' })
+
+    service.update(settings({ blur: 0.7 }))
+    expect(scene.backgroundBlurriness).toBe(0.7)
+    expect(scene.environment).toBe(pmrem.target.texture)
+    expect(service.binding.environmentMap.value).toBe(pmrem.target.texture)
+
+    service.update(settings({ backgroundMode: 'clear-color', blur: 0.7 }))
+    expect(scene.backgroundBlurriness).toBe(0)
+    expect(scene.environment).toBe(pmrem.target.texture)
+
+    service.update(settings({ backgroundMode: 'skybox', blur: 0.7 }))
+    expect(scene.backgroundBlurriness).toBe(0.7)
   })
 
   it('preserves binding and uniform container identities across settings and replacement', async () => {

@@ -114,6 +114,14 @@
   inline-size: 4.75rem;
 }
 
+.environment-blur-control {
+  grid-template-columns: minmax(0, 1fr) 4.75rem;
+}
+
+.environment-blur-control > input[type='range'] {
+  grid-column: 1;
+}
+
 .environment-help,
 .environment-loading,
 .environment-error {

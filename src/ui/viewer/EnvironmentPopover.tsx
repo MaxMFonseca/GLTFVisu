@@ -5,6 +5,7 @@ import type { EnvironmentDefinition, WorkspaceEnvironmentState } from '../../dom
 type EnvironmentCommands = Pick<WorkspaceCommands,
   'selectBundledEnvironment' | 'loadLocalEnvironment' | 'loadRemoteEnvironment'
   | 'setBackgroundMode' | 'setEnvironmentClearColor' | 'setEnvironmentRotation' | 'setEnvironmentIntensity'
+  | 'setEnvironmentBlur'
 >
 
 export interface EnvironmentPopoverProps {
@@ -75,6 +76,11 @@ export function EnvironmentPopover({ environment, environmentCatalog, commands }
     if (value !== undefined) commands.setEnvironmentIntensity(value)
   }
 
+  function setBlur(event: ChangeEvent<HTMLInputElement>): void {
+    const value = numberFrom(event)
+    if (value !== undefined) commands.setEnvironmentBlur(value)
+  }
+
   return (
     <div className="environment-control" ref={rootRef}>
       <button
@@ -125,6 +131,10 @@ export function EnvironmentPopover({ environment, environmentCatalog, commands }
           <label className="environment-popover-section environment-number-control">Environment intensity
             <input aria-label="Environment intensity" type="range" min="0" max="4" step="0.1" value={environment.settings.intensity} onChange={setIntensity} />
             <input aria-label="Environment intensity value" type="number" min="0" max="4" step="0.1" value={environment.settings.intensity} onChange={setIntensity} />
+          </label>
+
+          <label className="environment-popover-section environment-blur-control">Background blur
+            <input aria-label="Background blur" type="range" min="0" max="1" step="0.01" value={environment.settings.blur} onChange={setBlur} />
           </label>
 
           {loading && <p className="environment-loading" role="status">Loading {environment.pendingLabel ?? 'environment'}…</p>}

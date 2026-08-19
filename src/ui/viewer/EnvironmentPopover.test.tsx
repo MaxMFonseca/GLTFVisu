@@ -118,6 +118,14 @@ describe('EnvironmentPopover', () => {
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Environment intensity value' }), { target: { value: '3.2' } })
     expect(viewerPort.updateEnvironment).toHaveBeenLastCalledWith(expect.objectContaining({ intensity: 3.2 }))
     expect(screen.getByRole('slider', { name: 'Environment intensity' })).toHaveValue('3.2')
+
+    const intensitySlider = screen.getByRole('slider', { name: 'Environment intensity' })
+    const blurSlider = screen.getByRole('slider', { name: 'Background blur' })
+    expect(intensitySlider.compareDocumentPosition(blurSlider) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(blurSlider.parentElement).toHaveClass('environment-blur-control')
+    fireEvent.change(blurSlider, { target: { value: '0.65' } })
+    expect(viewerPort.updateEnvironment).toHaveBeenLastCalledWith(expect.objectContaining({ blur: 0.65 }))
+    expect(blurSlider).toHaveValue('0.65')
   })
 
   it('shows loading feedback while allowing a newer environment request to supersede it', async () => {
