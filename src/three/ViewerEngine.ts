@@ -174,6 +174,7 @@ interface PendingMaterialRuntime {
   readonly root: Object3D
   readonly materialRuntime: ProfileMaterialRuntime
   readonly compileGeneration: number
+  isInvalidatable(): boolean
   disposeVariants(): void
   disposeOwner(): void
 }
@@ -558,20 +559,21 @@ export class ViewerEngine implements ViewerPort {
     compileGeneration: number,
     disposeOwner: () => void = () => undefined,
   ): PreparedRuntimeMaterial {
-    let completed = false
+    let state: 'pending' | 'committing' | 'complete' = 'pending'
     let variantsDisposed = false
     let ownerDisposed = false
     const pending: PendingMaterialRuntime = {
       root,
       materialRuntime,
       compileGeneration,
+      isInvalidatable: () => state === 'pending',
       disposeVariants: () => {
-        if (completed || variantsDisposed) return
+        if (state === 'complete' || variantsDisposed) return
         variantsDisposed = true
         runtime.dispose()
       },
       disposeOwner: () => {
-        if (completed || ownerDisposed) return
+        if (state === 'complete' || ownerDisposed) return
         ownerDisposed = true
         try {
           disposeOwner()
@@ -582,7 +584,9 @@ export class ViewerEngine implements ViewerPort {
     }
     this.pendingMaterialRuntimes.add(pending)
     const assertPending = () => {
-      if (completed || variantsDisposed) throw new Error('Material runtime transaction is complete')
+      if (state !== 'pending' || variantsDisposed) {
+        throw new Error('Material runtime transaction is complete')
+      }
       if (
         this.disposed
         || this.compileGeneration !== compileGeneration
@@ -605,14 +609,30 @@ export class ViewerEngine implements ViewerPort {
       },
       commit: () => {
         assertPending()
-        this.disposePendingMaterialVariants(pending)
+        state = 'committing'
+        let committed = false
         try {
-          runtime.commit()
+          try {
+            this.disposePendingMaterialVariants(pending)
+            runtime.commit()
+            committed = true
+          } finally {
+            this.disposePendingMaterialOwners(pending)
+          }
         } finally {
-          this.disposePendingMaterialOwners(pending)
+          try {
+            if (!committed) {
+              try {
+                pending.disposeVariants()
+              } finally {
+                pending.disposeOwner()
+              }
+            }
+          } finally {
+            state = 'complete'
+            this.pendingMaterialRuntimes.delete(pending)
+          }
         }
-        completed = true
-        this.pendingMaterialRuntimes.delete(pending)
       },
       dispose: () => {
         try {
@@ -637,15 +657,33 @@ export class ViewerEngine implements ViewerPort {
   }
 
   private disposePendingMaterialVariants(except?: PendingMaterialRuntime): void {
+    let failed = false
+    let failure: unknown
     for (const pending of [...this.pendingMaterialRuntimes]) {
-      if (pending !== except) pending.disposeVariants()
+      if (pending === except || !pending.isInvalidatable()) continue
+      try {
+        pending.disposeVariants()
+      } catch (error) {
+        if (!failed) failure = error
+        failed = true
+      }
     }
+    if (failed) throw failure
   }
 
   private disposePendingMaterialOwners(except?: PendingMaterialRuntime): void {
+    let failed = false
+    let failure: unknown
     for (const pending of [...this.pendingMaterialRuntimes]) {
-      if (pending !== except) pending.disposeOwner()
+      if (pending === except || !pending.isInvalidatable()) continue
+      try {
+        pending.disposeOwner()
+      } catch (error) {
+        if (!failed) failure = error
+        failed = true
+      }
     }
+    if (failed) throw failure
   }
 
   private disposeModel(): void {
