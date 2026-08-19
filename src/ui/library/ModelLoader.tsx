@@ -1,5 +1,6 @@
 import { useState, type ChangeEvent, type DragEvent } from 'react'
 import { useWorkspace } from '../../application/WorkspaceController'
+import { ModelTextureEditor } from './ModelTextureEditor'
 
 function filePath(file: File): string {
   return file.webkitRelativePath || file.name
@@ -95,7 +96,16 @@ export function ModelLoader() {
       {selectionError !== undefined && <p className="panel-message panel-error" role="alert">{selectionError}</p>}
       {state.modelLoad.status === 'empty' && selectedFiles.length === 0 && <p className="panel-message">No model loaded.</p>}
       {state.modelLoad.status === 'loading' && <p className="panel-message" role="status">Loading {state.modelLoad.fileName}…</p>}
-      {state.modelLoad.status === 'loaded' && <p className="model-summary">{state.modelLoad.name} · {state.modelLoad.meshCount} {state.modelLoad.meshCount === 1 ? 'renderable' : 'renderables'}</p>}
+      {state.modelLoad.status === 'loaded' && (
+        <>
+          <p className="model-summary">{state.modelLoad.name} · {state.modelLoad.meshCount} {state.modelLoad.meshCount === 1 ? 'renderable' : 'renderables'}</p>
+          <ModelTextureEditor
+            slots={state.modelLoad.textureSlots}
+            onReplace={commands.replaceModelTexture}
+            onRestore={commands.restoreModelTexture}
+          />
+        </>
+      )}
       {state.modelLoad.status === 'error' && <p className="panel-message panel-error" role="alert">{state.modelLoad.message}</p>}
     </section>
   )

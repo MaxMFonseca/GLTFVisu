@@ -11,6 +11,7 @@ import type { CompileResult, ModelInfo, ViewerPort } from '../application/Viewer
 import { cloneShader } from '../application/workspaceState'
 import { EnvironmentLoadError, type EnvironmentDefinition } from '../domain/environment'
 import type { ShaderDefinition, ShaderDraft, ShaderPortrait } from '../domain/shader'
+import type { ModelTextureSlotInfo } from '../three/modelTextures/ModelTextureRegistry'
 import type {
   ShaderSourceEditorHandle,
   ShaderSourceEditorProps,
@@ -201,6 +202,18 @@ function deferred<T = void>() {
   return { promise, resolve, reject }
 }
 
+function textureSlot(overrides: Partial<ModelTextureSlotInfo> = {}): ModelTextureSlotInfo {
+  return {
+    id: 'material-0:base-color',
+    materialLabel: 'Armor',
+    channel: 'base-color',
+    label: 'Base color',
+    previewUrl: 'blob:armor-original',
+    replaced: false,
+    ...overrides,
+  }
+}
+
 const TEST_ENVIRONMENTS: readonly EnvironmentDefinition[] = [
   {
     id: 'starfield',
@@ -356,6 +369,47 @@ describe('shader workspace acceptance', () => {
     expect(Object.values(repository.records.get('local-2')?.parameterValues ?? {})).toEqual([0.8, '#336699'])
     expect(await within(libraryPanel()).findByRole('img', { name: 'Studio / Glow preview' })).toBeVisible()
   }, 15_000)
+
+  it('replaces and restores a loaded model texture without compiling the shader', async () => {
+    const user = userEvent.setup()
+    const repository = createRepository()
+    const viewer = createViewer()
+    const originalSlots = [textureSlot()]
+    const replacedSlots = [textureSlot({ previewUrl: 'blob:armor-replacement', replaced: true })]
+    vi.mocked(viewer.loadModel).mockResolvedValueOnce({
+      name: 'armor.glb', meshCount: 1, animationClips: [], textureSlots: originalSlots,
+    })
+    vi.mocked(viewer.replaceModelTexture).mockResolvedValueOnce(replacedSlots)
+    vi.mocked(viewer.restoreModelTexture).mockResolvedValueOnce(originalSlots)
+    renderWorkspace({ repository, viewer })
+    await waitForBuiltinControls()
+
+    await user.upload(
+      within(libraryPanel()).getByLabelText('Choose model files'),
+      new File(['model'], 'armor.glb', { type: 'model/gltf-binary' }),
+    )
+    await within(libraryPanel()).findByRole('heading', { name: 'Model textures' })
+    const compileCount = vi.mocked(viewer.compileShader).mock.calls.length
+    const replacement = new File(['replacement'], 'armor.png', { type: 'image/png' })
+
+    await user.upload(within(libraryPanel()).getByLabelText('Replace Armor base color'), replacement)
+    await waitFor(() => expect(viewer.replaceModelTexture)
+      .toHaveBeenCalledWith('material-0:base-color', replacement))
+    expect(within(libraryPanel()).getByRole('img', { name: 'Armor Base color texture preview' }))
+      .toHaveAttribute('src', 'blob:armor-replacement')
+    expect(within(libraryPanel()).getByText('Replacement')).toBeVisible()
+    const restore = within(libraryPanel()).getByRole('button', { name: 'Restore Armor base color' })
+    expect(restore).toBeEnabled()
+    expect(viewer.compileShader).toHaveBeenCalledTimes(compileCount)
+
+    await user.click(restore)
+    await waitFor(() => expect(viewer.restoreModelTexture).toHaveBeenCalledWith('material-0:base-color'))
+    expect(within(libraryPanel()).getByRole('img', { name: 'Armor Base color texture preview' }))
+      .toHaveAttribute('src', 'blob:armor-original')
+    expect(within(libraryPanel()).getByText('Original')).toBeVisible()
+    expect(restore).toBeDisabled()
+    expect(viewer.compileShader).toHaveBeenCalledTimes(compileCount)
+  })
 
   it('leaves the library unchanged for retryable malformed and unsupported imports', async () => {
     const user = userEvent.setup()
