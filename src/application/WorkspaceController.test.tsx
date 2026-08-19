@@ -135,6 +135,8 @@ afterEach(() => {
 })
 
 describe('WorkspaceProvider', () => {
+  const defaultModel = { url: '/assets/suzanne.glb', fileName: 'Suzanne.glb' }
+
   it('validates remote HDR URLs and loads valid sources through the viewer', async () => {
     expect(validateRemoteEnvironmentUrl('http://example.com/a.hdr')).toEqual({
       valid: false,
@@ -738,6 +740,122 @@ describe('WorkspaceProvider', () => {
     expect(workspace.current().state.dirty.portrait).toBe(true)
     expect(repository.save).toHaveBeenCalledTimes(0)
     expect(workspace.current().state.notices.at(-1)).toEqual({ kind: 'info', scope: 'capture', message: 'Captured portrait for Local shader' })
+  })
+
+  it('enters loading for the default model before its fetch resolves', () => {
+    const fetchRequest = deferred<Blob>()
+    const workspace = renderWorkspace({
+      defaultModel,
+      defaultModelFetcher: vi.fn(() => fetchRequest.promise),
+    })
+
+    expect(workspace.current().state.modelLoad).toEqual({
+      status: 'loading',
+      fileName: 'Suzanne.glb',
+    })
+  })
+
+  it('loads the fetched default through the viewer and exposes its texture slots', async () => {
+    const viewer = createViewer()
+    const fetchRequest = deferred<Blob>()
+    const baseColorSlot = textureSlot()
+    vi.mocked(viewer.loadModel).mockResolvedValueOnce({
+      name: 'Suzanne.glb',
+      meshCount: 1,
+      animationClips: [],
+      textureSlots: [baseColorSlot],
+    })
+    const workspace = renderWorkspace({
+      viewer,
+      defaultModel,
+      defaultModelFetcher: vi.fn(() => fetchRequest.promise),
+    })
+
+    await act(async () => { fetchRequest.resolve(new Blob(['glb'], { type: 'model/gltf-binary' })) })
+    await waitFor(() => expect(workspace.current().state.modelLoad.status).toBe('loaded'))
+
+    expect(viewer.loadModel).toHaveBeenCalledOnce()
+    const [files, root] = vi.mocked(viewer.loadModel).mock.calls[0]
+    expect(files).toEqual([root])
+    expect(root).toMatchObject({ name: 'Suzanne.glb', type: 'model/gltf-binary' })
+    expect(workspace.current().state.modelLoad).toEqual({
+      status: 'loaded',
+      name: 'Suzanne.glb',
+      meshCount: 1,
+      textureSlots: [baseColorSlot],
+    })
+  })
+
+  it('keeps a user model when its request supersedes a pending default fetch', async () => {
+    const viewer = createViewer()
+    const fetchRequest = deferred<Blob>()
+    vi.mocked(viewer.loadModel).mockImplementation(async (_files, root) => ({
+      name: root.name,
+      meshCount: 1,
+      animationClips: [],
+      textureSlots: [],
+    }))
+    const workspace = renderWorkspace({
+      viewer,
+      defaultModel,
+      defaultModelFetcher: vi.fn(() => fetchRequest.promise),
+    })
+    const userModel = new File(['user'], 'user.glb', { type: 'model/gltf-binary' })
+
+    await act(async () => workspace.current().commands.loadModel([userModel], userModel))
+    await act(async () => { fetchRequest.resolve(new Blob(['default'])) })
+
+    expect(viewer.loadModel).toHaveBeenCalledOnce()
+    expect(viewer.loadModel).toHaveBeenCalledWith([userModel], userModel)
+    expect(workspace.current().state.modelLoad).toMatchObject({ status: 'loaded', name: 'user.glb' })
+  })
+
+  it('reports a default fetch failure and still accepts a later user model', async () => {
+    const viewer = createViewer()
+    const fetchRequest = deferred<Blob>()
+    vi.mocked(viewer.loadModel).mockImplementation(async (_files, root) => ({
+      name: root.name,
+      meshCount: 1,
+      animationClips: [],
+      textureSlots: [],
+    }))
+    const workspace = renderWorkspace({
+      viewer,
+      defaultModel,
+      defaultModelFetcher: vi.fn(() => fetchRequest.promise),
+    })
+
+    await act(async () => { fetchRequest.reject(new Error('Default download failed')) })
+
+    expect(workspace.current().state.modelLoad).toEqual({
+      status: 'error',
+      message: 'Default download failed',
+    })
+    expect(workspace.current().state.notices.at(-1)).toEqual({
+      kind: 'error',
+      scope: 'model',
+      message: 'Default download failed',
+    })
+
+    const userModel = new File(['user'], 'user.glb', { type: 'model/gltf-binary' })
+    await act(async () => workspace.current().commands.loadModel([userModel], userModel))
+
+    expect(workspace.current().state.modelLoad).toMatchObject({ status: 'loaded', name: 'user.glb' })
+  })
+
+  it('ignores a late default fetch after the provider unmounts', async () => {
+    const viewer = createViewer()
+    const fetchRequest = deferred<Blob>()
+    const workspace = renderWorkspace({
+      viewer,
+      defaultModel,
+      defaultModelFetcher: vi.fn(() => fetchRequest.promise),
+    })
+
+    workspace.unmount()
+    await act(async () => { fetchRequest.resolve(new Blob(['default'])) })
+
+    expect(viewer.loadModel).not.toHaveBeenCalled()
   })
 
   it('forwards model texture edits and stores each complete returned slot list', async () => {

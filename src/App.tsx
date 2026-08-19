@@ -6,6 +6,7 @@ import type { ShaderParameterDefinition, ShaderParameterValue } from './domain/p
 import type { ShaderDraft, ShaderPortrait } from './domain/shader'
 import type { EnvironmentDisplaySettings, EnvironmentLoadSource } from './domain/environment'
 import { BUILTIN_ENVIRONMENTS } from './domain/environments'
+import suzanneModelUrl from './assets/models/suzanne.glb?url'
 import { IndexedDbShaderRepository } from './persistence/IndexedDbShaderRepository'
 import { ViewerEngine } from './three/ViewerEngine'
 import { Workspace } from './ui/Workspace'
@@ -20,6 +21,7 @@ export interface AppProps {
 
 const DEFAULT_VIEWER_FACTORY: ViewerEngineFactory = (host) => new ViewerEngine(host)
 const DEFAULT_REPOSITORY = new IndexedDbShaderRepository()
+const DEFAULT_MODEL = { url: suzanneModelUrl, fileName: 'Suzanne.glb' }
 
 class MountedViewerPort implements ViewerPort {
   private engine?: ViewerPort
@@ -133,6 +135,7 @@ function App({ repository: injectedRepository, createViewer = DEFAULT_VIEWER_FAC
       viewer={runtime.viewer}
       environmentCatalog={BUILTIN_ENVIRONMENTS}
       defaultEnvironmentId={BUILTIN_ENVIRONMENTS[0].id}
+      defaultModel={DEFAULT_MODEL}
     >
       <Workspace mountViewer={runtime.mountViewer} />
     </WorkspaceProvider>
