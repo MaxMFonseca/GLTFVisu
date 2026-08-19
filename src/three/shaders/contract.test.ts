@@ -242,6 +242,31 @@ describe('buildFragmentShader', () => {
     expect(PBR_FRAGMENT_SOURCE).toContain('linearToOutputTexel')
     expect(PBR_FRAGMENT_SOURCE).toContain('outColor =')
   })
+
+  it('uses source tangents when available and Three-style face direction for non-flat back-face normals', () => {
+    expect(VERTEX_SHADER).toContain('#ifdef USE_TANGENT')
+    expect(VERTEX_SHADER).toContain('out vec4 vGltfWorldTangent;')
+    expect(VERTEX_SHADER).toContain('transformedTangent')
+    expect(VERTEX_SHADER).toContain('tangent.w')
+    expect(PBR_FRAGMENT_SOURCE).toContain('#ifdef USE_TANGENT')
+    expect(PBR_FRAGMENT_SOURCE).toContain('vGltfWorldTangent.xyz')
+    expect(PBR_FRAGMENT_SOURCE).toContain('cross(unflippedNormal, tangent) * vGltfWorldTangent.w')
+    expect(PBR_FRAGMENT_SOURCE).toContain('float faceDirection = gl_FrontFacing ? 1.0 : -1.0;')
+    expect(PBR_FRAGMENT_SOURCE).toContain('tangentFrame[0] *= faceDirection;')
+    expect(PBR_FRAGMENT_SOURCE).toContain('tangentFrame[1] *= faceDirection;')
+    expect(PBR_FRAGMENT_SOURCE.indexOf('normal *= faceDirection;'))
+      .toBeLessThan(PBR_FRAGMENT_SOURCE.indexOf('derivativeTangentFrame(normal, normalUv'))
+    expect(PBR_FRAGMENT_SOURCE.indexOf('derivativeTangentFrame(normal, normalUv'))
+      .toBeLessThan(PBR_FRAGMENT_SOURCE.indexOf('tangentFrame[0] *= faceDirection;'))
+  })
+
+  it('returns the geometric normal for zero-area UV derivatives and zero mapped vectors', () => {
+    expect(PBR_FRAGMENT_SOURCE).toContain('out mat3 tangentFrame')
+    expect(PBR_FRAGMENT_SOURCE).toContain('float uvDeterminant =')
+    expect(PBR_FRAGMENT_SOURCE).toContain('if (!pbrFiniteLengthSquared(abs(uvDeterminant))) return false;')
+    expect(PBR_FRAGMENT_SOURCE).toContain('if (!derivativeTangentFrame(normal, normalUv, tangentFrame)) return normal;')
+    expect(PBR_FRAGMENT_SOURCE).toContain('if (!pbrFiniteLengthSquared(mappedLengthSquared)) return normal;')
+  })
 })
 
 describe('VERTEX_SHADER', () => {

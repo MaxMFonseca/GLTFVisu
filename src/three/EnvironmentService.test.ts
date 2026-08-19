@@ -1,7 +1,10 @@
 import {
   Color,
   EquirectangularReflectionMapping,
+  Euler,
   FloatType,
+  Matrix3,
+  Matrix4,
   Scene,
   Texture,
   Vector3,
@@ -352,7 +355,17 @@ describe('EnvironmentService', () => {
     expect(scene.environmentIntensity).toBe(2.5)
     expect(scene.backgroundRotation.y).toBeCloseTo(Math.PI / 2)
     expect(scene.environmentRotation.y).toBeCloseTo(Math.PI / 2)
-    expect(new Vector3(1, 0, 0).applyMatrix3(service.binding.environmentRotation.value).z).toBeCloseTo(-1)
+    const expectedPmremRotation = new Matrix3().setFromMatrix4(
+      new Matrix4().makeRotationFromEuler(new Euler(0, -Math.PI / 2, 0)),
+    )
+    service.binding.environmentRotation.value.elements.forEach((element, index) => {
+      expect(element).toBeCloseTo(expectedPmremRotation.elements[index]!)
+    })
+    const rotatedDirection = new Vector3(1, 0, 0)
+      .applyMatrix3(service.binding.environmentRotation.value)
+    expect(rotatedDirection.x).toBeCloseTo(0)
+    expect(rotatedDirection.y).toBeCloseTo(0)
+    expect(rotatedDirection.z).toBeCloseTo(1)
 
     service.update(settings({ backgroundMode: 'clear-color', clearColor: '#abcdef' }))
     expect(scene.background).toBe(clearColor)

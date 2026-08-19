@@ -169,7 +169,7 @@ export class EnvironmentService {
 
   private applyDisplaySettings(): void {
     const radians = this.settings.rotation * Math.PI / 180
-    setYRotation(this.binding.environmentRotation.value, radians)
+    setYRotation(this.binding.environmentRotation.value, -radians)
     this.binding.environmentIntensity.value = this.settings.intensity
 
     this.scene.backgroundRotation.set(0, radians, 0)

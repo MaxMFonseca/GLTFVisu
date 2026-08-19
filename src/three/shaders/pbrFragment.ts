@@ -52,30 +52,79 @@ vec3 evaluateGgxSpecular(
   return fresnelSchlick(viewDotHalf, reflectanceAtNormal) * distribution * visibility;
 }
 
-mat3 derivativeTangentFrame(vec3 normal, vec2 uv) {
+bool pbrFiniteLengthSquared(float value) {
+  return value > 1e-8 && value < 1e30;
+}
+
+bool derivativeTangentFrame(vec3 normal, vec2 uv, out mat3 tangentFrame) {
+  tangentFrame = mat3(1.0);
   vec3 positionDx = dFdx(vWorldPosition);
   vec3 positionDy = dFdy(vWorldPosition);
   vec2 uvDx = dFdx(uv);
   vec2 uvDy = dFdy(uv);
+  float uvDeterminant = uvDx.x * uvDy.y - uvDx.y * uvDy.x;
+  if (!pbrFiniteLengthSquared(abs(uvDeterminant))) return false;
+
   vec3 perpendicularToDy = cross(positionDy, normal);
   vec3 perpendicularToDx = cross(normal, positionDx);
   vec3 tangent = perpendicularToDy * uvDx.x + perpendicularToDx * uvDy.x;
   vec3 bitangent = perpendicularToDy * uvDx.y + perpendicularToDx * uvDy.y;
-  float inverseScale = inversesqrt(max(max(dot(tangent, tangent), dot(bitangent, bitangent)), 1e-8));
-  return mat3(tangent * inverseScale, bitangent * inverseScale, normal);
+  float frameLengthSquared = max(dot(tangent, tangent), dot(bitangent, bitangent));
+  if (!pbrFiniteLengthSquared(frameLengthSquared)) return false;
+
+  float inverseScale = inversesqrt(frameLengthSquared);
+  tangentFrame = mat3(tangent * inverseScale, bitangent * inverseScale, normal);
+  return true;
 }
 
+#ifdef USE_TANGENT
+bool vertexTangentFrame(
+  vec3 unflippedNormal,
+  vec3 normal,
+  out mat3 tangentFrame
+) {
+  tangentFrame = mat3(1.0);
+  float tangentLengthSquared = dot(vGltfWorldTangent.xyz, vGltfWorldTangent.xyz);
+  if (!pbrFiniteLengthSquared(tangentLengthSquared)) return false;
+
+  vec3 tangent = vGltfWorldTangent.xyz * inversesqrt(tangentLengthSquared);
+  vec3 bitangent = cross(unflippedNormal, tangent) * vGltfWorldTangent.w;
+  float bitangentLengthSquared = dot(bitangent, bitangent);
+  if (!pbrFiniteLengthSquared(bitangentLengthSquared)) return false;
+
+  bitangent *= inversesqrt(bitangentLengthSquared);
+  tangentFrame = mat3(tangent, bitangent, normal);
+  return true;
+}
+#endif
+
 vec3 pbrWorldNormal() {
-  vec3 normal = normalize(vWorldNormal);
+  vec3 unflippedNormal = normalize(vWorldNormal);
+  vec3 normal = unflippedNormal;
+  float faceDirection = gl_FrontFacing ? 1.0 : -1.0;
   #ifdef DOUBLE_SIDED
-    normal *= gl_FrontFacing ? 1.0 : -1.0;
+    normal *= faceDirection;
   #endif
   if (!uUseNormalMap || !uGltfHasNormalMap) return normal;
 
   vec2 normalUv = pbrTextureUv(uGltfNormalUvChannel, uGltfNormalUvTransform);
   vec3 tangentNormal = texture(uGltfNormalMap, normalUv).xyz * 2.0 - 1.0;
   tangentNormal.xy *= uGltfNormalScale * uNormalStrength;
-  return normalize(derivativeTangentFrame(normal, normalUv) * tangentNormal);
+  mat3 tangentFrame;
+  #ifdef USE_TANGENT
+    if (!vertexTangentFrame(unflippedNormal, normal, tangentFrame)) return normal;
+  #else
+    if (!derivativeTangentFrame(normal, normalUv, tangentFrame)) return normal;
+  #endif
+  #ifdef DOUBLE_SIDED
+    tangentFrame[0] *= faceDirection;
+    tangentFrame[1] *= faceDirection;
+  #endif
+
+  vec3 mappedNormal = tangentFrame * tangentNormal;
+  float mappedLengthSquared = dot(mappedNormal, mappedNormal);
+  if (!pbrFiniteLengthSquared(mappedLengthSquared)) return normal;
+  return mappedNormal * inversesqrt(mappedLengthSquared);
 }
 
 vec2 environmentBrdfApproximation(float roughness, float normalDotView) {

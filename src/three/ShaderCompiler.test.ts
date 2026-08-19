@@ -8,6 +8,7 @@ import {
   ShaderMaterial,
   Texture,
   Matrix3,
+  Float32BufferAttribute,
 } from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import type { ShaderParameterDefinition } from '../domain/parameters'
@@ -357,6 +358,13 @@ describe('ShaderCompiler', () => {
     )
     const channel1Geometry = new BoxGeometry()
     channel1Geometry.setAttribute('uv1', channel1Geometry.getAttribute('uv').clone())
+    const tangentCount = channel1Geometry.getAttribute('position').count
+    const tangentValues = new Float32Array(tangentCount * 4)
+    for (let index = 0; index < tangentCount; index += 1) {
+      tangentValues[index * 4] = 1
+      tangentValues[index * 4 + 3] = -1
+    }
+    channel1Geometry.setAttribute('tangent', new Float32BufferAttribute(tangentValues, 4))
     const channel1 = new Mesh(
       channel1Geometry,
       new MeshStandardMaterial({ normalMap: channel1NormalMap }),
@@ -420,6 +428,8 @@ describe('ShaderCompiler', () => {
     expect(channel0Variant.uniforms.uGltfRoughnessMap.value).toBe(channel0Map)
     expect(channel1Variant.uniforms.uGltfNormalMap.value).toBe(channel1NormalMap)
     expect(channel1Variant.uniforms.uGltfNormalUvChannel.value).toBe(1)
+    expect(channel1Variant.defines?.USE_TANGENT).toBe('')
+    expect(channel1Variant.vertexShader).toContain('vGltfWorldTangent')
     expect(channel0Variant.uniforms.uEnvironmentMap).toBe(environment.environmentMap)
     expect(channel1Variant.uniforms.uEnvironmentMap).toBe(environment.environmentMap)
     expect(channel0Variant.envMap).toBe(pmrem)

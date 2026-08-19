@@ -3,6 +3,7 @@ import {
   Color,
   CubeUVReflectionMapping,
   DataTexture,
+  Float32BufferAttribute,
   Group,
   LineBasicMaterial,
   Material,
@@ -63,7 +64,12 @@ describe('createGltfPbrVariant', () => {
     })
     const environment = environmentBinding()
 
-    const variant = createGltfPbrVariant(original, template, environment, { hasUv1: true })
+    const variant = createGltfPbrVariant(
+      original,
+      template,
+      environment,
+      { hasUv1: true, hasTangent: false },
+    )
 
     expect(variant.uniforms.uGltfMetallicFactor.value).toBe(0.65)
     expect(variant.uniforms.uGltfRoughnessFactor.value).toBe(0.3)
@@ -110,7 +116,7 @@ describe('createGltfPbrVariant', () => {
       original,
       new ShaderMaterial(),
       environmentBinding(),
-      { hasUv1: true },
+      { hasUv1: true, hasTangent: false },
     )
 
     expect(variant.uniforms.uGltfMetallicMap.value).toBe(metalnessMap)
@@ -166,6 +172,35 @@ describe('createGltfPbrVariant', () => {
     const normalFallback = incompatibleVariant.uniforms.uGltfNormalMap.value as DataTexture
     expect(Array.from(whiteFallback.image.data as Uint8Array)).toEqual([255, 255, 255, 255])
     expect(Array.from(normalFallback.image.data as Uint8Array)).toEqual([128, 128, 255, 255])
+  })
+
+  it('preserves GLTFLoader tangent and derivative normal-scale Y conventions', () => {
+    const normalMap = new Texture()
+    const tangentMaterial = new MeshStandardMaterial({
+      normalMap,
+      normalScale: new Vector2(0.5, 0.75),
+    })
+    const derivativeMaterial = new MeshStandardMaterial({
+      normalMap,
+      normalScale: new Vector2(0.5, -0.75),
+    })
+    const owner = createGltfPbrBindingOwner(environmentBinding())
+
+    const tangentVariant = owner.createVariant(
+      tangentMaterial,
+      new ShaderMaterial(),
+      { hasUv1: false, hasTangent: true },
+    )
+    const derivativeVariant = owner.createVariant(
+      derivativeMaterial,
+      new ShaderMaterial(),
+      { hasUv1: false, hasTangent: false },
+    )
+
+    expect(tangentVariant.defines?.USE_TANGENT).toBe('')
+    expect(derivativeVariant.defines?.USE_TANGENT).toBeUndefined()
+    expect(tangentVariant.uniforms.uGltfNormalScale.value).toEqual(new Vector2(0.5, 0.75))
+    expect(derivativeVariant.uniforms.uGltfNormalScale.value).toEqual(new Vector2(0.5, -0.75))
   })
 })
 
@@ -236,5 +271,36 @@ describe('createGltfPbrBindingOwner', () => {
     expect(disposeWhite).toHaveBeenCalledTimes(1)
     expect(disposeNormal).toHaveBeenCalledTimes(1)
     for (const dispose of disposeBorrowed) expect(dispose).not.toHaveBeenCalled()
+  })
+
+  it('splits a shared normal-mapped material by tangent availability', () => {
+    const original = new MeshStandardMaterial({ normalMap: new Texture() })
+    const withoutTangentsA = new Mesh(new BoxGeometry(), original)
+    const withoutTangentsB = new Mesh(new BoxGeometry(), original)
+    const tangentGeometry = new BoxGeometry()
+    const tangentCount = tangentGeometry.getAttribute('position').count
+    const tangents = new Float32Array(tangentCount * 4)
+    for (let index = 0; index < tangentCount; index += 1) {
+      tangents[index * 4] = 1
+      tangents[index * 4 + 3] = -1
+    }
+    tangentGeometry.setAttribute('tangent', new Float32BufferAttribute(tangents, 4))
+    const withTangents = new Mesh(tangentGeometry, original)
+    const owner = createGltfPbrBindingOwner(environmentBinding())
+    const override = new MaterialOverride(
+      new Group().add(withoutTangentsA, withoutTangentsB, withTangents),
+      owner.createVariant,
+    )
+
+    override.apply(new ShaderMaterial())
+
+    const derivativeVariant = withoutTangentsA.material as unknown as ShaderMaterial
+    const repeatedDerivativeVariant = withoutTangentsB.material as unknown as ShaderMaterial
+    const tangentVariant = withTangents.material as unknown as ShaderMaterial
+    expect(derivativeVariant).toBe(repeatedDerivativeVariant)
+    expect(tangentVariant).not.toBe(derivativeVariant)
+    expect(derivativeVariant.defines?.USE_TANGENT).toBeUndefined()
+    expect(tangentVariant.defines?.USE_TANGENT).toBe('')
+    expect(override.materials).toHaveLength(2)
   })
 })

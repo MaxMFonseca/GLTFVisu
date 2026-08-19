@@ -5,6 +5,9 @@ export const VERTEX_SHADER = /* glsl */ `
 out vec3 vWorldPosition;
 out vec3 vWorldNormal;
 out vec2 vGltfUv1;
+#ifdef USE_TANGENT
+out vec4 vGltfWorldTangent;
+#endif
 
 #include <common>
 #include <batching_pars_vertex>
@@ -44,5 +47,11 @@ void main() {
 
   vWorldPosition = worldPosition.xyz;
   vWorldNormal = normalize( inverseTransformDirection( transformedNormal, viewMatrix ) );
+  #ifdef USE_TANGENT
+    vGltfWorldTangent = vec4(
+      normalize( inverseTransformDirection( transformedTangent, viewMatrix ) ),
+      tangent.w
+    );
+  #endif
 }
 `

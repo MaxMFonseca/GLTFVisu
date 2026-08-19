@@ -49,7 +49,7 @@ describe('createGltfSurfaceBindingOwner', () => {
     const template = new ShaderMaterial({ uniforms: { uBands: { value: 3 } } })
     const owner = createGltfSurfaceBindingOwner()
 
-    const firstVariant = owner.createVariant(first, template, { hasUv1: true })
+    const firstVariant = owner.createVariant(first, template, { hasUv1: true, hasTangent: false })
     const secondVariant = owner.createVariant(second, template)
 
     expect(firstVariant).not.toBe(secondVariant)

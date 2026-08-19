@@ -23,7 +23,10 @@ interface PbrFallbackTextures {
   readonly normal: Texture
 }
 
-const UV0_CONTEXT: Readonly<MaterialVariantContext> = Object.freeze({ hasUv1: false })
+const UV0_CONTEXT: Readonly<MaterialVariantContext> = Object.freeze({
+  hasUv1: false,
+  hasTangent: false,
+})
 
 /** Allocates the PBR profile's neutral textures and owns only their lifetime. */
 export function createGltfPbrBindingOwner(
@@ -33,9 +36,12 @@ export function createGltfPbrBindingOwner(
   const createVariant: MaterialVariantFactory = (original, template, context = UV0_CONTEXT) => (
     createGltfPbrVariantWithFallbacks(original, template, environmentBinding, context, fallbacks)
   )
-  createVariant.getCacheKey = (original, context) => (
-    needsGeometryUvSplit(original) ? context.hasUv1 : false
-  )
+  createVariant.getCacheKey = (original, context) => {
+    const inputs = extractGltfPbrInputs(original)
+    const uvKey = needsGeometryUvSplit(original) && context.hasUv1 ? 1 : 0
+    const tangentKey = inputs.normal.texture !== null && context.hasTangent ? 2 : 0
+    return uvKey | tangentKey
+  }
 
   return createMaterialBindingOwner(createVariant, () => {
     fallbacks.white.dispose()
@@ -91,6 +97,11 @@ function createGltfPbrVariantWithFallbacks(
 
   if ([metallic, roughness, normal].some(hasSecondaryUv)) {
     variant.defines = { ...variant.defines, USE_UV1: '' }
+  }
+  if (normal.texture !== null && context.hasTangent) {
+    variant.defines = { ...variant.defines, USE_TANGENT: '' }
+  } else {
+    delete variant.defines.USE_TANGENT
   }
   variant.uniforms = {
     ...variant.uniforms,

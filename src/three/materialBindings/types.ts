@@ -2,6 +2,7 @@ import type { Material, Matrix3, ShaderMaterial, Texture } from 'three'
 
 export interface MaterialVariantContext {
   readonly hasUv1: boolean
+  readonly hasTangent: boolean
 }
 
 export type MaterialVariantCacheKey = string | number | boolean | symbol
