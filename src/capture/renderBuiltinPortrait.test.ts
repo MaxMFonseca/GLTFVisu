@@ -5,6 +5,14 @@ import type { EnvironmentDisplaySettings, EnvironmentLoadSource } from '../domai
 import type { ShaderDraft } from '../domain/shader'
 import { renderBuiltinPortrait } from './renderBuiltinPortrait'
 
+const { viewerEngineConstructor } = vi.hoisted(() => ({
+  viewerEngineConstructor: vi.fn(),
+}))
+
+vi.mock('../three/ViewerEngine', () => ({
+  ViewerEngine: viewerEngineConstructor,
+}))
+
 type PortraitState =
   | { status: 'loading'; shaderId: string }
   | { status: 'ready'; shaderId: string }
@@ -23,6 +31,7 @@ const portraitWindow = window as Window & { __GLTFVISU_PORTRAIT__?: PortraitStat
 
 afterEach(() => {
   delete portraitWindow.__GLTFVISU_PORTRAIT__
+  viewerEngineConstructor.mockReset()
 })
 
 function successfulViewer(order: string[]): FakeViewer {
@@ -47,6 +56,20 @@ function successfulFetch(): Promise<Response> {
 }
 
 describe('renderBuiltinPortrait', () => {
+  it('constructs the production viewer at device scale factor one', async () => {
+    const viewer = successfulViewer([])
+    viewerEngineConstructor.mockReturnValueOnce(viewer)
+    const host = document.createElement('div')
+
+    await renderBuiltinPortrait(host, 'builtin-pbr', {
+      fetch: successfulFetch,
+      waitForAnimationFrame: async () => undefined,
+    })
+
+    expect(viewerEngineConstructor).toHaveBeenCalledWith(host, {}, { devicePixelRatio: 1 })
+    window.dispatchEvent(new Event('pagehide'))
+  })
+
   it('marks ready only after the deterministic model, environment, shader, view, and frame sequence', async () => {
     const order: string[] = []
     let state: PortraitState | undefined

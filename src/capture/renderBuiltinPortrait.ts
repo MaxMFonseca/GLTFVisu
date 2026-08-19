@@ -48,7 +48,7 @@ export async function renderBuiltinPortrait(
     if (!response.ok) throw new Error('Unable to load Suzanne')
     const model = new File([await response.blob()], 'suzanne.glb', { type: 'model/gltf-binary' })
 
-    viewer = dependencies.createViewer?.(host) ?? new ViewerEngine(host)
+    viewer = dependencies.createViewer?.(host) ?? new ViewerEngine(host, {}, { devicePixelRatio: 1 })
     teardown = () => viewer?.dispose()
     window.addEventListener('pagehide', teardown, { once: true })
 
