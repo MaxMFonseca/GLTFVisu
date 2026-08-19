@@ -5,6 +5,7 @@ import type { CompileResult, ModelInfo, ViewerPort } from './application/ViewerP
 import type { ShaderParameterDefinition, ShaderParameterValue } from './domain/parameters'
 import type { ShaderDraft, ShaderPortrait } from './domain/shader'
 import type { EnvironmentDisplaySettings, EnvironmentLoadSource } from './domain/environment'
+import type { CameraSettings } from './domain/camera'
 import { BUILTIN_ENVIRONMENTS } from './domain/environments'
 import foxModelUrl from './assets/models/fox.glb?url'
 import { IndexedDbShaderRepository } from './persistence/IndexedDbShaderRepository'
@@ -74,6 +75,10 @@ class MountedViewerPort implements ViewerPort {
 
   updateEnvironment(settings: EnvironmentDisplaySettings): void {
     this.engine?.updateEnvironment(settings)
+  }
+
+  updateCamera(settings: CameraSettings): void {
+    this.engine?.updateCamera(settings)
   }
 
   async capturePortrait(): Promise<ShaderPortrait> {

@@ -1,4 +1,4 @@
-import { PerspectiveCamera, Scene } from 'three'
+import { OrthographicCamera, PerspectiveCamera, Scene, type Camera } from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import { CaptureError, CaptureService, type CaptureRenderer } from './CaptureService'
 
@@ -71,5 +71,19 @@ describe('CaptureService', () => {
     })
 
     await expect(capture.capture()).rejects.toBeInstanceOf(CaptureError)
+  })
+
+  it('renders with the camera active when capture begins', async () => {
+    const renderer: CaptureRenderer = { domElement: rendererCanvas(10, 10), render: vi.fn() }
+    const output = outputCanvas([new Blob(['webp'], { type: 'image/webp' })])
+    let activeCamera: Camera = new PerspectiveCamera()
+    const capture = new CaptureService(renderer, new Scene(), () => activeCamera, {
+      createCanvas: () => output.canvas,
+    })
+    activeCamera = new OrthographicCamera()
+
+    await capture.capture()
+
+    expect(renderer.render).toHaveBeenCalledWith(expect.any(Scene), activeCamera)
   })
 })

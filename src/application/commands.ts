@@ -1,5 +1,6 @@
 import type { ShaderParameterDefinition, ShaderParameterValue } from '../domain/parameters'
 import type { EnvironmentDisplaySettings } from '../domain/environment'
+import type { CameraSettings } from '../domain/camera'
 
 export interface WorkspaceCommands {
   selectShader(id: string): void
@@ -28,6 +29,7 @@ export interface WorkspaceCommands {
   setEnvironmentRotation(rotation: number): void
   setEnvironmentIntensity(intensity: number): void
   setEnvironmentBlur(blur: number): void
+  updateCamera(settings: CameraSettings): void
   fitModel(): void
   resizeViewer(): void
   selectAnimation(name: string): void

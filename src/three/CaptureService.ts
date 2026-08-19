@@ -32,7 +32,7 @@ export class CaptureService {
   constructor(
     private readonly renderer: CaptureRenderer,
     private readonly scene: Object3D,
-    private readonly camera: Camera,
+    private readonly camera: Camera | (() => Camera),
     options: CaptureOptions = {},
   ) {
     this.maxDimension = Math.max(1, Math.floor(options.maxDimension ?? 512))
@@ -43,7 +43,7 @@ export class CaptureService {
     const source = this.renderer.domElement
     if (source.width < 1 || source.height < 1) throw new CaptureError('Viewer canvas is empty')
 
-    this.renderer.render(this.scene, this.camera)
+    this.renderer.render(this.scene, typeof this.camera === 'function' ? this.camera() : this.camera)
     const scale = Math.min(1, this.maxDimension / source.width, this.maxDimension / source.height)
     const width = Math.max(1, Math.round(source.width * scale))
     const height = Math.max(1, Math.round(source.height * scale))

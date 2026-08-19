@@ -33,6 +33,7 @@ function createViewer(): ViewerPort {
     updateParameter: vi.fn(),
     loadEnvironment: vi.fn(async () => undefined),
     updateEnvironment: vi.fn(),
+    updateCamera: vi.fn(),
     capturePortrait: vi.fn(async () => ({
       kind: 'captured' as const, blob: new Blob(), mimeType: 'image/png' as const, width: 1, height: 1,
     })),
@@ -134,5 +135,39 @@ describe('ViewerToolbar', () => {
     expect(trigger).toHaveAttribute('aria-controls', region.id)
     expect(region).toBeVisible()
     expect(screen.getByLabelText('Bundled environment')).toBeDisabled()
+  })
+
+  it('opens camera settings and exposes controls for the active projection', async () => {
+    const user = userEvent.setup()
+    const viewer = createViewer()
+    render(
+      <WorkspaceProvider repository={repository()} viewer={viewer}>
+        <ViewerToolbar />
+      </WorkspaceProvider>,
+    )
+
+    const trigger = screen.getByRole('button', { name: 'Camera' })
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+
+    await user.click(trigger)
+
+    const region = screen.getByRole('region', { name: 'Camera settings' })
+    expect(trigger).toHaveAttribute('aria-controls', region.id)
+    expect(screen.getByRole('radio', { name: 'Perspective' })).toBeChecked()
+    expect(screen.getByLabelText('Field of view value')).toHaveValue(45)
+    expect(screen.queryByLabelText('Orthographic zoom value')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('radio', { name: 'Orthographic' }))
+
+    expect(screen.getByRole('radio', { name: 'Orthographic' })).toBeChecked()
+    expect(screen.queryByLabelText('Field of view value')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Orthographic zoom value')).toHaveValue(1)
+    expect(viewer.updateCamera).toHaveBeenCalledWith({
+      projection: 'orthographic',
+      near: 0.01,
+      far: 1000,
+      fov: 45,
+      zoom: 1,
+    })
   })
 })

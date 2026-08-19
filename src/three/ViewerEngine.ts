@@ -7,12 +7,14 @@ import {
   HemisphereLight,
   Line,
   Mesh,
+  OrthographicCamera,
   PerspectiveCamera,
   Points,
   Scene,
   Vector2,
   Vector3,
   WebGLRenderer,
+  type Camera,
   type AnimationClip,
   type Material,
   type Object3D,
@@ -24,6 +26,11 @@ import type { AnimationClipInfo, CompileDiagnostic, CompileResult, ModelInfo, Vi
 import type { MaterialInputProfile } from '../domain/materialInput'
 import type { ShaderParameterDefinition, ShaderParameterValue } from '../domain/parameters'
 import type { ShaderDraft, ShaderPortrait } from '../domain/shader'
+import {
+  DEFAULT_CAMERA_SETTINGS,
+  normalizeCameraSettings,
+  type CameraSettings,
+} from '../domain/camera'
 import {
   ENVIRONMENT_LOAD_ERROR_MESSAGE,
   EnvironmentLoadError,
@@ -87,6 +94,7 @@ export interface ViewerRenderer extends ShaderValidationRenderer {
 }
 
 export interface ViewerControls {
+  object?: Object3D
   target: Vector3
   update(deltaSeconds?: number): boolean | void
   saveState(): void
@@ -142,7 +150,7 @@ export interface ViewerEngineDependencies {
     profile: MaterialInputProfile,
     binding: EnvironmentBinding,
   ) => MaterialVariantFactory
-  createCapture?: (renderer: ViewerRenderer, scene: Scene, camera: PerspectiveCamera) => CapturePort
+  createCapture?: (renderer: ViewerRenderer, scene: Scene, getCamera: () => Camera) => CapturePort
   createAnimation?: (root: Object3D, clips: readonly AnimationClip[]) => AnimationPort
   createTextureRegistry?: (root: Object3D) => Promise<ModelTextureRegistry>
   loader?: ModelLoaderPort
@@ -188,7 +196,12 @@ interface PendingMaterialRuntime {
 /** Imperative owner of the complete Three viewer lifecycle. */
 export class ViewerEngine implements ViewerPort {
   private readonly scene = createViewerScene()
-  private readonly camera = new PerspectiveCamera(45, 1, 0.01, 1000)
+  private readonly perspectiveCamera = new PerspectiveCamera(45, 1, 0.01, 1000)
+  private readonly orthographicCamera = new OrthographicCamera(-1, 1, 1, -1, 0.01, 1000)
+  private activeCamera: PerspectiveCamera | OrthographicCamera = this.perspectiveCamera
+  private cameraSettings: CameraSettings = { ...DEFAULT_CAMERA_SETTINGS }
+  private orthographicHalfHeight = 1
+  private viewportAspect = 1
   private readonly renderer: ViewerRenderer
   private readonly controls: ViewerControls
   private readonly loader: ModelLoaderPort
@@ -233,15 +246,17 @@ export class ViewerEngine implements ViewerPort {
     canvas.style.height = '100%'
     host.appendChild(canvas)
 
-    this.camera.position.set(2, 1.5, 3)
-    this.controls = dependencies.createControls?.(this.camera, canvas) ?? new OrbitControls(this.camera, canvas)
+    this.perspectiveCamera.position.set(2, 1.5, 3)
+    this.controls = dependencies.createControls?.(this.perspectiveCamera, canvas) ?? new OrbitControls(this.perspectiveCamera, canvas)
+    this.controls.object = this.activeCamera
     this.loader = dependencies.loader ?? new GltfAssetLoader()
     this.compiler = dependencies.createCompiler?.(this.renderer) ?? new ShaderCompiler(this.renderer)
     this.environment = dependencies.createEnvironment?.(this.renderer as WebGLRenderer, this.scene)
       ?? new EnvironmentService(this.renderer as WebGLRenderer, this.scene)
     this.createVariantFactory = dependencies.createVariantFactory
-    this.capture = dependencies.createCapture?.(this.renderer, this.scene, this.camera)
-      ?? new CaptureService(this.renderer, this.scene, this.camera)
+    const getActiveCamera = () => this.activeCamera
+    this.capture = dependencies.createCapture?.(this.renderer, this.scene, getActiveCamera)
+      ?? new CaptureService(this.renderer, this.scene, getActiveCamera)
     this.clock = dependencies.clock ?? new Clock()
     this.createAnimation = dependencies.createAnimation ?? ((root, clips) => new AnimationController(root, clips))
     this.createTextureRegistry = dependencies.createTextureRegistry ?? ((root) => ModelTextureRegistry.create(root))
@@ -296,15 +311,15 @@ export class ViewerEngine implements ViewerPort {
 
   fitModel(): void {
     if (this.modelRoot === undefined || this.disposed) return
-    applyCameraFit(this.camera, this.controls, fitFor(this.modelRoot, this.camera, this.controls.target))
+    this.applyFit(fitFor(this.modelRoot, this.perspectiveCamera, this.controls.target, this.activeCamera))
   }
 
   setPortraitView(): void {
     if (this.modelRoot === undefined || this.disposed) return
     const fit = calculateCameraFit(
       boundsFor(this.modelRoot),
-      this.camera.fov,
-      this.camera.aspect,
+      this.perspectiveCamera.fov,
+      this.perspectiveCamera.aspect,
       new Vector3(1.35, 0.35, 2.4),
       0.2,
     )
@@ -312,9 +327,17 @@ export class ViewerEngine implements ViewerPort {
     const portraitScale = 0.85
     fit.position.lerp(fit.target, 1 - portraitScale)
     fit.near = Math.max(1e-6, fit.near - originalDistance * (1 - portraitScale))
-    applyCameraFit(this.camera, this.controls, fit)
-    this.camera.lookAt(fit.target)
-    this.renderer.render(this.scene, this.camera)
+    this.applyFit(fit)
+    this.activeCamera.lookAt(fit.target)
+    this.renderer.render(this.scene, this.activeCamera)
+  }
+
+  updateCamera(settings: CameraSettings): void {
+    if (this.disposed) return
+    const next = normalizeCameraSettings(settings)
+    if (next.projection !== this.cameraSettings.projection) this.switchProjection(next)
+    this.cameraSettings = next
+    this.applyCameraLens(next)
   }
 
   async compileShader(draft: ShaderDraft): Promise<CompileResult> {
@@ -386,6 +409,65 @@ export class ViewerEngine implements ViewerPort {
     this.emitAnimationState()
   }
 
+  private switchProjection(next: CameraSettings): void {
+    const previous = this.activeCamera
+    const target = this.controls.target
+    if (next.projection === 'orthographic') {
+      this.orthographicCamera.position.copy(previous.position)
+      this.orthographicCamera.quaternion.copy(previous.quaternion)
+      const distance = Math.max(1e-6, previous.position.distanceTo(target))
+      const visibleHalfHeight = distance * Math.tan(this.perspectiveCamera.fov * Math.PI / 360)
+      this.orthographicHalfHeight = Math.max(1e-6, visibleHalfHeight * next.zoom)
+      this.activeCamera = this.orthographicCamera
+    } else {
+      const visibleHalfHeight = this.orthographicHalfHeight / this.cameraSettings.zoom
+      const distance = Math.max(1e-6, visibleHalfHeight / Math.tan(next.fov * Math.PI / 360))
+      const direction = cameraDirection(previous, target)
+      this.perspectiveCamera.position.copy(target).addScaledVector(direction, distance)
+      this.perspectiveCamera.quaternion.copy(previous.quaternion)
+      this.activeCamera = this.perspectiveCamera
+    }
+    this.controls.object = this.activeCamera
+    this.controls.update(0)
+    this.controls.saveState()
+  }
+
+  private applyCameraLens(settings: CameraSettings): void {
+    this.perspectiveCamera.near = settings.near
+    this.perspectiveCamera.far = settings.far
+    this.perspectiveCamera.fov = settings.fov
+    this.perspectiveCamera.updateProjectionMatrix()
+    this.orthographicCamera.near = settings.near
+    this.orthographicCamera.far = settings.far
+    this.orthographicCamera.zoom = settings.zoom
+    this.updateOrthographicProjection()
+  }
+
+  private updateOrthographicProjection(): void {
+    this.orthographicCamera.top = this.orthographicHalfHeight
+    this.orthographicCamera.bottom = -this.orthographicHalfHeight
+    this.orthographicCamera.left = -this.orthographicHalfHeight * this.viewportAspect
+    this.orthographicCamera.right = this.orthographicHalfHeight * this.viewportAspect
+    this.orthographicCamera.updateProjectionMatrix()
+  }
+
+  private applyFit(fit: CameraFit): void {
+    if (this.activeCamera === this.perspectiveCamera) {
+      applyCameraFit(this.perspectiveCamera, this.controls, fit, false)
+      return
+    }
+    this.orthographicCamera.position.copy(fit.position)
+    const distance = Math.max(1e-6, fit.position.distanceTo(fit.target))
+    this.orthographicHalfHeight = Math.max(
+      1e-6,
+      distance * Math.tan(this.perspectiveCamera.fov * Math.PI / 360) * this.cameraSettings.zoom,
+    )
+    this.updateOrthographicProjection()
+    this.controls.target.copy(fit.target)
+    this.controls.update(0)
+    this.controls.saveState()
+  }
+
   dispose(): void {
     if (this.disposed || this.disposalRequested) return
     if (this.criticalMutation) {
@@ -425,8 +507,10 @@ export class ViewerEngine implements ViewerPort {
     const width = Math.max(1, Math.floor(this.host.clientWidth))
     const height = Math.max(1, Math.floor(this.host.clientHeight))
     this.renderer.setSize(width, height, false)
-    this.camera.aspect = width / height
-    this.camera.updateProjectionMatrix()
+    this.viewportAspect = width / height
+    this.perspectiveCamera.aspect = this.viewportAspect
+    this.perspectiveCamera.updateProjectionMatrix()
+    this.updateOrthographicProjection()
   }
 
   private readonly frame: FrameRequestCallback = () => {
@@ -435,7 +519,7 @@ export class ViewerEngine implements ViewerPort {
     this.controls.update(delta)
     this.animation?.update(delta)
     this.updateFrameUniforms()
-    this.renderer.render(this.scene, this.camera)
+    this.renderer.render(this.scene, this.activeCamera)
     if (!this.disposed) this.frameHandle = this.requestFrame(this.frame)
   }
 
@@ -447,7 +531,7 @@ export class ViewerEngine implements ViewerPort {
     const resolution = uniforms.uResolution?.value
     if (resolution instanceof Vector2) resolution.copy(this.drawingBufferSize)
     const cameraPosition = uniforms.uCameraPosition?.value
-    if (cameraPosition instanceof Vector3) cameraPosition.copy(this.camera.position)
+    if (cameraPosition instanceof Vector3) cameraPosition.copy(this.activeCamera.position)
   }
 
   private prepareRuntimeMaterial(
@@ -467,7 +551,7 @@ export class ViewerEngine implements ViewerPort {
       const prepared = current.override.prepare(material)
       return this.trackPendingMaterialRuntime({
         validate: (validateRender) => prepared.run(
-          () => validateRender(() => this.renderer.render(this.scene, this.camera)),
+          () => validateRender(() => this.renderer.render(this.scene, this.activeCamera)),
         ),
         commit: () => prepared.commit(),
         dispose: () => prepared.dispose(),
@@ -489,7 +573,7 @@ export class ViewerEngine implements ViewerPort {
 
     return this.trackPendingMaterialRuntime({
       validate: (validateRender) => prepared.run(
-        () => validateRender(() => this.renderer.render(this.scene, this.camera)),
+        () => validateRender(() => this.renderer.render(this.scene, this.activeCamera)),
       ),
       commit: () => {
         prepared.commit()
@@ -536,7 +620,7 @@ export class ViewerEngine implements ViewerPort {
           }
         }
         animation = this.createAnimation(loaded.scene, loaded.animations)
-        const fit = fitFor(loaded.scene, this.camera, this.controls.target)
+        const fit = fitFor(loaded.scene, this.perspectiveCamera, this.controls.target, this.activeCamera)
         return { runtime, animation, fit, materials }
       } catch (error) {
         runBestEffortCleanup([
@@ -560,12 +644,14 @@ export class ViewerEngine implements ViewerPort {
     const previousRuntime = this.materialRuntime
     const previousAnimation = this.animation
     const previousTextureRegistry = this.textureRegistry
-    const cameraState = snapshotCamera(this.camera, this.controls)
+    const cameraState = snapshotCamera(this.activeCamera, this.controls)
+    const orthographicHalfHeight = this.orthographicHalfHeight
 
     try {
-      applyCameraFit(this.camera, this.controls, fit)
+      this.applyFit(fit)
     } catch (error) {
-      restoreCamera(this.camera, this.controls, cameraState)
+      this.orthographicHalfHeight = orthographicHalfHeight
+      restoreCamera(this.activeCamera, this.controls, cameraState)
       disposePreparedModel(loaded.scene, nextRuntime, nextAnimation, textureRegistry)
       throw error
     }
@@ -576,7 +662,8 @@ export class ViewerEngine implements ViewerPort {
     } catch (error) {
       if (loaded.scene.parent === this.scene) this.scene.remove(loaded.scene)
       if (previousRoot !== undefined && previousRoot.parent !== this.scene) this.scene.add(previousRoot)
-      restoreCamera(this.camera, this.controls, cameraState)
+      this.orthographicHalfHeight = orthographicHalfHeight
+      restoreCamera(this.activeCamera, this.controls, cameraState)
       disposePreparedModel(loaded.scene, nextRuntime, nextAnimation, textureRegistry)
       throw error
     }
@@ -676,7 +763,7 @@ export class ViewerEngine implements ViewerPort {
   private renderCandidateModel(root: Object3D): void {
     try {
       this.scene.add(root)
-      this.renderer.render(this.scene, this.camera)
+      this.renderer.render(this.scene, this.activeCamera)
     } finally {
       if (root.parent === this.scene) this.scene.remove(root)
     }
@@ -906,9 +993,14 @@ function createWebGl2Renderer(): ViewerRenderer {
   return new WebGLRenderer({ canvas, context, antialias: true, alpha: false })
 }
 
-function fitFor(root: Object3D, camera: PerspectiveCamera, target: Vector3): CameraFit {
+function fitFor(
+  root: Object3D,
+  camera: PerspectiveCamera,
+  target: Vector3,
+  directionSource: Camera = camera,
+): CameraFit {
   const bounds = boundsFor(root)
-  const direction = camera.position.clone().sub(target)
+  const direction = directionSource.position.clone().sub(target)
   return calculateCameraFit(bounds, camera.fov, camera.aspect, direction, 0.2)
 }
 
@@ -922,10 +1014,17 @@ function boundsFor(root: Object3D): Box3 {
   return bounds
 }
 
-function applyCameraFit(camera: PerspectiveCamera, controls: ViewerControls, fit: CameraFit): void {
+function applyCameraFit(
+  camera: PerspectiveCamera,
+  controls: ViewerControls,
+  fit: CameraFit,
+  updateClipping = true,
+): void {
   camera.position.copy(fit.position)
-  camera.near = fit.near
-  camera.far = fit.far
+  if (updateClipping) {
+    camera.near = fit.near
+    camera.far = fit.far
+  }
   camera.updateProjectionMatrix()
   controls.target.copy(fit.target)
   controls.update(0)
@@ -938,25 +1037,69 @@ interface CameraState {
   target: Vector3
   near: number
   far: number
+  projection: 'perspective' | 'orthographic'
+  fov?: number
+  aspect?: number
+  zoom?: number
+  left?: number
+  right?: number
+  top?: number
+  bottom?: number
 }
 
-function snapshotCamera(camera: PerspectiveCamera, controls: ViewerControls): CameraState {
-  return {
+function snapshotCamera(
+  camera: PerspectiveCamera | OrthographicCamera,
+  controls: ViewerControls,
+): CameraState {
+  const state: CameraState = {
     position: camera.position.clone(),
     quaternion: camera.quaternion.clone(),
     target: controls.target.clone(),
     near: camera.near,
     far: camera.far,
+    projection: camera instanceof OrthographicCamera ? 'orthographic' : 'perspective',
   }
+  if (camera instanceof PerspectiveCamera) {
+    state.fov = camera.fov
+    state.aspect = camera.aspect
+  } else {
+    state.zoom = camera.zoom
+    state.left = camera.left
+    state.right = camera.right
+    state.top = camera.top
+    state.bottom = camera.bottom
+  }
+  return state
 }
 
-function restoreCamera(camera: PerspectiveCamera, controls: ViewerControls, state: CameraState): void {
+function restoreCamera(
+  camera: PerspectiveCamera | OrthographicCamera,
+  controls: ViewerControls,
+  state: CameraState,
+): void {
   camera.position.copy(state.position)
   camera.quaternion.copy(state.quaternion)
   camera.near = state.near
   camera.far = state.far
+  if (camera instanceof PerspectiveCamera && state.projection === 'perspective') {
+    camera.fov = state.fov ?? camera.fov
+    camera.aspect = state.aspect ?? camera.aspect
+  }
+  if (camera instanceof OrthographicCamera && state.projection === 'orthographic') {
+    camera.zoom = state.zoom ?? camera.zoom
+    camera.left = state.left ?? camera.left
+    camera.right = state.right ?? camera.right
+    camera.top = state.top ?? camera.top
+    camera.bottom = state.bottom ?? camera.bottom
+  }
   camera.updateProjectionMatrix()
   controls.target.copy(state.target)
+}
+
+function cameraDirection(camera: Camera, target: Vector3): Vector3 {
+  const direction = camera.position.clone().sub(target)
+  if (direction.lengthSq() > 1e-12) return direction.normalize()
+  return camera.getWorldDirection(direction).multiplyScalar(-1).normalize()
 }
 
 function disposePreparedModel(

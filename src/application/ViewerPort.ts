@@ -1,6 +1,7 @@
 import type { ShaderParameterDefinition, ShaderParameterValue } from '../domain/parameters'
 import type { ShaderDraft, ShaderPortrait } from '../domain/shader'
 import type { EnvironmentDisplaySettings, EnvironmentLoadSource } from '../domain/environment'
+import type { CameraSettings } from '../domain/camera'
 import type { ModelTextureSlotInfo } from '../three/modelTextures/ModelTextureRegistry'
 
 export interface CompileDiagnostic {
@@ -41,6 +42,7 @@ export interface ViewerPort {
   updateParameter(definition: ShaderParameterDefinition, value: ShaderParameterValue): void
   loadEnvironment(source: EnvironmentLoadSource): Promise<void>
   updateEnvironment(settings: EnvironmentDisplaySettings): void
+  updateCamera(settings: CameraSettings): void
   capturePortrait(): Promise<ShaderPortrait>
   selectAnimation(name: string): void
   setAnimationPlaying(playing: boolean): void
