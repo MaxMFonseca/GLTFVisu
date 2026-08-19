@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceProvider, useWorkspace } from '../../application/WorkspaceController'
@@ -79,6 +79,21 @@ function LibraryNotices() {
 }
 
 describe('ShaderLibrary', () => {
+  it('places all six text commands together in the shader action grid', () => {
+    renderLibrary()
+    const actions = screen.getByLabelText('Shader actions')
+
+    expect(within(actions).getAllByRole('button').map((button) => button.textContent)).toEqual([
+      'Create shader',
+      'Duplicate shader',
+      'Import shader',
+      'Export shader',
+      'Capture portrait',
+      'Delete shader',
+    ])
+    expect(screen.getAllByRole('button', { name: 'Create shader' })).toHaveLength(1)
+  })
+
   it('shows built-in and empty local sections with the selected card', async () => {
     renderLibrary()
 
