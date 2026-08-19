@@ -26,12 +26,15 @@ npm test          # run the Vitest suite once
 npm run typecheck # run strict TypeScript checks
 npm run lint      # run ESLint
 npm run build     # typecheck and create the production build in dist/
+npm run verify:model # validate the bundled Suzanne GLB structure and texture
+npm run capture:builtins # regenerate all built-in shader portraits
+npm run verify:static # check the production build's static asset closure
 npm run preview   # serve the production build locally
 ```
 
 ## Load a model
 
-Use **Choose files** or drop files into the Model area.
+The viewer starts with the bundled textured Suzanne model already loaded. Use **Choose files** or drop files into the Model area to replace Suzanne with your own model.
 
 - For a GLB, select the `.glb` file. Its resources are normally embedded, so one file is enough.
 - For a multi-file GLTF, select the `.gltf` root together with every referenced `.bin`, image, and other local dependency. File names and relative paths must match the URIs in the GLTF.
@@ -40,6 +43,26 @@ Use **Choose files** or drop files into the Model area.
 The selected files are resolved through temporary browser object URLs and released after loading. Missing, malformed, and unsupported resources produce a visible error without replacing the previously loaded model.
 
 After a model loads, use **Reset view** to fit it in the camera. When animation clips are present, choose a clip with **Animation clip** and use **Play** or **Pause**. Loading a different model replaces the current clip list.
+
+When a loaded material exposes editable texture channels, use **Model textures** to replace a channel or restore its original texture. These replacements are session-only: reloading the page restores a fresh bundled Suzanne and its original checker texture, and loading a different model discards the previous model's replacements.
+
+## Bundled Suzanne and built-in portraits
+
+The default model is a self-contained GLB derived from [Khronos glTF Sample Assets — Suzanne](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Suzanne). Its attribution is **© 2017, UX3D** and **Norbert Nopper for Everything**; it is licensed under [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/). Project modifications, including UV preparation, a rough non-metal material, and repackaging, are recorded in [SUZANNE-LICENSE.md](src/assets/models/SUZANNE-LICENSE.md). The embedded neutral checker texture is original project artwork.
+
+The eight built-in shader cards use committed 320 x 200 PNG captures of this model, produced by the application’s real shader runtime. To regenerate them, run:
+
+```bash
+npm run capture:builtins
+```
+
+The capture command discovers installed Google Chrome or Microsoft Edge at their standard Windows locations. If neither is available there, point `CHROME_PATH` at a Chromium executable before running it (for PowerShell, `$env:CHROME_PATH = 'C:\\path\\to\\chrome.exe'`). It always replaces all eight portraits together at 320 x 200; do not regenerate or commit only one portrait, because the set must share the same camera, model, and rendering configuration. Chromium is a maintainer-only capture dependency: the generated PNGs remain committed, so normal builds do not need it.
+
+Validate the default model after changing it with:
+
+```bash
+npm run verify:model
+```
 
 ## Create and edit shaders
 
@@ -145,8 +168,8 @@ Imported shaders execute locally on the GPU through WebGL2. Review shader source
 
 ## Static hosting
 
-`npm run build` writes a static site to `dist/`. Vite is configured with the relative base `./`, so generated HTML, JavaScript, CSS, bundled HDRs and portraits, and Monaco worker assets resolve beneath the directory where the site is hosted instead of from the domain root.
+`npm run build` writes a static site to `dist/`. Vite is configured with the relative base `./`, so generated HTML, JavaScript, CSS, the bundled Suzanne GLB, four bundled HDRs, eight PNG portraits, and Monaco worker assets resolve beneath the directory where the site is hosted instead of from the domain root.
 
 For GitHub Pages, publish the contents of `dist/` under the repository subpath, such as `/GLTFVisu/`. The same build can be hosted under another subpath without changing source code. Use `npm run preview` to inspect the production build locally before publishing.
 
-After building, `npm run verify:static` serves and crawls the output under a simulated `/GLTFVisu/` repository path. It rejects root-relative `/assets` requests and checks the four HDRs, all bundled portraits, Monaco worker, and JavaScript/CSS chunks.
+After building, `npm run verify:static` serves and crawls the output under a simulated `/GLTFVisu/` repository path. It rejects root-relative `/assets` requests and checks exactly one bundled GLB, the four HDRs, all eight PNG portraits, the Monaco worker, and JavaScript/CSS chunks.

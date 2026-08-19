@@ -17,11 +17,14 @@ const PORTRAIT_SLUGS = [
   'uv-grid',
 ]
 const DEFAULT_PORTRAITS = PORTRAIT_SLUGS.map((slug) => `${slug}-a.png`)
+const DEFAULT_MODEL = 'suzanne-a.glb'
 
 async function createFixture({
   indexSource = '<script type="module" src="./assets/app-a.js"></script><link rel="stylesheet" href="./assets/app-a.css">',
   portraitFiles = DEFAULT_PORTRAITS,
   portraitReferences = portraitFiles,
+  modelFiles = [DEFAULT_MODEL],
+  modelReferences = modelFiles,
   lazyPortraitReferences = [],
   inlinePortraits = [],
   auxiliaryInlineSvgCount = 0,
@@ -44,6 +47,7 @@ async function createFixture({
     ).join('\n'))
   }
   for (const name of portraitFiles) await writeFile(join(assets, name), 'portrait')
+  for (const name of modelFiles) await writeFile(join(assets, name), 'glTF')
   for (const name of ['starfield-a.hdr', 'city-a.hdr', 'desert-a.hdr', 'studio-a.hdr']) {
     await writeFile(join(assets, name), '#?RADIANCE\n')
   }
@@ -52,18 +56,19 @@ async function createFixture({
     'import("./lazy-a.js");',
     ...(auxiliaryInlineSvgCount > 0 ? ['import("./editor.api-a.js");'] : []),
     'new Worker(new URL("editor.worker-a.js", import.meta.url));',
-    ...['starfield-a.hdr', 'city-a.hdr', 'desert-a.hdr', 'studio-a.hdr', ...portraitReferences]
+    ...['starfield-a.hdr', 'city-a.hdr', 'desert-a.hdr', 'studio-a.hdr', ...portraitReferences, ...modelReferences]
       .map((name) => `new URL("${name}", import.meta.url);`),
     `const inlinePortraits = ${JSON.stringify(inlinePortraits)};`,
   ].join('\n'))
   return root
 }
 
-test('crawls the exact eight emitted PNG portraits beneath the simulated repository subpath', async () => {
+test('crawls the exact bundled Suzanne GLB and eight emitted PNG portraits beneath the simulated repository subpath', async () => {
   const root = await createFixture()
   try {
     const result = await verifyStaticSubpath({ distDir: root, repositoryPath: '/GLTFVisu/' })
     assert.equal(result.hdrCount, 4)
+    assert.equal(result.modelCount, 1)
     assert.equal(result.portraitCount, 8)
     assert.deepEqual(result.portraitSlugs, PORTRAIT_SLUGS)
     assert.deepEqual(result.portraitOwners, Object.fromEntries(
@@ -72,6 +77,31 @@ test('crawls the exact eight emitted PNG portraits beneath the simulated reposit
     assert.equal(result.workerCount, 1)
     assert.equal(result.unresolved.length, 0)
     assert.ok(result.requests.every((request) => request.startsWith('/GLTFVisu/')))
+    assert.ok(result.requests.some((request) => /^\/GLTFVisu\/assets\/suzanne-[\w-]+\.glb$/.test(request)))
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('rejects a missing bundled Suzanne GLB', async () => {
+  const root = await createFixture({ modelFiles: [], modelReferences: [] })
+  try {
+    await assert.rejects(
+      verifyStaticSubpath({ distDir: root, repositoryPath: '/GLTFVisu/' }),
+      /Expected 1 emitted GLB, found 0/,
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('rejects multiple bundled GLB files', async () => {
+  const root = await createFixture({ modelFiles: [DEFAULT_MODEL, 'suzanne-b.glb'] })
+  try {
+    await assert.rejects(
+      verifyStaticSubpath({ distDir: root, repositoryPath: '/GLTFVisu/' }),
+      /Expected 1 emitted GLB, found 2/,
+    )
   } finally {
     await rm(root, { recursive: true, force: true })
   }
