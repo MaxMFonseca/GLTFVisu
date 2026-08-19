@@ -342,7 +342,7 @@ describe('ViewerEngine', () => {
     engine.dispose()
   })
 
-  it('rolls back texture properties and rebuilds the predecessor variants when rebinding fails', async () => {
+  it('keeps the exact predecessor variant when candidate and recovery creation would fail', async () => {
     const originalTexture = new Texture()
     const failedReplacement = new Texture()
     const disposeFailedReplacement = vi.spyOn(failedReplacement, 'dispose')
@@ -366,13 +366,16 @@ describe('ViewerEngine', () => {
         : 'preview:original'),
       revokePreview,
     }
+    let variantCreation = 0
     const harness = createHarness({
       loader,
       createCompiler: () => compiler,
       createTextureRegistry: (candidateRoot) => ModelTextureRegistry.create(candidateRoot, registryDependencies),
       createVariantFactory: () => (original, candidateTemplate) => {
+        variantCreation += 1
         const boundTexture = (original as MeshStandardMaterial).map
-        if (boundTexture === failedReplacement) throw new Error('variant rebind failed')
+        if (variantCreation === 2) throw new Error('candidate variant failed')
+        if (variantCreation > 2) throw new Error('recovery variant failed')
         const variant = candidateTemplate.clone()
         variant.uniforms = { uBoundTexture: { value: boundTexture } }
         return variant
@@ -385,13 +388,12 @@ describe('ViewerEngine', () => {
     const disposeWorkingVariant = vi.spyOn(workingVariant, 'dispose')
 
     await expect(engine.replaceModelTexture(loaded.textureSlots[0].id, {} as File))
-      .rejects.toThrow('variant rebind failed')
+      .rejects.toThrow('candidate variant failed')
 
     expect(originalMaterial.map).toBe(originalTexture)
-    expect(mesh.material).not.toBe(originalMaterial)
-    expect(mesh.material).not.toBe(workingVariant)
+    expect(mesh.material).toBe(workingVariant)
     expect((mesh.material as unknown as ShaderMaterial).uniforms.uBoundTexture.value).toBe(originalTexture)
-    expect(disposeWorkingVariant).toHaveBeenCalledOnce()
+    expect(disposeWorkingVariant).not.toHaveBeenCalled()
     expect(disposeFailedReplacement).toHaveBeenCalledOnce()
     expect(revokePreview).toHaveBeenCalledWith('preview:failed-replacement')
     engine.dispose()

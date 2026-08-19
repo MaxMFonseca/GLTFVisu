@@ -629,22 +629,21 @@ export class ViewerEngine implements ViewerPort {
     try {
       return this.runCriticalMutation(() => {
         const material = this.compiler.material
+        let preparedOverride: ReturnType<MaterialOverride['prepare']> | undefined
         try {
           this.compileGeneration += 1
           this.disposePendingMaterialRuntimes()
-          if (material !== undefined) runtime.override.restore()
           mutation.apply()
-          if (material !== undefined) runtime.override.apply(material)
+          if (material !== undefined) {
+            preparedOverride = runtime.override.prepare(material)
+            preparedOverride.commit()
+          }
           mutation.commit()
           return registry.list()
         } catch (error) {
           runBestEffortCleanup([
+            () => preparedOverride?.dispose(),
             () => mutation.rollback(),
-            () => {
-              if (material === undefined) return
-              runtime.override.restore()
-              runtime.override.apply(material)
-            },
           ])
           throw error
         }
