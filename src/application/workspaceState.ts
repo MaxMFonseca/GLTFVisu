@@ -3,6 +3,7 @@ import type { ShaderParameterValue } from '../domain/parameters'
 import type { ShaderDefinition, ShaderDraft } from '../domain/shader'
 import type { AnimationClipInfo, CompileDiagnostic } from './ViewerPort'
 import type { EnvironmentDefinition, WorkspaceEnvironmentState } from '../domain/environment'
+import type { ModelTextureSlotInfo } from '../three/modelTextures/ModelTextureRegistry'
 
 export interface WorkspaceDirtyFields {
   name: boolean
@@ -28,8 +29,12 @@ export interface WorkspaceCompileState {
 
 export type WorkspaceModelLoadState =
   | { status: 'empty' }
-  | { status: 'loading'; fileName: string; retained?: { name: string; meshCount: number } }
-  | { status: 'loaded'; name: string; meshCount: number }
+  | {
+      status: 'loading'
+      fileName: string
+      retained?: { name: string; meshCount: number; textureSlots: readonly ModelTextureSlotInfo[] }
+    }
+  | { status: 'loaded'; name: string; meshCount: number; textureSlots: readonly ModelTextureSlotInfo[] }
   | { status: 'error'; message: string }
 
 export interface WorkspaceAnimationState {

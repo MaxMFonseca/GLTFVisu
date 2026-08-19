@@ -557,6 +557,34 @@ export function WorkspaceProvider({
         }
       }
     },
+    async replaceModelTexture(slotId, file) {
+      if (stateRef.current.modelLoad.status !== 'loaded') return
+      const generation = loadGenerationRef.current
+      try {
+        const textureSlots = await viewer.replaceModelTexture(slotId, file)
+        if (activeRef.current && generation === loadGenerationRef.current) {
+          dispatch({ type: 'modelTexturesChanged', textureSlots })
+        }
+      } catch (error) {
+        if (activeRef.current && generation === loadGenerationRef.current) {
+          dispatch({ type: 'operationFailed', scope: 'model', message: errorMessage(error) })
+        }
+      }
+    },
+    async restoreModelTexture(slotId) {
+      if (stateRef.current.modelLoad.status !== 'loaded') return
+      const generation = loadGenerationRef.current
+      try {
+        const textureSlots = await viewer.restoreModelTexture(slotId)
+        if (activeRef.current && generation === loadGenerationRef.current) {
+          dispatch({ type: 'modelTexturesChanged', textureSlots })
+        }
+      } catch (error) {
+        if (activeRef.current && generation === loadGenerationRef.current) {
+          dispatch({ type: 'operationFailed', scope: 'model', message: errorMessage(error) })
+        }
+      }
+    },
     async selectBundledEnvironment(id, url) {
       const definition = stateRef.current.environmentCatalog.find((candidate) => candidate.id === id)
       if (definition === undefined) {

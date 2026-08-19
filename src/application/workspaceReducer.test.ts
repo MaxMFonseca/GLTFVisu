@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { BUILTIN_SHADERS } from '../domain/builtins'
 import { DEFAULT_ENVIRONMENT_DISPLAY_SETTINGS } from '../domain/environment'
 import type { ShaderDefinition } from '../domain/shader'
+import type { ModelTextureSlotInfo } from '../three/modelTextures/ModelTextureRegistry'
 import {
   createInitialWorkspaceState,
   hasDirtyFields,
@@ -22,6 +23,18 @@ function localShader(overrides: Partial<ShaderDefinition> = {}): ShaderDefinitio
     updatedAt: 10,
     schemaVersion: 2,
     materialInputProfile: 'none',
+    ...overrides,
+  }
+}
+
+function textureSlot(overrides: Partial<ModelTextureSlotInfo> = {}): ModelTextureSlotInfo {
+  return {
+    id: 'material-0:base-color',
+    materialLabel: 'Body',
+    channel: 'base-color',
+    label: 'Base color',
+    previewUrl: 'blob:original',
+    replaced: false,
     ...overrides,
   }
 }
@@ -64,14 +77,15 @@ describe('workspaceReducer', () => {
     expect(newest.environment.activeSource).toEqual({ kind: 'remote', url: 'https://example.com/second.hdr' })
     expect(stale).toBe(newest)
   })
-  it('restores the committed animated model snapshot when a replacement load fails', () => {
+  it('stores texture slots and restores them with the committed animated model when replacement fails', () => {
+    const originalSlots = [textureSlot()]
     const loaded = workspaceReducer(createInitialWorkspaceState(BUILTIN_SHADERS), {
       type: 'modelLoadSucceeded',
       info: {
         name: 'robot.glb',
         meshCount: 2,
         animationClips: [{ id: 'clip-0', label: 'Idle' }],
-        textureSlots: [],
+        textureSlots: originalSlots,
       },
     })
     const paused = workspaceReducer(loaded, { type: 'animationsChanged', selectedClipId: 'clip-0', playing: false })
@@ -81,11 +95,60 @@ describe('workspaceReducer', () => {
     expect(loading.modelLoad).toEqual({
       status: 'loading',
       fileName: 'broken.glb',
-      retained: { name: 'robot.glb', meshCount: 2 },
+      retained: { name: 'robot.glb', meshCount: 2, textureSlots: originalSlots },
     })
+    expect(loaded.modelLoad).toEqual({
+      status: 'loaded', name: 'robot.glb', meshCount: 2, textureSlots: originalSlots,
+    })
+    expect(loaded.modelLoad.status === 'loaded' && loaded.modelLoad.textureSlots).not.toBe(originalSlots)
     expect(loading.animations).toEqual(paused.animations)
-    expect(failed.modelLoad).toEqual({ status: 'loaded', name: 'robot.glb', meshCount: 2 })
+    expect(failed.modelLoad).toEqual({
+      status: 'loaded', name: 'robot.glb', meshCount: 2, textureSlots: originalSlots,
+    })
     expect(failed.animations).toEqual(paused.animations)
+  })
+
+  it('swaps replacement-model texture slots only after the replacement load succeeds', () => {
+    const predecessorSlots = [textureSlot()]
+    const replacementSlots = [textureSlot({
+      id: 'material-0:normal', channel: 'normal', label: 'Normal', previewUrl: 'blob:replacement',
+    })]
+    const loaded = workspaceReducer(createInitialWorkspaceState(BUILTIN_SHADERS), {
+      type: 'modelLoadSucceeded',
+      info: { name: 'robot.glb', meshCount: 2, animationClips: [], textureSlots: predecessorSlots },
+    })
+    const loading = workspaceReducer(loaded, { type: 'modelLoadStarted', fileName: 'vehicle.glb' })
+    const replaced = workspaceReducer(loading, {
+      type: 'modelLoadSucceeded',
+      info: { name: 'vehicle.glb', meshCount: 4, animationClips: [], textureSlots: replacementSlots },
+    })
+
+    expect(loading.modelLoad.status === 'loading' && loading.modelLoad.retained?.textureSlots)
+      .toEqual(predecessorSlots)
+    expect(replaced.modelLoad).toEqual({
+      status: 'loaded', name: 'vehicle.glb', meshCount: 4, textureSlots: replacementSlots,
+    })
+  })
+
+  it('immutably updates texture metadata only for the currently loaded model', () => {
+    const originalSlots = [textureSlot()]
+    const changedSlots = [textureSlot({ previewUrl: 'blob:replacement', replaced: true })]
+    const loaded = workspaceReducer(createInitialWorkspaceState(BUILTIN_SHADERS), {
+      type: 'modelLoadSucceeded',
+      info: { name: 'robot.glb', meshCount: 2, animationClips: [], textureSlots: originalSlots },
+    })
+
+    const changed = workspaceReducer(loaded, { type: 'modelTexturesChanged', textureSlots: changedSlots })
+    const loading = workspaceReducer(changed, { type: 'modelLoadStarted', fileName: 'next.glb' })
+    const stale = workspaceReducer(loading, { type: 'modelTexturesChanged', textureSlots: originalSlots })
+
+    expect(changed.modelLoad).toEqual({
+      status: 'loaded', name: 'robot.glb', meshCount: 2, textureSlots: changedSlots,
+    })
+    expect(changed).not.toBe(loaded)
+    expect(changed.modelLoad.status === 'loaded' && changed.modelLoad.textureSlots).not.toBe(changedSlots)
+    expect(loaded.modelLoad.status === 'loaded' && loaded.modelLoad.textureSlots).toEqual(originalSlots)
+    expect(stale).toBe(loading)
   })
 
   it('starts from the first built-in while repository hydration remains pending', () => {
