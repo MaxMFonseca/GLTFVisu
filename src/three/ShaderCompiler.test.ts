@@ -146,6 +146,37 @@ describe('ShaderCompiler', () => {
     expect(disposeWorking).toHaveBeenCalledTimes(1)
   })
 
+  it('reports a committed replacement as valid when predecessor template cleanup throws', async () => {
+    const candidates: ShaderMaterial[] = []
+    const compiler = new ShaderCompiler(unusedRenderer, {
+      validate: async (material) => {
+        candidates.push(material)
+        return []
+      },
+    })
+    await compiler.compile(draft('surface template', 'gltf-surface'))
+    const predecessor = compiler.material as ShaderMaterial
+    let activeDuringCleanup: ShaderMaterial | undefined
+    predecessor.addEventListener('dispose', () => {
+      activeDuringCleanup = compiler.material
+      throw new Error('predecessor template cleanup failed')
+    })
+    const commit = vi.fn()
+
+    const result = await compiler.compile(draft('PBR template', 'gltf-pbr'), () => ({
+      validate: () => [],
+      commit,
+      dispose: vi.fn(),
+    }))
+
+    expect(result).toEqual({ status: 'valid', generation: 2 })
+    expect(commit).toHaveBeenCalledOnce()
+    expect(activeDuringCleanup).toBe(candidates[1])
+    expect(compiler.material).toBe(candidates[1])
+    expect(getMaterialInputProfile(compiler.material as ShaderMaterial)).toBe('gltf-pbr')
+    compiler.dispose()
+  })
+
   it('tags candidates with the draft profile and preserves the last valid profile on failure', async () => {
     const syntaxError: CompileDiagnostic = { severity: 'error', message: 'broken profile', raw: 'broken profile' }
     const compiler = new ShaderCompiler(unusedRenderer, {

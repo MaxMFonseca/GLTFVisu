@@ -141,8 +141,9 @@ export class ShaderCompiler {
       runtime?.commit()
       const predecessor = this.activeMaterial
       this.activeMaterial = candidate
+      this.pendingMaterials.delete(candidate)
       committed = true
-      predecessor?.dispose()
+      disposeMaterialBestEffort(predecessor)
       return { status: 'valid', generation }
     } catch (error) {
       return errorResult(generation, error)
@@ -170,10 +171,11 @@ export class ShaderCompiler {
     if (this.disposed) return
     this.disposed = true
     this.generation += 1
-    this.activeMaterial?.dispose()
+    const activeMaterial = this.activeMaterial
     this.activeMaterial = undefined
     this.draftId = undefined
     this.draftParameterValues.clear()
+    disposeMaterialBestEffort(activeMaterial)
   }
 }
 
@@ -237,6 +239,14 @@ function captureShaderDiagnostics(
 
 function hasErrors(diagnostics: readonly CompileDiagnostic[]): boolean {
   return diagnostics.some((diagnostic) => diagnostic.severity === 'error')
+}
+
+function disposeMaterialBestEffort(material: ShaderMaterial | undefined): void {
+  try {
+    material?.dispose()
+  } catch {
+    // Cleanup callbacks cannot change an already-finalized ownership result.
+  }
 }
 
 function errorResult(generation: number, error: unknown): CompileResult {

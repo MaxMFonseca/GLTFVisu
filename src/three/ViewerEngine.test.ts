@@ -46,7 +46,7 @@ import {
   type ViewerEngineDependencies,
   type ViewerRenderer,
 } from './ViewerEngine'
-import { setMaterialInputProfile } from './shaders/materialFactory'
+import { getMaterialInputProfile, setMaterialInputProfile } from './shaders/materialFactory'
 
 const gain: ShaderParameterDefinition = {
   id: 'gain',
@@ -1108,6 +1108,58 @@ describe('ViewerEngine', () => {
     expect(harness.renderer.domElement.parentElement).toBeNull()
     compileResult.resolve({ status: 'error', generation: 1, diagnostics: [] })
     await compiling
+  })
+
+  it('detaches the compiler template before throwing terminal cleanup and releases later owners', async () => {
+    const original = new MeshStandardMaterial()
+    const geometry = new BoxGeometry()
+    const mesh = new Mesh(geometry, original)
+    const root = new Group().add(mesh)
+    const loader: ModelLoaderPort = { load: vi.fn(async () => ({ scene: root, animations: [] })) }
+    let compiler!: ShaderCompiler
+    const harness = createHarness({
+      loader,
+      createCompiler: (renderer) => {
+        compiler = new ShaderCompiler(renderer, { validate: async () => [] })
+        return compiler
+      },
+    })
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    const file = modelFile('throwing-compiler-template.glb')
+    await engine.loadModel([file], file)
+
+    await expect(engine.compileShader(shader('terminal PBR template', 'gltf-pbr')))
+      .resolves.toMatchObject({ status: 'valid' })
+    const template = compiler.material as ShaderMaterial
+    const variant = mesh.material as unknown as EnvironmentShaderMaterial
+    expect(template).not.toBe(variant)
+    expect(getMaterialInputProfile(template)).toBe('gltf-pbr')
+    expect(getMaterialInputProfile(variant)).toBe('gltf-pbr')
+    const fallback = variant.uniforms.uGltfNormalMap.value as Texture
+    const disposeTemplate = vi.spyOn(template, 'dispose')
+    const disposeVariant = vi.spyOn(variant, 'dispose')
+    const disposeFallback = vi.spyOn(fallback, 'dispose')
+    const disposeGeometry = vi.spyOn(geometry, 'dispose')
+    const disposeOriginal = vi.spyOn(original, 'dispose')
+    let activeDuringTemplateCleanup: ShaderMaterial | undefined = template
+    template.addEventListener('dispose', () => {
+      activeDuringTemplateCleanup = compiler.material
+      throw new Error('active compiler template cleanup failed')
+    })
+
+    expect(() => engine.dispose()).not.toThrow()
+
+    expect(activeDuringTemplateCleanup).toBeUndefined()
+    expect(compiler.material).toBeUndefined()
+    expect(mesh.material).toBe(original)
+    expect(disposeTemplate).toHaveBeenCalledOnce()
+    expect(disposeVariant).toHaveBeenCalledOnce()
+    expect(disposeFallback).toHaveBeenCalledOnce()
+    expect(disposeGeometry).toHaveBeenCalledOnce()
+    expect(disposeOriginal).toHaveBeenCalledOnce()
+    expect(harness.environment.dispose).toHaveBeenCalledOnce()
+    expect(harness.renderer.dispose).toHaveBeenCalledOnce()
+    expect(harness.renderer.domElement.parentElement).toBeNull()
   })
 
   it('invalidates a retained profile candidate before replacing its model root', async () => {
