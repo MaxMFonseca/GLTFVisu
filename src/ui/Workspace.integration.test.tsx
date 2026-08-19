@@ -258,7 +258,8 @@ describe('shader workspace acceptance', () => {
     const firstRender = renderWorkspace({ repository, viewer, urls: exportUrls, download })
     await waitForBuiltinControls()
 
-    expect(within(libraryPanel()).getByRole('button', { name: 'Normal' })).toHaveAttribute('aria-current', 'true')
+    expect(within(libraryPanel()).getByRole('button', { name: 'PBR' })).toHaveAttribute('aria-current', 'true')
+    await user.click(within(libraryPanel()).getByRole('button', { name: 'Normal' }))
     await user.click(within(libraryPanel()).getByRole('button', { name: 'Duplicate shader' }))
     const localCard = await within(libraryPanel()).findByRole('button', { name: 'Normal copy' })
     expect(localCard).toHaveAttribute('aria-current', 'true')
@@ -467,7 +468,7 @@ describe('shader workspace acceptance', () => {
     renderWorkspace({ repository, viewer })
     await waitForBuiltinControls()
     await user.click(within(libraryPanel()).getByRole('button', { name: 'Duplicate shader' }))
-    await within(libraryPanel()).findByRole('button', { name: 'Normal copy' })
+    await within(libraryPanel()).findByRole('button', { name: 'PBR copy' })
     await waitFor(() => expect(viewer.compileShader).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'local-1' })))
     await waitForValidCompile()
 
@@ -488,7 +489,7 @@ describe('shader workspace acceptance', () => {
     await user.click(screen.getByRole('button', { name: 'Dismiss workspace notices' }))
     repository.failSave = false
     await user.click(within(editorPanel()).getByRole('button', { name: 'Save shader' }))
-    expect(await screen.findByText('Saved Normal copy retry')).toBeVisible()
+    expect(await screen.findByText('Saved PBR copy retry')).toBeVisible()
     await user.click(screen.getByRole('button', { name: 'Dismiss workspace notices' }))
 
     viewer.failModel = true
@@ -509,7 +510,7 @@ describe('shader workspace acceptance', () => {
     await user.click(screen.getByRole('button', { name: 'Dismiss workspace notices' }))
     viewer.failCapture = false
     await user.click(within(editorPanel()).getByRole('button', { name: 'Capture portrait' }))
-    expect(await screen.findByText('Captured portrait for Normal copy retry')).toBeVisible()
+    expect(await screen.findByText('Captured portrait for PBR copy retry')).toBeVisible()
   }, 10_000)
 
   it('updates built-in controls without compilation and preserves current Toon and PBR values when duplicated', async () => {
@@ -679,12 +680,12 @@ describe('shader workspace acceptance', () => {
 
     await user.click(library)
     await user.click(within(screen.getByRole('tabpanel', { name: 'Library' })).getByRole('button', { name: 'Duplicate shader' }))
-    await screen.findByRole('button', { name: 'Normal copy' })
+    await screen.findByRole('button', { name: 'PBR copy' })
     const deleteButton = within(screen.getByRole('tabpanel', { name: 'Library' })).getByRole('button', { name: 'Delete shader' })
     await user.click(deleteButton)
 
     const workspace = container.querySelector('.workspace-root')
-    const dialog = screen.getByRole('alertdialog', { name: 'Delete Normal copy?' })
+    const dialog = screen.getByRole('alertdialog', { name: 'Delete PBR copy?' })
     expect(workspace).toHaveProperty('inert', true)
     expect(workspace).toHaveAttribute('aria-hidden', 'true')
     expect(workspace).not.toContainElement(dialog)

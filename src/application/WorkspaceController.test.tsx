@@ -654,9 +654,9 @@ describe('WorkspaceProvider', () => {
     act(() => workspace.current().commands.editName('Blocked'))
     await act(async () => workspace.current().commands.duplicateShader())
 
-    expect(workspace.current().state.builtins[0].name).toBe('Normal')
+    expect(workspace.current().state.builtins[0].name).toBe('PBR')
     expect(repository.save).toHaveBeenCalledWith(expect.objectContaining({
-      id: 'fresh-id', origin: 'local', name: 'Normal copy', createdAt: 100, updatedAt: 100,
+      id: 'fresh-id', origin: 'local', name: 'PBR copy', createdAt: 100, updatedAt: 100,
     }))
     expect(workspace.current().state.draft.portrait).toBeUndefined()
     expect(workspace.current().state.selectedId).toBe('fresh-id')

@@ -40,8 +40,8 @@ const builtins: ShaderDefinition[] = [
     parameters: [
       { id: 'color', type: 'color', uniformName: 'uColor', label: 'Color', defaultValue: '#7aa2f7' },
       { id: 'ambient-color', type: 'color', uniformName: 'uAmbientColor', label: 'Ambient color', defaultValue: '#ffffff' },
-      { id: 'ambient-intensity', type: 'float', uniformName: 'uAmbientIntensity', label: 'Ambient intensity', min: 0, max: 2, step: 0.01, defaultValue: 0 },
-    ], materialInputProfile: 'gltf-surface', parameterValues: { color: '#7aa2f7', 'ambient-color': '#ffffff', 'ambient-intensity': 0 }, schemaVersion: 2,
+      { id: 'ambient-intensity', type: 'float', uniformName: 'uAmbientIntensity', label: 'Ambient intensity', min: 0, max: 2, step: 0.01, defaultValue: 1 },
+    ], materialInputProfile: 'gltf-surface', parameterValues: { color: '#7aa2f7', 'ambient-color': '#ffffff', 'ambient-intensity': 1 }, schemaVersion: 2,
   },
   {
     id: 'builtin-uv-grid', name: 'UV Grid', origin: 'builtin', portrait: { kind: 'bundled', url: uvGridPortrait },
@@ -80,8 +80,8 @@ const builtins: ShaderDefinition[] = [
       { id: 'shadow-color', type: 'color', uniformName: 'uShadowColor', label: 'Shadow tint', defaultValue: '#18223b' },
       { id: 'light-color', type: 'color', uniformName: 'uLightColor', label: 'Light tint', defaultValue: '#f7c75f' },
       { id: 'ambient-color', type: 'color', uniformName: 'uAmbientColor', label: 'Ambient color', defaultValue: '#ffffff' },
-      { id: 'ambient-intensity', type: 'float', uniformName: 'uAmbientIntensity', label: 'Ambient intensity', min: 0, max: 2, step: 0.01, defaultValue: 0 },
-    ], materialInputProfile: 'gltf-surface', parameterValues: { bands: 3, 'shadow-color': '#18223b', 'light-color': '#f7c75f', 'ambient-color': '#ffffff', 'ambient-intensity': 0 }, schemaVersion: 2,
+      { id: 'ambient-intensity', type: 'float', uniformName: 'uAmbientIntensity', label: 'Ambient intensity', min: 0, max: 2, step: 0.01, defaultValue: 1 },
+    ], materialInputProfile: 'gltf-surface', parameterValues: { bands: 3, 'shadow-color': '#18223b', 'light-color': '#f7c75f', 'ambient-color': '#ffffff', 'ambient-intensity': 1 }, schemaVersion: 2,
   },
   {
     id: 'builtin-pbr', name: 'PBR', origin: 'builtin', portrait: { kind: 'bundled', url: pbrPortrait },
@@ -96,7 +96,7 @@ const builtins: ShaderDefinition[] = [
       { id: 'use-normal-map', type: 'boolean', uniformName: 'uUseNormalMap', label: 'Use normal map', defaultValue: true },
       { id: 'environment-contribution', type: 'float', uniformName: 'uEnvironmentContribution', label: 'Environment contribution', min: 0, max: 4, step: 0.01, defaultValue: 1 },
       { id: 'ambient-color', type: 'color', uniformName: 'uAmbientColor', label: 'Ambient color', defaultValue: '#ffffff' },
-      { id: 'ambient-intensity', type: 'float', uniformName: 'uAmbientIntensity', label: 'Ambient intensity', min: 0, max: 2, step: 0.01, defaultValue: 0 },
+      { id: 'ambient-intensity', type: 'float', uniformName: 'uAmbientIntensity', label: 'Ambient intensity', min: 0, max: 2, step: 0.01, defaultValue: 1 },
     ],
     materialInputProfile: 'gltf-pbr',
     parameterValues: {
@@ -109,7 +109,7 @@ const builtins: ShaderDefinition[] = [
       'use-normal-map': true,
       'environment-contribution': 1,
       'ambient-color': '#ffffff',
-      'ambient-intensity': 0,
+      'ambient-intensity': 1,
     },
     schemaVersion: 2,
   },
@@ -139,4 +139,21 @@ const builtins: ShaderDefinition[] = [
   },
 ]
 
-export const BUILTIN_SHADERS: readonly ShaderDefinition[] = Object.freeze(builtins.map(freezeBuiltin))
+const BUILTIN_SHADER_ORDER = [
+  'builtin-pbr',
+  'builtin-toon',
+  'builtin-normal',
+  'builtin-unlit-color',
+  'builtin-uv-grid',
+  'builtin-fresnel',
+  'builtin-procedural-matcap',
+  'builtin-rim-light',
+] as const
+
+const builtinsById = new Map(builtins.map((shader) => [shader.id, shader]))
+
+export const BUILTIN_SHADERS: readonly ShaderDefinition[] = Object.freeze(BUILTIN_SHADER_ORDER.map((id) => {
+  const shader = builtinsById.get(id)
+  if (shader === undefined) throw new Error(`Missing built-in shader: ${id}`)
+  return freezeBuiltin(shader)
+}))
