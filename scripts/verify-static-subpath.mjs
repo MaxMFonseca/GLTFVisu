@@ -4,7 +4,17 @@ import { basename, extname, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const TEXT_EXTENSIONS = new Set(['.css', '.html', '.js'])
-const CLOSURE_EXTENSIONS = new Set(['.css', '.hdr', '.js', '.svg'])
+const CLOSURE_EXTENSIONS = new Set(['.css', '.hdr', '.js', '.png', '.svg'])
+const PORTRAIT_SLUGS = [
+  'fresnel',
+  'normal',
+  'pbr',
+  'procedural-matcap',
+  'rim-light',
+  'toon',
+  'unlit-color',
+  'uv-grid',
+]
 
 function normalizeRepositoryPath(value) {
   if (!value.startsWith('/') || value === '/') throw new Error('Repository path must be a non-root absolute path')
@@ -33,7 +43,7 @@ function referencedAssets(source, extension) {
   if (extension === '.js') {
     addMatches(references, source, /new URL\(\s*["']([^"']+)["']\s*,\s*import\.meta\.url\s*\)/g)
     addMatches(references, source, /import\(\s*["']([^"']+)["']\s*\)/g)
-    addMatches(references, source, /["'](\.\.?\/[^"']+\.(?:css|hdr|js|svg))["']/g)
+    addMatches(references, source, /["'](\.\.?\/[^"']+\.(?:css|hdr|js|png|svg))["']/g)
   }
   return [...references].filter((reference) => !reference.startsWith('data:'))
 }
@@ -44,6 +54,7 @@ function contentType(path) {
     case '.hdr': return 'application/octet-stream'
     case '.html': return 'text/html; charset=utf-8'
     case '.js': return 'text/javascript; charset=utf-8'
+    case '.png': return 'image/png'
     case '.svg': return 'image/svg+xml'
     default: return 'application/octet-stream'
   }
@@ -143,17 +154,27 @@ export async function verifyStaticSubpath({ distDir, repositoryPath = '/GLTFVisu
   }
 
   const hdrCount = files.filter((file) => extname(file) === '.hdr').length
-  const emittedPortraits = files.filter((file) => extname(file) === '.svg')
+  const emittedPortraits = files
+    .filter((file) => extname(file) === '.png')
+    .map((file) => ({ file, slug: portraitSlug(file, '.png') }))
+    .filter(({ slug }) => slug !== undefined)
+  const portraitSlugs = [...new Set(emittedPortraits.map(({ slug }) => slug))].sort()
+  const portraitCount = emittedPortraits.length
+  const nonPngPortraits = files.filter((file) => extname(file) !== '.png' && portraitSlug(file) !== undefined)
   const portraitBundles = [...textFiles.values()].filter((source) =>
-    emittedPortraits.every((portrait) => source.includes(basename(portrait))))
+    emittedPortraits.every(({ file }) => source.includes(basename(file))))
   const inlinePortraitCount = portraitBundles
-    .reduce((count, source) => count + [...source.matchAll(/data:image\/svg\+xml/g)].length, 0)
-  const portraitCount = emittedPortraits.length + inlinePortraitCount
+    .reduce((count, source) => count + [...source.matchAll(/data:image\/(?:png|svg\+xml)/g)].length, 0)
   const workerCount = files.filter((file) => /^editor\.worker-[\w-]+\.js$/.test(basename(file))).length
 
   if (hdrCount !== 4) unresolved.push(`Expected 4 emitted HDRs, found ${hdrCount}`)
-  if (!emittedPortraits.some((file) => /^pbr-[\w-]+\.svg$/.test(basename(file)))) unresolved.push('Missing emitted PBR portrait')
-  if (!emittedPortraits.some((file) => /^unlit-color-[\w-]+\.svg$/.test(basename(file)))) unresolved.push('Missing emitted Unlit Color portrait')
+  for (const slug of PORTRAIT_SLUGS) {
+    const count = emittedPortraits.filter((portrait) => portrait.slug === slug).length
+    if (count === 0) unresolved.push(`Missing emitted portrait: ${slug}`)
+    if (count > 1) unresolved.push(`Duplicate emitted portrait: ${slug}`)
+  }
+  for (const file of nonPngPortraits) unresolved.push(`Non-PNG portrait asset: ${file}`)
+  if (inlinePortraitCount > 0) unresolved.push(`Unexpected inline portrait data (${inlinePortraitCount})`)
   if (portraitCount !== 8) unresolved.push(`Expected 8 bundled portraits, found ${portraitCount}`)
   if (workerCount !== 1) unresolved.push(`Expected 1 Monaco editor worker, found ${workerCount}`)
   if (requests.some((request) => request.startsWith('/assets/'))) unresolved.push('Observed a request beginning at /assets')
@@ -163,11 +184,19 @@ export async function verifyStaticSubpath({ distDir, repositoryPath = '/GLTFVisu
   return {
     hdrCount,
     portraitCount,
+    portraitSlugs,
     workerCount,
     requests,
     unresolved,
     jsCssCount: files.filter((file) => extname(file) === '.js' || extname(file) === '.css').length,
   }
+}
+
+function portraitSlug(file, requiredExtension) {
+  const extension = extname(file)
+  if (requiredExtension !== undefined && extension !== requiredExtension) return undefined
+  const filename = basename(file, extension)
+  return PORTRAIT_SLUGS.find((slug) => new RegExp(`^${slug}-[\\w-]+$`).test(filename))
 }
 
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

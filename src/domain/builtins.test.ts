@@ -42,6 +42,10 @@ describe('BUILTIN_SHADERS', () => {
       expect(shader.fragmentSource).toContain('outColor')
       expect(shader.fragmentSource).not.toMatch(/uniform\s|\bout\s+vec4\s+outColor/)
       expect(validateParameterDefinitions(shader.parameters)).toEqual([])
+      const portraitUrl = shader.portrait?.kind === 'bundled' ? shader.portrait.url : undefined
+      expect(portraitUrl).toBeDefined()
+      expect(new URL(portraitUrl ?? '', 'http://localhost').pathname).toMatch(/\.png$/)
+      expect(portraitUrl).not.toMatch(/^data:/)
     }
   })
 
