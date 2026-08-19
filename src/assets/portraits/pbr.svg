@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" role="img" aria-label="PBR shader preview">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#121722"/><stop offset="1" stop-color="#3c506b"/></linearGradient>
+    <radialGradient id="metal" cx="33%" cy="24%"><stop stop-color="#fff"/><stop offset=".12" stop-color="#bad7ed"/><stop offset=".43" stop-color="#596d7d"/><stop offset=".72" stop-color="#151b22"/><stop offset=".9" stop-color="#7694aa"/><stop offset="1" stop-color="#26313c"/></radialGradient>
+  </defs>
+  <rect width="320" height="200" fill="url(#bg)"/>
+  <path d="M0 151c57-17 109-20 157-7 55 14 108 10 163-14v70H0Z" fill="#0b1018"/>
+  <ellipse cx="160" cy="168" rx="84" ry="14" fill="#030508" opacity=".7"/>
+  <circle cx="160" cy="94" r="70" fill="url(#metal)"/>
+  <path d="M109 57c25-25 65-34 97-16" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" opacity=".7"/>
+  <path d="M105 126c26 24 68 30 103 10" fill="none" stroke="#88b9d7" stroke-width="5" stroke-linecap="round" opacity=".42"/>
+</svg>

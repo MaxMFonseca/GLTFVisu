@@ -5,6 +5,7 @@ import type { CompileResult, ModelInfo, ViewerPort } from './application/ViewerP
 import type { ShaderParameterDefinition, ShaderParameterValue } from './domain/parameters'
 import type { ShaderDraft, ShaderPortrait } from './domain/shader'
 import type { EnvironmentDisplaySettings, EnvironmentLoadSource } from './domain/environment'
+import { BUILTIN_ENVIRONMENTS } from './domain/environments'
 import { IndexedDbShaderRepository } from './persistence/IndexedDbShaderRepository'
 import { ViewerEngine } from './three/ViewerEngine'
 import { Workspace } from './ui/Workspace'
@@ -119,7 +120,12 @@ function App({ repository: injectedRepository, createViewer = DEFAULT_VIEWER_FAC
   }, [injectedRepository, repository])
 
   return (
-    <WorkspaceProvider repository={repository} viewer={runtime.viewer}>
+    <WorkspaceProvider
+      repository={repository}
+      viewer={runtime.viewer}
+      environmentCatalog={BUILTIN_ENVIRONMENTS}
+      defaultEnvironmentId={BUILTIN_ENVIRONMENTS[0].id}
+    >
       <Workspace mountViewer={runtime.mountViewer} />
     </WorkspaceProvider>
   )

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ShaderRepository } from './application/ShaderRepository'
 import type { ViewerPort } from './application/ViewerPort'
 import App from './App'
+import { BUILTIN_ENVIRONMENTS } from './domain/environments'
 
 afterEach(cleanup)
 
@@ -38,6 +39,12 @@ describe('shader workspace shell', () => {
     expect(screen.getByRole('main', { name: /shader workspace/i })).toBeVisible()
     expect(screen.getByText(/drop a glb/i)).toBeVisible()
     expect(createViewer).toHaveBeenCalledOnce()
+    await waitFor(() => expect(engine.loadEnvironment).toHaveBeenCalledWith({
+      kind: 'bundled',
+      id: BUILTIN_ENVIRONMENTS[0].id,
+      url: BUILTIN_ENVIRONMENTS[0].hdrUrl,
+    }))
+    expect(engine.loadEnvironment).toHaveBeenCalledTimes(1)
 
     result.unmount()
     await waitFor(() => expect(engine.dispose).toHaveBeenCalledOnce())
@@ -76,6 +83,12 @@ describe('shader workspace shell', () => {
     expect(await screen.findByRole('button', { name: 'Untitled shader' })).toHaveAttribute('aria-current', 'true')
     expect(createViewer).toHaveBeenCalledOnce()
     expect(engine.dispose).not.toHaveBeenCalled()
+    expect(engine.loadEnvironment).toHaveBeenCalledTimes(1)
+    expect(engine.loadEnvironment).toHaveBeenCalledWith({
+      kind: 'bundled',
+      id: BUILTIN_ENVIRONMENTS[0].id,
+      url: BUILTIN_ENVIRONMENTS[0].hdrUrl,
+    })
 
     result.unmount()
     await vi.waitFor(() => expect(engine.dispose).toHaveBeenCalledOnce())

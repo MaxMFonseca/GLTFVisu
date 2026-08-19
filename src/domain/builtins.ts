@@ -1,9 +1,12 @@
 import fresnelPortrait from '../assets/portraits/fresnel.svg'
 import normalPortrait from '../assets/portraits/normal.svg'
+import pbrPortrait from '../assets/portraits/pbr.svg?url&no-inline'
 import proceduralMatcapPortrait from '../assets/portraits/procedural-matcap.svg'
 import rimLightPortrait from '../assets/portraits/rim-light.svg'
 import toonPortrait from '../assets/portraits/toon.svg'
 import uvGridPortrait from '../assets/portraits/uv-grid.svg'
+import unlitColorPortrait from '../assets/portraits/unlit-color.svg?url&no-inline'
+import { PBR_FRAGMENT_SOURCE } from '../three/shaders/pbrFragment'
 import type { ShaderDefinition } from './shader'
 import { validateParameterDefinitions } from './uniformValidation'
 
@@ -25,6 +28,15 @@ const builtins: ShaderDefinition[] = [
   outColor = vec4(normalize(vWorldNormal) * 0.5 + 0.5, 1.0);
 }`,
     materialInputProfile: 'none', parameters: [], parameterValues: {}, schemaVersion: 2,
+  },
+  {
+    id: 'builtin-unlit-color', name: 'Unlit Color', origin: 'builtin', portrait: { kind: 'bundled', url: unlitColorPortrait },
+    fragmentSource: `void main() {
+  outColor = vec4(uColor, 1.0);
+}`,
+    parameters: [
+      { id: 'color', type: 'color', uniformName: 'uColor', label: 'Color', defaultValue: '#7aa2f7' },
+    ], materialInputProfile: 'none', parameterValues: { color: '#7aa2f7' }, schemaVersion: 2,
   },
   {
     id: 'builtin-uv-grid', name: 'UV Grid', origin: 'builtin', portrait: { kind: 'bundled', url: uvGridPortrait },
@@ -62,6 +74,32 @@ const builtins: ShaderDefinition[] = [
       { id: 'shadow-color', type: 'color', uniformName: 'uShadowColor', label: 'Shadow tint', defaultValue: '#18223b' },
       { id: 'light-color', type: 'color', uniformName: 'uLightColor', label: 'Light tint', defaultValue: '#f7c75f' },
     ], materialInputProfile: 'gltf-surface', parameterValues: { bands: 3, 'shadow-color': '#18223b', 'light-color': '#f7c75f' }, schemaVersion: 2,
+  },
+  {
+    id: 'builtin-pbr', name: 'PBR', origin: 'builtin', portrait: { kind: 'bundled', url: pbrPortrait },
+    fragmentSource: PBR_FRAGMENT_SOURCE,
+    parameters: [
+      { id: 'base-color-tint', type: 'color', uniformName: 'uBaseColorTint', label: 'Base color tint', defaultValue: '#ffffff' },
+      { id: 'use-base-color-map', type: 'boolean', uniformName: 'uUseBaseColorMap', label: 'Use base color map', defaultValue: true },
+      { id: 'metallic-multiplier', type: 'float', uniformName: 'uMetallicMultiplier', label: 'Metallic multiplier', min: 0, max: 2, step: 0.01, defaultValue: 1 },
+      { id: 'roughness-multiplier', type: 'float', uniformName: 'uRoughnessMultiplier', label: 'Roughness multiplier', min: 0, max: 2, step: 0.01, defaultValue: 1 },
+      { id: 'use-metallic-roughness-map', type: 'boolean', uniformName: 'uUseMetallicRoughnessMap', label: 'Use metallic roughness map', defaultValue: true },
+      { id: 'normal-strength', type: 'float', uniformName: 'uNormalStrength', label: 'Normal strength', min: 0, max: 2, step: 0.01, defaultValue: 1 },
+      { id: 'use-normal-map', type: 'boolean', uniformName: 'uUseNormalMap', label: 'Use normal map', defaultValue: true },
+      { id: 'environment-contribution', type: 'float', uniformName: 'uEnvironmentContribution', label: 'Environment contribution', min: 0, max: 4, step: 0.01, defaultValue: 1 },
+    ],
+    materialInputProfile: 'gltf-pbr',
+    parameterValues: {
+      'base-color-tint': '#ffffff',
+      'use-base-color-map': true,
+      'metallic-multiplier': 1,
+      'roughness-multiplier': 1,
+      'use-metallic-roughness-map': true,
+      'normal-strength': 1,
+      'use-normal-map': true,
+      'environment-contribution': 1,
+    },
+    schemaVersion: 2,
   },
   {
     id: 'builtin-procedural-matcap', name: 'Procedural Matcap', origin: 'builtin', portrait: { kind: 'bundled', url: proceduralMatcapPortrait },
