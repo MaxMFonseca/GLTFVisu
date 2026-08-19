@@ -5,6 +5,7 @@ import { BUILTIN_SHADERS } from '../domain/builtins'
 import { validateRemoteEnvironmentUrl, type EnvironmentDefinition } from '../domain/environment'
 import type { ShaderParameterDefinition } from '../domain/parameters'
 import type { ShaderDefinition, ShaderPortrait } from '../domain/shader'
+import type { ModelTextureSlotInfo } from '../three/modelTextures/ModelTextureRegistry'
 import type { ShaderRepository } from './ShaderRepository'
 import type { CompileResult, ModelInfo, ViewerPort } from './ViewerPort'
 import {
@@ -28,6 +29,18 @@ function localShader(overrides: Partial<ShaderDefinition> = {}): ShaderDefinitio
     updatedAt: 10,
     schemaVersion: 2,
     materialInputProfile: 'none',
+    ...overrides,
+  }
+}
+
+function textureSlot(overrides: Partial<ModelTextureSlotInfo> = {}): ModelTextureSlotInfo {
+  return {
+    id: 'material-0:base-color',
+    materialLabel: 'Body',
+    channel: 'base-color',
+    label: 'Base color',
+    previewUrl: 'blob:original',
+    replaced: false,
     ...overrides,
   }
 }
@@ -679,7 +692,9 @@ describe('WorkspaceProvider', () => {
 
     const root = new File(['model'], 'model.glb')
     await act(async () => workspace.current().commands.loadModel([root], root))
-    expect(workspace.current().state.modelLoad).toEqual({ status: 'loaded', name: 'model.glb', meshCount: 2 })
+    expect(workspace.current().state.modelLoad).toEqual({
+      status: 'loaded', name: 'model.glb', meshCount: 2, textureSlots: [],
+    })
     expect(workspace.current().state.animations).toEqual({
       clips: [{ id: 'clip-0', label: 'Idle' }, { id: 'clip-1', label: 'Run' }],
       selectedClipId: 'clip-0',
@@ -689,7 +704,9 @@ describe('WorkspaceProvider', () => {
     vi.mocked(viewer.loadModel).mockRejectedValueOnce(new Error('replacement malformed'))
     const brokenRoot = new File(['broken'], 'broken.glb')
     await act(async () => workspace.current().commands.loadModel([brokenRoot], brokenRoot))
-    expect(workspace.current().state.modelLoad).toEqual({ status: 'loaded', name: 'model.glb', meshCount: 2 })
+    expect(workspace.current().state.modelLoad).toEqual({
+      status: 'loaded', name: 'model.glb', meshCount: 2, textureSlots: [],
+    })
     expect(workspace.current().state.animations).toEqual({
       clips: [{ id: 'clip-0', label: 'Idle' }, { id: 'clip-1', label: 'Run' }],
       selectedClipId: 'clip-0',
@@ -718,6 +735,140 @@ describe('WorkspaceProvider', () => {
     expect(workspace.current().state.dirty.portrait).toBe(true)
     expect(repository.save).toHaveBeenCalledTimes(0)
     expect(workspace.current().state.notices.at(-1)).toEqual({ kind: 'info', scope: 'capture', message: 'Captured portrait for Local shader' })
+  })
+
+  it('forwards model texture edits and stores each complete returned slot list', async () => {
+    const viewer = createViewer()
+    const originalSlots = [textureSlot()]
+    const replacedSlots = [textureSlot({ previewUrl: 'blob:replacement', replaced: true })]
+    vi.mocked(viewer.loadModel).mockResolvedValueOnce({
+      name: 'model.glb', meshCount: 2, animationClips: [], textureSlots: originalSlots,
+    })
+    vi.mocked(viewer.replaceModelTexture).mockResolvedValueOnce(replacedSlots)
+    vi.mocked(viewer.restoreModelTexture).mockResolvedValueOnce(originalSlots)
+    const workspace = renderWorkspace({ viewer })
+    await ready(workspace)
+    const root = new File(['model'], 'model.glb')
+    await act(async () => workspace.current().commands.loadModel([root], root))
+    const replacement = new File(['replacement'], 'body.png', { type: 'image/png' })
+
+    await act(async () => workspace.current().commands.replaceModelTexture(originalSlots[0].id, replacement))
+
+    expect(viewer.replaceModelTexture).toHaveBeenCalledWith(originalSlots[0].id, replacement)
+    expect(workspace.current().state.modelLoad).toEqual({
+      status: 'loaded', name: 'model.glb', meshCount: 2, textureSlots: replacedSlots,
+    })
+
+    await act(async () => workspace.current().commands.restoreModelTexture(originalSlots[0].id))
+
+    expect(viewer.restoreModelTexture).toHaveBeenCalledWith(originalSlots[0].id)
+    expect(workspace.current().state.modelLoad).toEqual({
+      status: 'loaded', name: 'model.glb', meshCount: 2, textureSlots: originalSlots,
+    })
+  })
+
+  it('requires a loaded model and preserves texture metadata when either edit fails', async () => {
+    const viewer = createViewer()
+    const originalSlots = [textureSlot()]
+    vi.mocked(viewer.loadModel).mockResolvedValueOnce({
+      name: 'model.glb', meshCount: 2, animationClips: [], textureSlots: originalSlots,
+    })
+    const workspace = renderWorkspace({ viewer })
+    await ready(workspace)
+    const replacement = new File(['replacement'], 'body.png', { type: 'image/png' })
+
+    await act(async () => workspace.current().commands.replaceModelTexture(originalSlots[0].id, replacement))
+    await act(async () => workspace.current().commands.restoreModelTexture(originalSlots[0].id))
+    expect(viewer.replaceModelTexture).not.toHaveBeenCalled()
+    expect(viewer.restoreModelTexture).not.toHaveBeenCalled()
+
+    const root = new File(['model'], 'model.glb')
+    await act(async () => workspace.current().commands.loadModel([root], root))
+    vi.mocked(viewer.replaceModelTexture).mockRejectedValueOnce(new Error('Texture decode failed'))
+    await act(async () => workspace.current().commands.replaceModelTexture(originalSlots[0].id, replacement))
+
+    expect(workspace.current().state.modelLoad).toEqual({
+      status: 'loaded', name: 'model.glb', meshCount: 2, textureSlots: originalSlots,
+    })
+    expect(workspace.current().state.notices.at(-1)).toEqual({
+      kind: 'error', scope: 'model', message: 'Texture decode failed',
+    })
+
+    vi.mocked(viewer.restoreModelTexture).mockRejectedValueOnce(new Error('Texture restore failed'))
+    await act(async () => workspace.current().commands.restoreModelTexture(originalSlots[0].id))
+
+    expect(workspace.current().state.modelLoad).toEqual({
+      status: 'loaded', name: 'model.glb', meshCount: 2, textureSlots: originalSlots,
+    })
+    expect(workspace.current().state.notices.at(-1)).toEqual({
+      kind: 'error', scope: 'model', message: 'Texture restore failed',
+    })
+  })
+
+  it('does not let a texture edit started for one model overwrite a subsequently loaded model', async () => {
+    const viewer = createViewer()
+    const firstSlots = [textureSlot()]
+    const staleSlots = [textureSlot({ previewUrl: 'blob:stale', replaced: true })]
+    const secondSlots = [textureSlot({
+      id: 'material-0:normal', channel: 'normal', label: 'Normal', previewUrl: 'blob:second',
+    })]
+    vi.mocked(viewer.loadModel)
+      .mockResolvedValueOnce({ name: 'first.glb', meshCount: 1, animationClips: [], textureSlots: firstSlots })
+      .mockResolvedValueOnce({ name: 'second.glb', meshCount: 3, animationClips: [], textureSlots: secondSlots })
+    const mutation = deferred<readonly ModelTextureSlotInfo[]>()
+    vi.mocked(viewer.replaceModelTexture).mockReturnValueOnce(mutation.promise)
+    const workspace = renderWorkspace({ viewer })
+    await ready(workspace)
+    const first = new File(['first'], 'first.glb')
+    const second = new File(['second'], 'second.glb')
+    await act(async () => workspace.current().commands.loadModel([first], first))
+
+    let replacementPromise!: Promise<void>
+    act(() => {
+      replacementPromise = workspace.current().commands.replaceModelTexture(
+        firstSlots[0].id,
+        new File(['replacement'], 'body.png'),
+      )
+    })
+    await act(async () => workspace.current().commands.loadModel([second], second))
+    await act(async () => { mutation.resolve(staleSlots); await replacementPromise })
+
+    expect(workspace.current().state.modelLoad).toEqual({
+      status: 'loaded', name: 'second.glb', meshCount: 3, textureSlots: secondSlots,
+    })
+  })
+
+  it('restores updated texture metadata when a later model load fails', async () => {
+    const viewer = createViewer()
+    const originalSlots = [textureSlot()]
+    const replacedSlots = [textureSlot({ previewUrl: 'blob:replacement', replaced: true })]
+    const nextLoad = deferred<ModelInfo>()
+    vi.mocked(viewer.loadModel)
+      .mockResolvedValueOnce({ name: 'first.glb', meshCount: 1, animationClips: [], textureSlots: originalSlots })
+      .mockReturnValueOnce(nextLoad.promise)
+    const mutation = deferred<readonly ModelTextureSlotInfo[]>()
+    vi.mocked(viewer.replaceModelTexture).mockReturnValueOnce(mutation.promise)
+    const workspace = renderWorkspace({ viewer })
+    await ready(workspace)
+    const first = new File(['first'], 'first.glb')
+    const second = new File(['second'], 'second.glb')
+    await act(async () => workspace.current().commands.loadModel([first], first))
+
+    let replacementPromise!: Promise<void>
+    act(() => {
+      replacementPromise = workspace.current().commands.replaceModelTexture(
+        originalSlots[0].id,
+        new File(['replacement'], 'body.png'),
+      )
+    })
+    let nextLoadPromise!: Promise<void>
+    act(() => { nextLoadPromise = workspace.current().commands.loadModel([second], second) })
+    await act(async () => { mutation.resolve(replacedSlots); await replacementPromise })
+    await act(async () => { nextLoad.reject(new Error('Second model failed')); await nextLoadPromise })
+
+    expect(workspace.current().state.modelLoad).toEqual({
+      status: 'loaded', name: 'first.glb', meshCount: 1, textureSlots: replacedSlots,
+    })
   })
 
   it('deletes only locals and selects the next local before the first built-in', async () => {

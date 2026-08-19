@@ -18,6 +18,8 @@ export interface WorkspaceCommands {
   exportShader(id?: string): Promise<void>
   capturePortrait(): Promise<void>
   loadModel(files: File[], root: File): Promise<void>
+  replaceModelTexture(slotId: string, file: File): Promise<void>
+  restoreModelTexture(slotId: string): Promise<void>
   selectBundledEnvironment(id: string, url: string): Promise<void>
   loadLocalEnvironment(file: File): Promise<void>
   loadRemoteEnvironment(url: string): Promise<void>

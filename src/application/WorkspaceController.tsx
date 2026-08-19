@@ -550,9 +550,41 @@ export function WorkspaceProvider({
       dispatch({ type: 'modelLoadStarted', fileName: root.name })
       try {
         const info = await viewer.loadModel(files, root)
-        if (activeRef.current && generation === loadGenerationRef.current) dispatch({ type: 'modelLoadSucceeded', info })
+        if (activeRef.current && generation === loadGenerationRef.current) {
+          dispatch({ type: 'modelLoadSucceeded', generation, info })
+        }
       } catch (error) {
         if (activeRef.current && generation === loadGenerationRef.current) {
+          dispatch({ type: 'operationFailed', scope: 'model', message: errorMessage(error) })
+        }
+      }
+    },
+    async replaceModelTexture(slotId, file) {
+      if (stateRef.current.modelLoad.status !== 'loaded') return
+      const modelGeneration = stateRef.current.modelGeneration
+      const loadGeneration = loadGenerationRef.current
+      try {
+        const textureSlots = await viewer.replaceModelTexture(slotId, file)
+        if (activeRef.current) {
+          dispatch({ type: 'modelTexturesChanged', generation: modelGeneration, textureSlots })
+        }
+      } catch (error) {
+        if (activeRef.current && loadGeneration === loadGenerationRef.current) {
+          dispatch({ type: 'operationFailed', scope: 'model', message: errorMessage(error) })
+        }
+      }
+    },
+    async restoreModelTexture(slotId) {
+      if (stateRef.current.modelLoad.status !== 'loaded') return
+      const modelGeneration = stateRef.current.modelGeneration
+      const loadGeneration = loadGenerationRef.current
+      try {
+        const textureSlots = await viewer.restoreModelTexture(slotId)
+        if (activeRef.current) {
+          dispatch({ type: 'modelTexturesChanged', generation: modelGeneration, textureSlots })
+        }
+      } catch (error) {
+        if (activeRef.current && loadGeneration === loadGenerationRef.current) {
           dispatch({ type: 'operationFailed', scope: 'model', message: errorMessage(error) })
         }
       }

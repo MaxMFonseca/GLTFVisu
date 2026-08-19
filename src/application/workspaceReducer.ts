@@ -6,6 +6,7 @@ import {
 } from '../domain/parameters'
 import type { ShaderDefinition, ShaderPortrait } from '../domain/shader'
 import type { ParameterDefinitionValidationError } from '../domain/uniformValidation'
+import type { ModelTextureSlotInfo } from '../three/modelTextures/ModelTextureRegistry'
 import type { CompileResult, ModelInfo } from './ViewerPort'
 import {
   DEFAULT_ENVIRONMENT_DISPLAY_SETTINGS,
@@ -50,7 +51,8 @@ export type WorkspaceAction =
     }
   | { type: 'deleteSucceeded'; id: string; fallback?: ShaderDefinition }
   | { type: 'modelLoadStarted'; fileName: string }
-  | { type: 'modelLoadSucceeded'; info: ModelInfo }
+  | { type: 'modelLoadSucceeded'; generation: number; info: ModelInfo }
+  | { type: 'modelTexturesChanged'; generation: number; textureSlots: readonly ModelTextureSlotInfo[] }
   | { type: 'environmentLoadStarted'; generation: number; label: string }
   | { type: 'environmentLoadSucceeded'; generation: number; source: EnvironmentLoadSource }
   | { type: 'environmentLoadFailed'; generation: number; message: string }
@@ -84,6 +86,7 @@ export function createInitialWorkspaceState(
     persistence: 'idle',
     schemaErrors: [],
     compile: { generation: 0, status: 'idle', diagnostics: [] },
+    modelGeneration: 0,
     modelLoad: { status: 'empty' },
     animations: { clips: [], playing: false },
     notices: [],
@@ -122,6 +125,10 @@ function replaceLocal(locals: readonly ShaderDefinition[], shader: ShaderDefinit
   const index = locals.findIndex((candidate) => candidate.id === shader.id)
   if (index < 0) return [snapshot, ...locals]
   return locals.map((candidate, candidateIndex) => candidateIndex === index ? snapshot : candidate)
+}
+
+function cloneTextureSlots(textureSlots: readonly ModelTextureSlotInfo[]): readonly ModelTextureSlotInfo[] {
+  return textureSlots.map((slot) => ({ ...slot }))
 }
 
 function mergeHydratedLocals(
@@ -350,7 +357,11 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
     case 'modelLoadStarted':
       {
         const retained = state.modelLoad.status === 'loaded'
-          ? { name: state.modelLoad.name, meshCount: state.modelLoad.meshCount }
+          ? {
+              name: state.modelLoad.name,
+              meshCount: state.modelLoad.meshCount,
+              textureSlots: state.modelLoad.textureSlots,
+            }
           : state.modelLoad.status === 'loading'
             ? state.modelLoad.retained
             : undefined
@@ -366,7 +377,13 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
     case 'modelLoadSucceeded':
       return {
         ...state,
-        modelLoad: { status: 'loaded', name: action.info.name, meshCount: action.info.meshCount },
+        modelGeneration: action.generation,
+        modelLoad: {
+          status: 'loaded',
+          name: action.info.name,
+          meshCount: action.info.meshCount,
+          textureSlots: cloneTextureSlots(action.info.textureSlots),
+        },
         animations: {
           clips: action.info.animationClips.map((clip) => ({ ...clip })),
           selectedClipId: action.info.animationClips[0]?.id,
@@ -384,6 +401,30 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
           settings: state.environment.settings,
         },
       }
+    case 'modelTexturesChanged':
+      if (action.generation !== state.modelGeneration) return state
+      if (state.modelLoad.status === 'loaded') {
+        return {
+          ...state,
+          modelLoad: {
+            ...state.modelLoad,
+            textureSlots: cloneTextureSlots(action.textureSlots),
+          },
+        }
+      }
+      if (state.modelLoad.status === 'loading' && state.modelLoad.retained !== undefined) {
+        return {
+          ...state,
+          modelLoad: {
+            ...state.modelLoad,
+            retained: {
+              ...state.modelLoad.retained,
+              textureSlots: cloneTextureSlots(action.textureSlots),
+            },
+          },
+        }
+      }
+      return state
     case 'environmentLoadSucceeded':
       if (action.generation !== state.environmentLoadGeneration) return state
       return {
@@ -421,8 +462,8 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
       return {
         ...state,
         persistence: action.scope === 'save' ? 'idle' : state.persistence,
-        modelLoad: action.scope === 'model'
-          ? state.modelLoad.status === 'loading' && state.modelLoad.retained !== undefined
+        modelLoad: action.scope === 'model' && state.modelLoad.status === 'loading'
+          ? state.modelLoad.retained !== undefined
             ? { status: 'loaded', ...state.modelLoad.retained }
             : { status: 'error', message: action.message }
           : state.modelLoad,
