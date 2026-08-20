@@ -7,9 +7,55 @@ import type { ViewerPort } from './application/ViewerPort'
 import App from './App'
 import { BUILTIN_ENVIRONMENTS } from './domain/environments'
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 
 describe('shader workspace shell', () => {
+  it('fetches the bundled Suzanne URL and loads it through the mounted viewer', async () => {
+    const repository: ShaderRepository = {
+      list: vi.fn(async () => []),
+      get: vi.fn(async () => undefined),
+      save: vi.fn(async () => undefined),
+      delete: vi.fn(async () => undefined),
+    }
+    const engine: ViewerPort = {
+      loadModel: vi.fn(async (_files, root) => ({ name: root.name, meshCount: 1, animationClips: [], textureSlots: [] })),
+      replaceModelTexture: vi.fn(async () => []),
+      restoreModelTexture: vi.fn(async () => []),
+      fitModel: vi.fn(),
+      resize: vi.fn(),
+      compileShader: vi.fn(async () => ({ status: 'valid' as const, generation: 1 })),
+      updateParameter: vi.fn(),
+      loadEnvironment: vi.fn(async () => undefined),
+      updateEnvironment: vi.fn(),
+      capturePortrait: vi.fn(async () => ({
+        kind: 'captured' as const, blob: new Blob(), mimeType: 'image/png' as const, width: 1, height: 1,
+      })),
+      selectAnimation: vi.fn(),
+      setAnimationPlaying: vi.fn(),
+      dispose: vi.fn(),
+    }
+    let resolveFetch!: (response: Response) => void
+    const fetchResponse = new Promise<Response>((resolve) => { resolveFetch = resolve })
+    const fetcher = vi.fn(() => fetchResponse)
+    vi.stubGlobal('fetch', fetcher)
+
+    render(<App repository={repository} createViewer={() => engine} />)
+
+    expect(fetcher).toHaveBeenCalledWith(expect.stringMatching(/suzanne\.glb$/))
+    expect(engine.loadModel).not.toHaveBeenCalled()
+    await act(async () => {
+      resolveFetch(new Response(new Blob(['glb'], { type: 'model/gltf-binary' }), { status: 200 }))
+    })
+    await waitFor(() => expect(engine.loadModel).toHaveBeenCalledOnce())
+
+    const [files, root] = vi.mocked(engine.loadModel).mock.calls[0]
+    expect(files).toEqual([root])
+    expect(root).toMatchObject({ name: 'Suzanne.glb', type: 'model/gltf-binary' })
+  })
+
   it('shows the workspace landmark and empty viewer guidance', async () => {
     const repository: ShaderRepository = {
       list: vi.fn(async () => []),

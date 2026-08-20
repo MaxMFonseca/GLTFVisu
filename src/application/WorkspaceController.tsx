@@ -32,6 +32,12 @@ import {
 import type { ShaderRepository } from './ShaderRepository'
 import type { ViewerPort } from './ViewerPort'
 import type { WorkspaceCommands } from './commands'
+import {
+  fetchDefaultModel,
+  fetchDefaultModelBlob,
+  type DefaultModelDefinition,
+  type DefaultModelFetcher,
+} from './defaultModel'
 import { createInitialWorkspaceState, workspaceReducer } from './workspaceReducer'
 import {
   cloneShader,
@@ -63,6 +69,8 @@ export interface WorkspaceProviderProps {
   builtins?: readonly ShaderDefinition[]
   environmentCatalog?: readonly EnvironmentDefinition[]
   defaultEnvironmentId?: string
+  defaultModel?: DefaultModelDefinition
+  defaultModelFetcher?: DefaultModelFetcher
   idFactory?: () => string
   now?: () => number
   timer?: TimerPort
@@ -193,6 +201,8 @@ export function WorkspaceProvider({
   builtins = BUILTIN_SHADERS,
   environmentCatalog = [],
   defaultEnvironmentId,
+  defaultModel,
+  defaultModelFetcher = fetchDefaultModelBlob,
   idFactory = () => crypto.randomUUID(),
   now = () => Date.now(),
   timer = DEFAULT_TIMER,
@@ -217,6 +227,7 @@ export function WorkspaceProvider({
     label: string
     promise: Promise<void>
   } | undefined>(undefined)
+  const defaultModelRequestRef = useRef<Promise<File> | undefined>(undefined)
   const environmentSettingsRef = useRef(state.environment.settings)
   stateRef.current = state
   environmentSettingsRef.current = state.environment.settings
@@ -284,6 +295,23 @@ export function WorkspaceProvider({
     void compileDraft(compileInput)
   }, [cancelScheduledCompile, compileDraft])
 
+  const completeModelLoad = useCallback(async (
+    generation: number,
+    files: File[],
+    root: File,
+  ): Promise<void> => {
+    try {
+      const info = await viewer.loadModel(files, root)
+      if (activeRef.current && generation === loadGenerationRef.current) {
+        dispatch({ type: 'modelLoadSucceeded', generation, info })
+      }
+    } catch (error) {
+      if (activeRef.current && generation === loadGenerationRef.current) {
+        dispatch({ type: 'operationFailed', scope: 'model', message: errorMessage(error) })
+      }
+    }
+  }, [viewer])
+
   useEffect(() => {
     activeRef.current = true
     void repository.list().then(
@@ -295,6 +323,25 @@ export function WorkspaceProvider({
       },
     )
     void compileDraft(stateRef.current.draft)
+    if (defaultModel !== undefined) {
+      const generation = ++loadGenerationRef.current
+      dispatch({ type: 'modelLoadStarted', fileName: defaultModel.fileName })
+      const request = defaultModelRequestRef.current
+        ?? fetchDefaultModel(defaultModel, defaultModelFetcher)
+      defaultModelRequestRef.current = request
+      void request.then(
+        (file) => {
+          if (activeRef.current && generation === loadGenerationRef.current) {
+            void completeModelLoad(generation, [file], file)
+          }
+        },
+        (error: unknown) => {
+          if (activeRef.current && generation === loadGenerationRef.current) {
+            dispatch({ type: 'operationFailed', scope: 'model', message: errorMessage(error) })
+          }
+        },
+      )
+    }
     const defaultEnvironment = stateRef.current.environmentCatalog.find(
       (environment) => environment.id === defaultEnvironmentId,
     )
@@ -336,7 +383,16 @@ export function WorkspaceProvider({
       loadGenerationRef.current += 1
       environmentLoadGenerationRef.current += 1
     }
-  }, [cancelScheduledCompile, compileDraft, defaultEnvironmentId, repository, viewer])
+  }, [
+    cancelScheduledCompile,
+    compileDraft,
+    completeModelLoad,
+    defaultEnvironmentId,
+    defaultModel,
+    defaultModelFetcher,
+    repository,
+    viewer,
+  ])
 
   const loadEnvironment = async (source: EnvironmentLoadSource, label: string): Promise<void> => {
     const generation = ++environmentLoadGenerationRef.current
@@ -549,16 +605,7 @@ export function WorkspaceProvider({
     async loadModel(files, root) {
       const generation = ++loadGenerationRef.current
       dispatch({ type: 'modelLoadStarted', fileName: root.name })
-      try {
-        const info = await viewer.loadModel(files, root)
-        if (activeRef.current && generation === loadGenerationRef.current) {
-          dispatch({ type: 'modelLoadSucceeded', generation, info })
-        }
-      } catch (error) {
-        if (activeRef.current && generation === loadGenerationRef.current) {
-          dispatch({ type: 'operationFailed', scope: 'model', message: errorMessage(error) })
-        }
-      }
+      await completeModelLoad(generation, files, root)
     },
     async replaceModelTexture(slotId, file) {
       if (stateRef.current.modelLoad.status !== 'loaded') return
