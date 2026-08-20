@@ -93,16 +93,27 @@
 
 .workspace-library {
   border-right: 1px solid var(--color-neutral-200);
+  grid-column: 1;
 }
 
 .workspace-editor {
   border-left: 1px solid var(--color-neutral-200);
+  grid-column: 5;
 }
 
 .workspace-viewer {
+  grid-column: 3;
   min-height: 0;
   min-width: 0;
   overflow: hidden;
+}
+
+.panel-divider-left {
+  grid-column: 2;
+}
+
+.panel-divider-right {
+  grid-column: 4;
 }
 
 .panel-divider {
