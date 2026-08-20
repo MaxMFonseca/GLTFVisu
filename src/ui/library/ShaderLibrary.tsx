@@ -121,10 +121,10 @@ export function ShaderLibrary({ portraitUrls }: ShaderLibraryProps) {
           <p className="panel-kicker">Library</p>
           <h1>Shaders</h1>
         </div>
-        <button type="button" className="icon-button" title="Create shader" aria-label="Create shader" onClick={() => void commands.createShader()}>＋</button>
       </div>
 
       <div className="library-actions" aria-label="Shader actions">
+        <button type="button" onClick={() => void commands.createShader()}>Create shader</button>
         <button type="button" onClick={() => void commands.duplicateShader()}>Duplicate shader</button>
         <button type="button" onClick={() => importInput.current?.click()}>Import shader</button>
         <input ref={importInput} className="visually-hidden" type="file" accept="application/json,.json" aria-label="Import shader file" tabIndex={-1} onChange={(event) => void importFile(event)} />
