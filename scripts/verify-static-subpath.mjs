@@ -4,7 +4,8 @@ import { basename, extname, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const TEXT_EXTENSIONS = new Set(['.css', '.html', '.js'])
-const CLOSURE_EXTENSIONS = new Set(['.css', '.hdr', '.js', '.png', '.svg'])
+const CLOSURE_EXTENSIONS = new Set(['.css', '.glb', '.hdr', '.js', '.png', '.svg'])
+const SUZANNE_MODEL_FILENAME = /^suzanne-[A-Za-z0-9_-]+\.glb$/
 const PORTRAIT_SLUGS = [
   'fresnel',
   'normal',
@@ -43,7 +44,7 @@ function referencedAssets(source, extension) {
   if (extension === '.js') {
     addMatches(references, source, /new URL\(\s*["']([^"']+)["']\s*,\s*import\.meta\.url\s*\)/g)
     addMatches(references, source, /import\(\s*["']([^"']+)["']\s*\)/g)
-    addMatches(references, source, /["'](\.\.?\/[^"']+\.(?:css|hdr|js|png|svg))["']/g)
+    addMatches(references, source, /["'](\.\.?\/[^"']+\.(?:css|glb|hdr|js|png|svg))["']/g)
   }
   return [...references].filter((reference) => !reference.startsWith('data:'))
 }
@@ -51,6 +52,7 @@ function referencedAssets(source, extension) {
 function contentType(path) {
   switch (extname(path)) {
     case '.css': return 'text/css; charset=utf-8'
+    case '.glb': return 'model/gltf-binary'
     case '.hdr': return 'application/octet-stream'
     case '.html': return 'text/html; charset=utf-8'
     case '.js': return 'text/javascript; charset=utf-8'
@@ -154,6 +156,9 @@ export async function verifyStaticSubpath({ distDir, repositoryPath = '/GLTFVisu
   }
 
   const hdrCount = files.filter((file) => extname(file) === '.hdr').length
+  const emittedModels = files.filter((file) => extname(file) === '.glb')
+  const emittedSuzanneModels = emittedModels.filter((file) => SUZANNE_MODEL_FILENAME.test(basename(file)))
+  const modelCount = emittedSuzanneModels.length
   const emittedPortraits = files
     .filter((file) => extname(file) === '.png')
     .map((file) => ({ file, slug: portraitSlug(file, '.png') }))
@@ -171,6 +176,8 @@ export async function verifyStaticSubpath({ distDir, repositoryPath = '/GLTFVisu
   const workerCount = files.filter((file) => /^editor\.worker-[\w-]+\.js$/.test(basename(file))).length
 
   if (hdrCount !== 4) unresolved.push(`Expected 4 emitted HDRs, found ${hdrCount}`)
+  if (emittedModels.length !== 1) unresolved.push(`Expected 1 emitted GLB, found ${emittedModels.length}`)
+  if (modelCount !== 1) unresolved.push(`Expected 1 emitted Suzanne GLB, found ${modelCount}`)
   for (const slug of PORTRAIT_SLUGS) {
     const count = emittedPortraits.filter((portrait) => portrait.slug === slug).length
     if (count === 0) unresolved.push(`Missing emitted portrait: ${slug}`)
@@ -191,6 +198,7 @@ export async function verifyStaticSubpath({ distDir, repositoryPath = '/GLTFVisu
 
   return {
     hdrCount,
+    modelCount,
     portraitCount,
     portraitSlugs,
     portraitOwners,
@@ -233,5 +241,5 @@ if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(
   const distDir = process.argv[2] ?? 'dist'
   const repositoryPath = process.argv[3] ?? '/GLTFVisu/'
   const result = await verifyStaticSubpath({ distDir, repositoryPath })
-  console.log(`Static subpath closure passed: ${result.requests.length} requests, ${result.hdrCount} HDRs, ${result.portraitCount} portraits, ${result.workerCount} Monaco worker, ${result.jsCssCount} JS/CSS chunks.`)
+  console.log(`Static subpath closure passed: ${result.requests.length} requests, ${result.modelCount} GLB, ${result.hdrCount} HDRs, ${result.portraitCount} portraits, ${result.workerCount} Monaco worker, ${result.jsCssCount} JS/CSS chunks.`)
 }
