@@ -82,9 +82,9 @@ describe('ViewerToolbar', () => {
     await user.selectOptions(screen.getByRole('combobox', { name: 'Animation clip' }), 'clip-1')
     expect(modelViewer.selectAnimation).toHaveBeenCalledWith('clip-1')
 
-    await user.click(screen.getByRole('button', { name: 'Pause animation' }))
-    expect(modelViewer.setAnimationPlaying).toHaveBeenCalledWith(false)
-    expect(screen.getByRole('button', { name: 'Play animation' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'Play animation' }))
+    expect(modelViewer.setAnimationPlaying).toHaveBeenCalledWith(true)
+    expect(screen.getByRole('button', { name: 'Pause animation' })).toBeEnabled()
   })
 
   it('renders duplicate animation names as separate selectable options', async () => {

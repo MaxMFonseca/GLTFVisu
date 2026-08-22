@@ -13,7 +13,7 @@ afterEach(() => {
 })
 
 describe('shader workspace shell', () => {
-  it('fetches the bundled Suzanne URL and loads it through the mounted viewer', async () => {
+  it('loads the bundled Fox model and starts its Survey animation', async () => {
     const repository: ShaderRepository = {
       list: vi.fn(async () => []),
       get: vi.fn(async () => undefined),
@@ -21,7 +21,7 @@ describe('shader workspace shell', () => {
       delete: vi.fn(async () => undefined),
     }
     const engine: ViewerPort = {
-      loadModel: vi.fn(async (_files, root) => ({ name: root.name, meshCount: 1, animationClips: [], textureSlots: [] })),
+      loadModel: vi.fn(async (_files, root) => ({ name: root.name, meshCount: 1, animationClips: [{ id: 'clip-0', label: 'Survey' }], textureSlots: [] })),
       replaceModelTexture: vi.fn(async () => []),
       restoreModelTexture: vi.fn(async () => []),
       fitModel: vi.fn(),
@@ -44,7 +44,7 @@ describe('shader workspace shell', () => {
 
     render(<App repository={repository} createViewer={() => engine} />)
 
-    expect(fetcher).toHaveBeenCalledWith(expect.stringMatching(/suzanne\.glb$/))
+    expect(fetcher).toHaveBeenCalledWith(expect.stringMatching(/fox\.glb$/))
     expect(engine.loadModel).not.toHaveBeenCalled()
     await act(async () => {
       resolveFetch(new Response(new Blob(['glb'], { type: 'model/gltf-binary' }), { status: 200 }))
@@ -53,7 +53,9 @@ describe('shader workspace shell', () => {
 
     const [files, root] = vi.mocked(engine.loadModel).mock.calls[0]
     expect(files).toEqual([root])
-    expect(root).toMatchObject({ name: 'Suzanne.glb', type: 'model/gltf-binary' })
+    expect(root).toMatchObject({ name: 'Fox.glb', type: 'model/gltf-binary' })
+    expect(engine.selectAnimation).toHaveBeenCalledWith('clip-0')
+    expect(engine.setAnimationPlaying).toHaveBeenCalledWith(true)
   })
 
   it('shows the workspace landmark and empty viewer guidance', async () => {

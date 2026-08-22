@@ -1,6 +1,10 @@
 export interface DefaultModelDefinition {
   url: string
   fileName: string
+  initialAnimation?: {
+    name: string
+    playing: boolean
+  }
 }
 
 export type DefaultModelFetcher = (url: string) => Promise<Blob>

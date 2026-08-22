@@ -12,7 +12,7 @@
     "lint": "eslint .",
     "build": "npm run typecheck && vite build",
     "verify:static": "node --test scripts/verify-static-subpath.node.mjs && node scripts/verify-static-subpath.mjs dist /GLTFVisu/",
-    "verify:model": "node --test scripts/verify-suzanne.node.mjs",
+    "verify:model": "node --test scripts/verify-default-model.node.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

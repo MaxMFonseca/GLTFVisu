@@ -25,23 +25,25 @@ function mixerFor(clips: readonly AnimationClip[]) {
 }
 
 describe('AnimationController', () => {
-  it('autoplays the first clip and switches clips without routing through React', () => {
+  it('selects the first clip paused and switches clips without routing through React', () => {
     const clips = [new AnimationClip('Idle', 1), new AnimationClip('Walk', 2)]
     const { actions, mixer } = mixerFor(clips)
     const controller = new AnimationController(new Group(), clips, () => mixer)
 
     expect(controller.clips).toEqual([{ id: 'clip-0', label: 'Idle' }, { id: 'clip-1', label: 'Walk' }])
     expect(controller.selectedClipId).toBe('clip-0')
-    expect(controller.playing).toBe(true)
+    expect(controller.playing).toBe(false)
+    expect(actions.get(clips[0])?.paused).toBe(true)
     expect(actions.get(clips[0])?.reset).toHaveBeenCalledTimes(1)
     expect(actions.get(clips[0])?.play).toHaveBeenCalledTimes(1)
 
     controller.select('clip-1')
+    controller.setPlaying(true)
     controller.update(0.25)
 
     expect(actions.get(clips[0])?.stop).toHaveBeenCalledTimes(1)
     expect(actions.get(clips[1])?.reset).toHaveBeenCalledTimes(1)
-    expect(actions.get(clips[1])?.play).toHaveBeenCalledTimes(1)
+    expect(actions.get(clips[1])?.play).toHaveBeenCalledTimes(2)
     expect(mixer.update).toHaveBeenCalledWith(0.25)
   })
 

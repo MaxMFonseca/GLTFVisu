@@ -387,7 +387,7 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
         animations: {
           clips: action.info.animationClips.map((clip) => ({ ...clip })),
           selectedClipId: action.info.animationClips[0]?.id,
-          playing: action.info.animationClips.length > 0,
+          playing: false,
         },
       }
     case 'environmentLoadStarted':

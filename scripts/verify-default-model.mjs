@@ -64,36 +64,61 @@ function verifyBufferViews(json, bin) {
   }
 }
 
-export async function verifySuzanne(path) {
+export async function verifyDefaultModel(path) {
   const { json, bin } = parseGlb(await readFile(path))
   verifyBufferViews(json, bin)
-  const mesh = requireSingle(json.meshes, 'mesh')
-  const primitive = requireSingle(mesh.primitives, 'mesh primitive')
-  for (const attribute of ['POSITION', 'NORMAL', 'TEXCOORD_0']) {
-    requireIndex(primitive.attributes?.[attribute], json.accessors ?? [], attribute)
+  assert.ok((json.meshes?.length ?? 0) > 0, 'Expected at least one mesh')
+  assert.ok((json.images?.length ?? 0) > 0, 'Expected at least one embedded image')
+  assert.ok((json.skins?.length ?? 0) > 0, 'Expected at least one skin')
+  assert.ok((json.animations?.length ?? 0) > 0, 'Expected named animations')
+
+  let morphTargetCount = 0
+  for (const mesh of json.meshes) {
+    assert.ok((mesh.primitives?.length ?? 0) > 0, 'Mesh must contain a primitive')
+    for (const primitive of mesh.primitives) {
+      requireIndex(primitive.attributes?.POSITION, json.accessors ?? [], 'POSITION')
+      if (primitive.attributes?.NORMAL !== undefined) requireIndex(primitive.attributes.NORMAL, json.accessors ?? [], 'NORMAL')
+      if (primitive.attributes?.TEXCOORD_0 !== undefined) requireIndex(primitive.attributes.TEXCOORD_0, json.accessors ?? [], 'TEXCOORD_0')
+      if (primitive.material !== undefined) requireIndex(primitive.material, json.materials ?? [], 'material')
+      for (const target of primitive.targets ?? []) {
+        morphTargetCount += 1
+        for (const [attribute, accessor] of Object.entries(target)) {
+          requireIndex(accessor, json.accessors ?? [], `morph target ${attribute}`)
+        }
+      }
+    }
   }
 
-  const material = requireSingle(json.materials, 'material')
-  assert.equal(primitive.material, 0, 'Mesh primitive must use the sole material')
+  for (const image of json.images) {
+    assert.equal(image.uri, undefined, 'Images must be embedded')
+    requireIndex(image.bufferView, json.bufferViews ?? [], 'image buffer view')
+    assert.match(image.mimeType ?? '', /^image\/(png|jpeg|webp)$/, 'Embedded image must declare a supported MIME type')
+  }
+  for (const texture of json.textures ?? []) {
+    requireIndex(texture.source, json.images, 'texture image')
+    if (texture.sampler !== undefined) requireIndex(texture.sampler, json.samplers ?? [], 'texture sampler')
+  }
+  for (const skin of json.skins) {
+    assert.ok((skin.joints?.length ?? 0) > 0, 'Skin must contain joints')
+    for (const joint of skin.joints) requireIndex(joint, json.nodes ?? [], 'skin joint')
+    if (skin.inverseBindMatrices !== undefined) requireIndex(skin.inverseBindMatrices, json.accessors ?? [], 'inverse bind matrices')
+  }
 
-  const image = requireSingle(json.images, 'embedded image')
-  requireIndex(image.bufferView, json.bufferViews ?? [], 'image buffer view')
-  assert.equal(image.mimeType, 'image/png', 'Embedded image must be PNG')
-  const sampler = requireSingle(json.samplers, 'sampler')
-  const texture = requireSingle(json.textures, 'texture')
-  assert.equal(requireIndex(texture.source, json.images, 'texture image'), image, 'Texture must reference the embedded image')
-  assert.equal(requireIndex(texture.sampler, json.samplers, 'texture sampler'), sampler, 'Texture must reference the sampler')
-  assert.ok(sampler, 'Texture requires a sampler')
-
-  const pbr = material.pbrMetallicRoughness
-  assert.equal(requireIndex(pbr?.baseColorTexture?.index, json.textures, 'base color texture'), texture, 'Material must use the embedded texture')
-  assert.equal(pbr.metallicFactor, 0, 'Material must be non-metallic')
-  assert.ok(Math.abs(pbr.roughnessFactor - 0.8) <= 1e-6, 'Material must have roughness 0.8')
-
-  for (const embeddedImage of json.images ?? []) assert.equal(embeddedImage.uri, undefined, 'Images must be embedded')
+  const animationNames = json.animations.map((animation) => animation.name).filter(Boolean)
+  assert.equal(animationNames.length, json.animations.length, 'Every animation must be named')
+  const baseColorTextureCount = (json.materials ?? []).filter((material) => {
+    const index = material.pbrMetallicRoughness?.baseColorTexture?.index
+    if (index === undefined) return false
+    requireIndex(index, json.textures ?? [], 'base color texture')
+    return true
+  }).length
+  assert.ok(baseColorTextureCount > 0, 'Expected at least one base-color texture')
   return {
     meshCount: json.meshes.length,
     imageCount: json.images.length,
-    baseColorTextureCount: json.materials.filter((item) => item.pbrMetallicRoughness?.baseColorTexture).length,
+    baseColorTextureCount,
+    skinCount: json.skins.length,
+    morphTargetCount,
+    animationNames,
   }
 }

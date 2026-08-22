@@ -23,6 +23,8 @@ interface FakeViewer {
   loadEnvironment(source: EnvironmentLoadSource): Promise<void>
   updateEnvironment(settings: EnvironmentDisplaySettings): void
   compileShader(draft: ShaderDraft): Promise<CompileResult>
+  selectAnimation(name: string): void
+  setAnimationPlaying(playing: boolean): void
   setPortraitView(): void
   dispose(): void
 }
@@ -38,7 +40,7 @@ function successfulViewer(order: string[]): FakeViewer {
   return {
     loadModel: vi.fn(async () => {
       order.push('load-model')
-      return { name: 'suzanne.glb', meshCount: 1, animationClips: [], textureSlots: [] }
+      return { name: 'fox.glb', meshCount: 1, animationClips: [{ id: 'clip-0', label: 'Survey' }], textureSlots: [] }
     }),
     loadEnvironment: vi.fn(async () => { order.push('load-environment') }),
     updateEnvironment: vi.fn(() => { order.push('update-environment') }),
@@ -46,6 +48,8 @@ function successfulViewer(order: string[]): FakeViewer {
       order.push('compile-shader')
       return { status: 'valid', generation: 1 }
     }),
+    selectAnimation: vi.fn(() => { order.push('select-survey') }),
+    setAnimationPlaying: vi.fn(() => { order.push('pause-animation') }),
     setPortraitView: vi.fn(() => { order.push('set-portrait-view') }),
     dispose: vi.fn(),
   }
@@ -93,6 +97,8 @@ describe('renderBuiltinPortrait', () => {
 
     expect(order).toEqual([
       'load-model',
+      'select-survey',
+      'pause-animation',
       'load-environment',
       'update-environment',
       'compile-shader',
@@ -103,9 +109,11 @@ describe('renderBuiltinPortrait', () => {
     ])
     expect(state).toEqual({ status: 'ready', shaderId: selected.id })
     expect(viewer.loadModel).toHaveBeenCalledWith(
-      [expect.objectContaining({ name: 'suzanne.glb', type: 'model/gltf-binary' })],
-      expect.objectContaining({ name: 'suzanne.glb', type: 'model/gltf-binary' }),
+      [expect.objectContaining({ name: 'fox.glb', type: 'model/gltf-binary' })],
+      expect.objectContaining({ name: 'fox.glb', type: 'model/gltf-binary' }),
     )
+    expect(viewer.selectAnimation).toHaveBeenCalledWith('clip-0')
+    expect(viewer.setAnimationPlaying).toHaveBeenCalledWith(false)
     expect(viewer.loadEnvironment).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'bundled',
       id: 'poly-haven-studio',

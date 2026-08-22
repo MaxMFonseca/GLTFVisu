@@ -17,7 +17,7 @@ const PORTRAIT_SLUGS = [
   'uv-grid',
 ]
 const DEFAULT_PORTRAITS = PORTRAIT_SLUGS.map((slug) => `${slug}-a.png`)
-const DEFAULT_MODEL = 'suzanne-a.glb'
+const DEFAULT_MODEL = 'fox-a.glb'
 
 async function createFixture({
   indexSource = '<script type="module" src="./assets/app-a.js"></script><link rel="stylesheet" href="./assets/app-a.css">',
@@ -63,7 +63,7 @@ async function createFixture({
   return root
 }
 
-test('crawls the exact bundled Suzanne GLB and eight emitted PNG portraits beneath the simulated repository subpath', async () => {
+test('crawls the exact bundled Fox GLB and eight emitted PNG portraits beneath the simulated repository subpath', async () => {
   const root = await createFixture()
   try {
     const result = await verifyStaticSubpath({ distDir: root, repositoryPath: '/GLTFVisu/' })
@@ -77,13 +77,13 @@ test('crawls the exact bundled Suzanne GLB and eight emitted PNG portraits benea
     assert.equal(result.workerCount, 1)
     assert.equal(result.unresolved.length, 0)
     assert.ok(result.requests.every((request) => request.startsWith('/GLTFVisu/')))
-    assert.ok(result.requests.some((request) => /^\/GLTFVisu\/assets\/suzanne-[\w-]+\.glb$/.test(request)))
+    assert.ok(result.requests.some((request) => /^\/GLTFVisu\/assets\/fox-[\w-]+\.glb$/.test(request)))
   } finally {
     await rm(root, { recursive: true, force: true })
   }
 })
 
-test('rejects a missing bundled Suzanne GLB', async () => {
+test('rejects a missing bundled Fox GLB', async () => {
   const root = await createFixture({ modelFiles: [], modelReferences: [] })
   try {
     await assert.rejects(
@@ -95,12 +95,12 @@ test('rejects a missing bundled Suzanne GLB', async () => {
   }
 })
 
-test('rejects a referenced non-Suzanne GLB even when it is the sole bundled model', async () => {
+test('rejects a referenced non-Fox GLB even when it is the sole bundled model', async () => {
   const root = await createFixture({ modelFiles: ['other-model-a.glb'] })
   try {
     await assert.rejects(
       verifyStaticSubpath({ distDir: root, repositoryPath: '/GLTFVisu/' }),
-      /Expected 1 emitted Suzanne GLB, found 0/,
+      /Expected 1 emitted Fox GLB, found 0/,
     )
   } finally {
     await rm(root, { recursive: true, force: true })
@@ -108,7 +108,7 @@ test('rejects a referenced non-Suzanne GLB even when it is the sole bundled mode
 })
 
 test('rejects multiple bundled GLB files', async () => {
-  const root = await createFixture({ modelFiles: [DEFAULT_MODEL, 'suzanne-b.glb'] })
+  const root = await createFixture({ modelFiles: [DEFAULT_MODEL, 'fox-b.glb'] })
   try {
     await assert.rejects(
       verifyStaticSubpath({ distDir: root, repositoryPath: '/GLTFVisu/' }),

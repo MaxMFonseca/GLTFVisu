@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { BufferAttribute, BufferGeometry, Group, Mesh, MeshBasicMaterial } from 'three'
 import { GltfAssetLoader } from './GltfAssetLoader'
 
 const parse = vi.hoisted(() => vi.fn())
@@ -84,12 +85,38 @@ describe('GltfAssetLoader', () => {
   it('passes GLTFLoader-generated blob URLs through without treating them as local files', async () => {
     parse.mockImplementation((manager: { resolveURL(url: string): string }, _data: unknown, _basePath: string, onLoad: (value: unknown) => void) => {
       expect(manager.resolveURL('blob:embedded-base-color')).toBe('blob:embedded-base-color')
-      onLoad({ scene: {} })
+      onLoad({ scene: new Group() })
     })
     const root = localFile('embedded.glb', 'embedded.glb')
     Object.defineProperty(root, 'arrayBuffer', { value: async () => new ArrayBuffer(0) })
 
-    await expect(new GltfAssetLoader().load([root], root)).resolves.toEqual({ scene: {} })
+    await expect(new GltfAssetLoader().load([root], root)).resolves.toEqual({ scene: expect.any(Group) })
     expect(createObjectURL).not.toHaveBeenCalled()
+  })
+
+  it('generates normals for loaded mesh geometry only when the asset omits them', async () => {
+    const missingNormals = new BufferGeometry()
+    missingNormals.setAttribute('position', new BufferAttribute(new Float32Array([
+      0, 0, 0, 1, 0, 0, 0, 1, 0,
+    ]), 3))
+    const existingNormals = missingNormals.clone()
+    const originalNormal = new BufferAttribute(new Float32Array([
+      0, 0, 1, 0, 0, 1, 0, 0, 1,
+    ]), 3)
+    existingNormals.setAttribute('normal', originalNormal)
+    const scene = new Group().add(
+      new Mesh(missingNormals, new MeshBasicMaterial()),
+      new Mesh(existingNormals, new MeshBasicMaterial()),
+    )
+    parse.mockImplementation((_manager: unknown, _data: unknown, _basePath: string, onLoad: (value: unknown) => void) => {
+      onLoad({ scene, animations: [] })
+    })
+    const root = localFile('embedded.glb', 'embedded.glb')
+    Object.defineProperty(root, 'arrayBuffer', { value: async () => new ArrayBuffer(0) })
+
+    await new GltfAssetLoader().load([root], root)
+
+    expect(missingNormals.getAttribute('normal')).toBeDefined()
+    expect(existingNormals.getAttribute('normal')).toBe(originalNormal)
   })
 })

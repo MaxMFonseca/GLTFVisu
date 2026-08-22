@@ -1,4 +1,4 @@
-import { LoadingManager } from 'three'
+import { LoadingManager, Mesh, type Object3D } from 'three'
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js'
 import { LocalAssetMap, classifyModelFiles } from './resources/LocalAssetMap'
 import { directoryOf, relativePathForFile } from './resources/path'
@@ -47,6 +47,7 @@ export class GltfAssetLoader {
 
       const gltf = await parseGltf(loader, data, basePath, signal)
       if (signal?.aborted) throw new ModelLoadError('aborted', 'Model loading was aborted')
+      ensureMeshNormals(gltf.scene)
       return gltf
     } catch (error) {
       if (error instanceof ModelLoadError) throw error
@@ -56,6 +57,16 @@ export class GltfAssetLoader {
       assets.revoke()
     }
   }
+}
+
+function ensureMeshNormals(root: Object3D): void {
+  root.traverse((object) => {
+    if (!(object instanceof Mesh)) return
+    const geometry = object.geometry
+    if (geometry.getAttribute('position') !== undefined && geometry.getAttribute('normal') === undefined) {
+      geometry.computeVertexNormals()
+    }
+  })
 }
 
 function parseGltf(loader: GLTFLoader, data: string | ArrayBuffer, basePath: string, signal?: AbortSignal): Promise<GLTF> {

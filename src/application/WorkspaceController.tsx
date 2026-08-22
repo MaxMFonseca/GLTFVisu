@@ -30,7 +30,7 @@ import {
   type EnvironmentLoadSource,
 } from '../domain/environment'
 import type { ShaderRepository } from './ShaderRepository'
-import type { ViewerPort } from './ViewerPort'
+import type { ModelInfo, ViewerPort } from './ViewerPort'
 import type { WorkspaceCommands } from './commands'
 import {
   fetchDefaultModel,
@@ -299,17 +299,19 @@ export function WorkspaceProvider({
     generation: number,
     files: File[],
     root: File,
-  ): Promise<void> => {
+  ): Promise<ModelInfo | undefined> => {
     try {
       const info = await viewer.loadModel(files, root)
       if (activeRef.current && generation === loadGenerationRef.current) {
         dispatch({ type: 'modelLoadSucceeded', generation, info })
+        return info
       }
     } catch (error) {
       if (activeRef.current && generation === loadGenerationRef.current) {
         dispatch({ type: 'operationFailed', scope: 'model', message: errorMessage(error) })
       }
     }
+    return undefined
   }, [viewer])
 
   useEffect(() => {
@@ -332,7 +334,23 @@ export function WorkspaceProvider({
       void request.then(
         (file) => {
           if (activeRef.current && generation === loadGenerationRef.current) {
-            void completeModelLoad(generation, [file], file)
+            void completeModelLoad(generation, [file], file).then((info) => {
+              if (
+                info === undefined
+                || defaultModel.initialAnimation === undefined
+                || !activeRef.current
+                || generation !== loadGenerationRef.current
+              ) return
+              const clip = info.animationClips.find(({ label }) => label === defaultModel.initialAnimation?.name)
+              if (clip === undefined) return
+              viewer.selectAnimation(clip.id)
+              viewer.setAnimationPlaying(defaultModel.initialAnimation.playing)
+              dispatch({
+                type: 'animationsChanged',
+                selectedClipId: clip.id,
+                playing: defaultModel.initialAnimation.playing,
+              })
+            })
           }
         },
         (error: unknown) => {

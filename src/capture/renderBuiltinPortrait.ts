@@ -1,4 +1,4 @@
-import suzanneModelUrl from '../assets/models/suzanne.glb?url'
+import foxModelUrl from '../assets/models/fox.glb?url'
 import studioEnvironmentUrl from '../assets/environments/poly-haven-studio-1k.hdr?url'
 import type { CompileResult, ModelInfo } from '../application/ViewerPort'
 import { cloneShader } from '../application/workspaceState'
@@ -13,6 +13,8 @@ export interface PortraitViewer {
   loadEnvironment(source: EnvironmentLoadSource): Promise<void>
   updateEnvironment(settings: EnvironmentDisplaySettings): void
   compileShader(draft: ShaderDraft): Promise<CompileResult>
+  selectAnimation(name: string): void
+  setAnimationPlaying(playing: boolean): void
   setPortraitView(): void
   dispose(): void
 }
@@ -44,15 +46,19 @@ export async function renderBuiltinPortrait(
     const shader = BUILTIN_SHADERS.find(({ id }) => id === shaderId)
     if (shader === undefined) throw new Error(`Unknown built-in shader: ${shaderId}`)
 
-    const response = await (dependencies.fetch ?? globalThis.fetch)(suzanneModelUrl)
-    if (!response.ok) throw new Error('Unable to load Suzanne')
-    const model = new File([await response.blob()], 'suzanne.glb', { type: 'model/gltf-binary' })
+    const response = await (dependencies.fetch ?? globalThis.fetch)(foxModelUrl)
+    if (!response.ok) throw new Error('Unable to load Fox')
+    const model = new File([await response.blob()], 'fox.glb', { type: 'model/gltf-binary' })
 
     viewer = dependencies.createViewer?.(host) ?? new ViewerEngine(host, {}, { devicePixelRatio: 1 })
     teardown = () => viewer?.dispose()
     window.addEventListener('pagehide', teardown, { once: true })
 
-    await viewer.loadModel([model], model)
+    const modelInfo = await viewer.loadModel([model], model)
+    const survey = modelInfo.animationClips.find(({ label }) => label === 'Survey')
+    if (survey === undefined) throw new Error('Fox is missing its Survey animation')
+    viewer.selectAnimation(survey.id)
+    viewer.setAnimationPlaying(false)
     await viewer.loadEnvironment({
       kind: 'bundled',
       id: 'poly-haven-studio',

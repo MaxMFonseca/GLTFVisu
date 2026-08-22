@@ -104,7 +104,7 @@ describe('WorkspaceProvider with ViewerEngine', () => {
     const userRoot = new Group().add(new Mesh(new BoxGeometry(), new MeshBasicMaterial()))
     const disposeDefaultGeometry = vi.spyOn(defaultGeometry, 'dispose')
     const loader: ModelLoaderPort = {
-      load: vi.fn((_files, root) => root.name === 'Suzanne.glb'
+      load: vi.fn((_files, root) => root.name === 'Fox.glb'
         ? defaultParse.promise
         : Promise.resolve({ scene: userRoot, animations: [] })),
     }
@@ -119,15 +119,15 @@ describe('WorkspaceProvider with ViewerEngine', () => {
       <WorkspaceProvider
         repository={createRepository()}
         viewer={viewer}
-        defaultModel={{ url: '/assets/suzanne.glb', fileName: 'Suzanne.glb' }}
+        defaultModel={{ url: '/assets/fox.glb', fileName: 'Fox.glb' }}
         defaultModelFetcher={vi.fn(async () => new Blob(['default']))}
       >
         <Probe />
       </WorkspaceProvider>,
     )
     await waitFor(() => expect(loader.load).toHaveBeenCalledWith(
-      [expect.objectContaining({ name: 'Suzanne.glb' })],
-      expect.objectContaining({ name: 'Suzanne.glb' }),
+      [expect.objectContaining({ name: 'Fox.glb' })],
+      expect.objectContaining({ name: 'Fox.glb' }),
       expect.any(AbortSignal),
     ))
     if (workspace === undefined) throw new Error('Workspace did not render')

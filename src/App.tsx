@@ -6,7 +6,7 @@ import type { ShaderParameterDefinition, ShaderParameterValue } from './domain/p
 import type { ShaderDraft, ShaderPortrait } from './domain/shader'
 import type { EnvironmentDisplaySettings, EnvironmentLoadSource } from './domain/environment'
 import { BUILTIN_ENVIRONMENTS } from './domain/environments'
-import suzanneModelUrl from './assets/models/suzanne.glb?url'
+import foxModelUrl from './assets/models/fox.glb?url'
 import { IndexedDbShaderRepository } from './persistence/IndexedDbShaderRepository'
 import { ViewerEngine } from './three/ViewerEngine'
 import { Workspace } from './ui/Workspace'
@@ -21,7 +21,11 @@ export interface AppProps {
 
 const DEFAULT_VIEWER_FACTORY: ViewerEngineFactory = (host) => new ViewerEngine(host)
 const DEFAULT_REPOSITORY = new IndexedDbShaderRepository()
-const DEFAULT_MODEL = { url: suzanneModelUrl, fileName: 'Suzanne.glb' }
+const DEFAULT_MODEL = {
+  url: foxModelUrl,
+  fileName: 'Fox.glb',
+  initialAnimation: { name: 'Survey', playing: true },
+}
 
 class MountedViewerPort implements ViewerPort {
   private engine?: ViewerPort
