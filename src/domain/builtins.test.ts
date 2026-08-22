@@ -20,6 +20,19 @@ describe('BUILTIN_ENVIRONMENTS', () => {
 })
 
 describe('BUILTIN_SHADERS', () => {
+  it('presents the primary material shaders first in the requested library order', () => {
+    expect(BUILTIN_SHADERS.map(({ id }) => id)).toEqual([
+      'builtin-pbr',
+      'builtin-toon',
+      'builtin-normal',
+      'builtin-unlit-color',
+      'builtin-uv-grid',
+      'builtin-fresnel',
+      'builtin-procedural-matcap',
+      'builtin-rim-light',
+    ])
+  })
+
   it('ships eight immutable valid shader definitions with bundled portraits', () => {
     expect(BUILTIN_SHADERS).toHaveLength(8)
     expect(Object.isFrozen(BUILTIN_SHADERS)).toBe(true)
@@ -75,7 +88,7 @@ describe('BUILTIN_SHADERS', () => {
         { id: 'use-normal-map', uniformName: 'uUseNormalMap', type: 'boolean', defaultValue: true },
         { id: 'environment-contribution', uniformName: 'uEnvironmentContribution', type: 'float', min: 0, max: 4, step: 0.01, defaultValue: 1 },
         { id: 'ambient-color', uniformName: 'uAmbientColor', type: 'color', defaultValue: '#ffffff' },
-        { id: 'ambient-intensity', uniformName: 'uAmbientIntensity', type: 'float', min: 0, max: 2, step: 0.01, defaultValue: 0 },
+        { id: 'ambient-intensity', uniformName: 'uAmbientIntensity', type: 'float', min: 0, max: 2, step: 0.01, defaultValue: 1 },
       ],
       parameterValues: {
         'base-color-tint': '#ffffff',
@@ -87,7 +100,7 @@ describe('BUILTIN_SHADERS', () => {
         'use-normal-map': true,
         'environment-contribution': 1,
         'ambient-color': '#ffffff',
-        'ambient-intensity': 0,
+        'ambient-intensity': 1,
       },
     })
     expect(validateParameterDefinitions(pbr?.parameters ?? [])).toEqual([])
@@ -104,9 +117,9 @@ describe('BUILTIN_SHADERS', () => {
       parameters: [
         { id: 'color', uniformName: 'uColor', type: 'color', defaultValue: '#7aa2f7' },
         { id: 'ambient-color', uniformName: 'uAmbientColor', type: 'color', defaultValue: '#ffffff' },
-        { id: 'ambient-intensity', uniformName: 'uAmbientIntensity', type: 'float', min: 0, max: 2, step: 0.01, defaultValue: 0 },
+        { id: 'ambient-intensity', uniformName: 'uAmbientIntensity', type: 'float', min: 0, max: 2, step: 0.01, defaultValue: 1 },
       ],
-      parameterValues: { color: '#7aa2f7', 'ambient-color': '#ffffff', 'ambient-intensity': 0 },
+      parameterValues: { color: '#7aa2f7', 'ambient-color': '#ffffff', 'ambient-intensity': 1 },
     })
     expect(color?.fragmentSource).toContain('vec4 albedo = sampleGltfBaseColor();')
     expect(color?.fragmentSource).toContain(
@@ -134,5 +147,7 @@ describe('BUILTIN_SHADERS', () => {
     expect(toon?.fragmentSource).toContain(
       'if (uGltfAlphaCutoff > 0.0 && albedo.a < uGltfAlphaCutoff) discard;',
     )
+    expect(toon?.parameters.find(({ id }) => id === 'ambient-intensity')?.defaultValue).toBe(1)
+    expect(toon?.parameterValues['ambient-intensity']).toBe(1)
   })
 })

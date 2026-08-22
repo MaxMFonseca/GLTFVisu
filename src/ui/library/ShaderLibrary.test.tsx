@@ -98,7 +98,7 @@ describe('ShaderLibrary', () => {
     renderLibrary()
 
     expect(screen.getByRole('heading', { name: 'Built-in' })).toBeVisible()
-    expect(screen.getByRole('button', { name: 'Normal' })).toHaveAttribute('aria-current', 'true')
+    expect(screen.getByRole('button', { name: 'PBR' })).toHaveAttribute('aria-current', 'true')
     expect(screen.getByRole('img', { name: 'Normal preview' })).toBeVisible()
     expect(await screen.findByText(/create a shader or duplicate a built-in/i)).toBeVisible()
     expect(screen.getByRole('button', { name: 'Delete shader' })).toBeDisabled()
