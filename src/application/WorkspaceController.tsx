@@ -701,6 +701,9 @@ export function WorkspaceProvider({
       const normalized = normalizeEnvironmentBlur(blur)
       if (normalized !== undefined) updateEnvironmentSettings({ blur: normalized })
     },
+    updateCamera(settings) {
+      viewer.updateCamera(settings)
+    },
     fitModel() {
       viewer.fitModel()
     },

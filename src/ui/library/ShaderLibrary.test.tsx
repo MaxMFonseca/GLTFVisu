@@ -47,6 +47,7 @@ function viewer(): ViewerPort {
     updateParameter: vi.fn(),
     loadEnvironment: vi.fn(async () => undefined),
     updateEnvironment: vi.fn(),
+    updateCamera: vi.fn(),
     capturePortrait: vi.fn(async () => ({
       kind: 'captured' as const, blob: new Blob(['portrait']), mimeType: 'image/png' as const, width: 2, height: 2,
     })),

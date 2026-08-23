@@ -72,6 +72,7 @@ function createViewer(): ViewerPort {
     updateParameter: vi.fn(),
     loadEnvironment: vi.fn(async () => undefined),
     updateEnvironment: vi.fn(),
+    updateCamera: vi.fn(),
     capturePortrait: vi.fn(async (): Promise<ShaderPortrait> => ({
       kind: 'captured', blob: new Blob(['portrait']), mimeType: 'image/png', width: 4, height: 4,
     })),

@@ -40,11 +40,13 @@
   font-size: var(--font-size-xs);
 }
 
-.environment-control {
+.environment-control,
+.camera-control {
   position: static;
 }
 
-.environment-popover {
+.environment-popover,
+.camera-popover {
   background: var(--color-neutral-0);
   border: 1px solid var(--color-neutral-300);
   border-radius: 0.35rem;
@@ -61,7 +63,8 @@
   z-index: 2;
 }
 
-.environment-popover-section {
+.environment-popover-section,
+.camera-popover-section {
   border: 0;
   display: grid;
   gap: var(--space-2);
@@ -72,6 +75,8 @@
 
 .environment-popover legend,
 .environment-popover label,
+.camera-popover legend,
+.camera-popover label,
 .environment-help,
 .environment-loading,
 .environment-error {
@@ -81,7 +86,8 @@
 
 .environment-popover select,
 .environment-popover input,
-.environment-popover button {
+.environment-popover button,
+.camera-popover input {
   max-width: 100%;
 }
 
@@ -98,7 +104,8 @@
 }
 
 .environment-url-control,
-.environment-number-control {
+.environment-number-control,
+.camera-number-control {
   align-items: center;
   display: grid;
   gap: var(--space-2);
@@ -109,9 +116,18 @@
   grid-column: 1;
 }
 
+.camera-number-control > input[type='range'] {
+  grid-column: 1;
+}
+
 .environment-number-control > input[type='number'] {
   grid-column: 2;
   inline-size: 4.75rem;
+}
+
+.camera-number-control > input[type='number'] {
+  grid-column: 2;
+  inline-size: 6.5rem;
 }
 
 .environment-blur-control {
@@ -134,6 +150,11 @@
 
 @media (max-width: 36rem) {
   .environment-popover {
+    left: auto;
+    right: 0;
+  }
+
+  .camera-popover {
     left: auto;
     right: 0;
   }

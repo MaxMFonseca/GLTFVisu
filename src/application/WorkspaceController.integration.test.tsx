@@ -47,8 +47,11 @@ function createViewer(loader: ModelLoaderPort, onModelName: (name: string) => vo
   Object.defineProperty(host, 'clientHeight', { configurable: true, value: 400 })
   const canvas = document.createElement('canvas')
   const renderer: ViewerRenderer = {
+    autoClear: true,
     debug: { checkShaderErrors: true, onShaderError: null },
     domElement: canvas,
+    clear: vi.fn(),
+    clearDepth: vi.fn(),
     dispose: vi.fn(),
     getDrawingBufferSize: vi.fn((target: Vector2) => target.set(canvas.width, canvas.height)),
     render: vi.fn(),

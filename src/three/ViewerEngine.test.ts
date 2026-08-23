@@ -5,6 +5,7 @@ import {
   Color,
   CubeReflectionMapping,
   CubeUVReflectionMapping,
+  EquirectangularReflectionMapping,
   DoubleSide,
   BufferGeometry,
   Group,
@@ -17,11 +18,14 @@ import {
   Points,
   PointsMaterial,
   PerspectiveCamera,
+  OrthographicCamera,
   ShaderMaterial,
   Texture,
   Vector2,
   Vector3,
   type Object3D,
+  type Camera,
+  type Scene,
 } from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import type { ShaderParameterDefinition } from '../domain/parameters'
@@ -111,8 +115,11 @@ function createHarness(
   })
   const canvas = document.createElement('canvas')
   const renderer: ViewerRenderer = {
+    autoClear: true,
     debug: { checkShaderErrors: true, onShaderError: null },
     domElement: canvas,
+    clear: vi.fn(),
+    clearDepth: vi.fn(),
     dispose: vi.fn(),
     getDrawingBufferSize: vi.fn((target: Vector2) => target.set(canvas.width, canvas.height)),
     render: vi.fn(),
@@ -227,6 +234,155 @@ function deferred<T>(): {
 }
 
 describe('ViewerEngine', () => {
+  it('renders through an orthographic camera with the requested clipping and zoom', () => {
+    const harness = createHarness()
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    const perspective = harness.controls.object as PerspectiveCamera
+    const perspectiveHalfHeight = perspective.position.distanceTo(harness.controls.target)
+      * Math.tan(perspective.fov * Math.PI / 360)
+
+    ;(engine as ViewerEngine & { updateCamera(settings: unknown): void }).updateCamera({
+      projection: 'orthographic',
+      near: 0.25,
+      far: 250,
+      fov: 45,
+      zoom: 2,
+    })
+    harness.frames.values().next().value?.(0)
+
+    const camera = vi.mocked(harness.renderer.render).mock.calls.at(-1)?.[1]
+    expect(harness.renderer.render).toHaveBeenCalledTimes(1)
+    expect(camera).toBeInstanceOf(OrthographicCamera)
+    expect((camera as OrthographicCamera).near).toBe(0.25)
+    expect((camera as OrthographicCamera).far).toBe(250)
+    expect((camera as OrthographicCamera).zoom).toBe(2)
+    expect((camera as OrthographicCamera).top / (camera as OrthographicCamera).zoom)
+      .toBeCloseTo(perspectiveHalfHeight, 12)
+
+    engine.updateCamera({ projection: 'perspective', near: 0.25, far: 250, fov: 60, zoom: 2 })
+    harness.frames.values().next().value?.(0)
+    const restored = vi.mocked(harness.renderer.render).mock.calls.at(-1)?.[1] as PerspectiveCamera
+    expect(restored).toBeInstanceOf(PerspectiveCamera)
+    expect(restored.position.distanceTo(harness.controls.target) * Math.tan(restored.fov * Math.PI / 360))
+      .toBeCloseTo(perspectiveHalfHeight, 12)
+  })
+
+  it('normalizes invalid camera lens values before applying them', () => {
+    const harness = createHarness()
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+
+    engine.updateCamera({ projection: 'perspective', near: -10, far: -20, fov: 900, zoom: 0 })
+    harness.frames.values().next().value?.(0)
+
+    const camera = vi.mocked(harness.renderer.render).mock.calls.at(-1)?.[1] as PerspectiveCamera
+    expect(camera.near).toBe(0.001)
+    expect(camera.far).toBe(1)
+    expect(camera.fov).toBe(179)
+  })
+
+  it('renders a textured orthographic background before the model with a perspective skybox camera', () => {
+    const harness = createHarness()
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    harness.frames.values().next().value?.(0)
+    const viewerScene = vi.mocked(harness.renderer.render).mock.calls.at(-1)?.[0] as Scene
+    const background = new Texture()
+    background.mapping = EquirectangularReflectionMapping
+    viewerScene.background = background
+    viewerScene.backgroundBlurriness = 0.4
+    viewerScene.backgroundIntensity = 2
+    viewerScene.backgroundRotation.y = 0.7
+    engine.updateCamera({ projection: 'orthographic', near: 0.001, far: 10000, fov: 45, zoom: 1 })
+    vi.mocked(harness.renderer.render).mockClear()
+    const renderedBackgrounds: Scene['background'][] = []
+    vi.mocked(harness.renderer.render).mockImplementation((scene) => {
+      renderedBackgrounds.push((scene as Scene).background)
+    })
+
+    harness.frames.values().next().value?.(0)
+
+    expect(harness.renderer.render).toHaveBeenCalledTimes(2)
+    const backgroundScene = vi.mocked(harness.renderer.render).mock.calls[0]?.[0] as Scene
+    expect(backgroundScene).not.toBe(viewerScene)
+    expect(backgroundScene.background).toBeNull()
+    expect(backgroundScene.backgroundBlurriness).toBe(0.4)
+    expect(backgroundScene.backgroundIntensity).toBe(2)
+    expect(backgroundScene.backgroundRotation.y).toBe(0.7)
+    expect(renderedBackgrounds).toEqual([background, null])
+    expect(vi.mocked(harness.renderer.render).mock.calls[0]?.[1]).toBeInstanceOf(PerspectiveCamera)
+    expect(vi.mocked(harness.renderer.render).mock.calls[1]).toEqual([viewerScene, expect.any(OrthographicCamera)])
+    expect(viewerScene.background).toBe(background)
+    expect(harness.renderer.clear).toHaveBeenCalledWith(true, true, true)
+    expect(harness.renderer.clearDepth).toHaveBeenCalledOnce()
+    expect(harness.renderer.autoClear).toBe(true)
+  })
+
+  it('restores scene and renderer state when the orthographic model pass throws', () => {
+    const harness = createHarness()
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    harness.frames.values().next().value?.(0)
+    const viewerScene = vi.mocked(harness.renderer.render).mock.calls.at(-1)?.[0] as Scene
+    const background = new Texture()
+    background.mapping = EquirectangularReflectionMapping
+    viewerScene.background = background
+    engine.updateCamera({ projection: 'orthographic', near: 0.001, far: 10000, fov: 45, zoom: 1 })
+    vi.mocked(harness.renderer.render)
+      .mockReset()
+      .mockImplementationOnce(() => undefined)
+      .mockImplementationOnce(() => { throw new Error('model render failed') })
+
+    expect(() => harness.frames.values().next().value?.(0)).toThrow('model render failed')
+
+    const backgroundScene = vi.mocked(harness.renderer.render).mock.calls[0]?.[0] as Scene
+    expect(viewerScene.background).toBe(background)
+    expect(backgroundScene.background).toBeNull()
+    expect(harness.renderer.autoClear).toBe(true)
+  })
+
+  it('fits an orthographic view from its current orbit direction', async () => {
+    const root = new Group().add(new Mesh(new BoxGeometry(2, 4, 3), new MeshBasicMaterial()))
+    const loader: ModelLoaderPort = { load: vi.fn(async () => ({ scene: root, animations: [] })) }
+    const harness = createHarness({ loader })
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    const file = modelFile('subject.glb')
+    await engine.loadModel([file], file)
+    engine.updateCamera({ projection: 'orthographic', near: 0.01, far: 1000, fov: 45, zoom: 1 })
+    harness.frames.values().next().value?.(0)
+    const camera = vi.mocked(harness.renderer.render).mock.calls.at(-1)?.[1] as OrthographicCamera
+    camera.position.copy(harness.controls.target).add(new Vector3(10, 0, 0))
+    camera.lookAt(harness.controls.target)
+
+    engine.fitModel()
+
+    expect(camera.position.clone().sub(harness.controls.target).normalize()).toEqual(new Vector3(1, 0, 0))
+  })
+
+  it('keeps custom lens values while fitting and resizes the active orthographic frustum', async () => {
+    const root = new Group().add(new Mesh(new BoxGeometry(2, 4, 3), new MeshBasicMaterial()))
+    const loader: ModelLoaderPort = { load: vi.fn(async () => ({ scene: root, animations: [] })) }
+    const harness = createHarness({ loader })
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    const file = modelFile('subject.glb')
+    await engine.loadModel([file], file)
+    engine.updateCamera({ projection: 'orthographic', near: 0.5, far: 50, fov: 60, zoom: 3 })
+    const camera = harness.controls.object as OrthographicCamera
+
+    engine.fitModel()
+    ;(harness.host as HTMLDivElement & { setTestSize(width: number, height: number): void })
+      .setTestSize(300, 600)
+    harness.resize()
+
+    expect(camera.near).toBe(0.5)
+    expect(camera.far).toBe(50)
+    expect(camera.zoom).toBe(3)
+    expect(camera.right / camera.top).toBeCloseTo(0.5, 12)
+
+    engine.updateCamera({ projection: 'perspective', near: 0.5, far: 50, fov: 60, zoom: 3 })
+    const perspective = harness.controls.object as PerspectiveCamera
+    expect(perspective.near).toBe(0.5)
+    expect(perspective.far).toBe(50)
+    expect(perspective.fov).toBe(60)
+  })
+
   it('creates texture slots from original model materials before installing the active override', async () => {
     const originalTexture = new Texture()
     const originalMaterial = new MeshStandardMaterial({ name: 'Hull', map: originalTexture })
@@ -1200,6 +1356,30 @@ describe('ViewerEngine', () => {
     expect(createVariantFactory).toHaveBeenCalledWith('gltf-surface', harness.environment.binding)
     expect(new Set(createdFor)).toEqual(new Set([first, second]))
     engine.dispose()
+  })
+
+  it('keeps the orthographic resize scale after a model fit transaction rolls back', async () => {
+    const firstRoot = new Group().add(new Mesh(new BoxGeometry(), new MeshBasicMaterial()))
+    const secondRoot = new Group().add(new Mesh(new BoxGeometry(100, 100, 100), new MeshBasicMaterial()))
+    const loader: ModelLoaderPort = {
+      load: vi.fn()
+        .mockResolvedValueOnce({ scene: firstRoot, animations: [] })
+        .mockResolvedValueOnce({ scene: secondRoot, animations: [] }),
+    }
+    const harness = createHarness({ loader })
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    const firstFile = modelFile('first.glb')
+    await engine.loadModel([firstFile], firstFile)
+    engine.updateCamera({ projection: 'orthographic', near: 0.01, far: 1000, fov: 45, zoom: 1 })
+    const camera = harness.controls.object as OrthographicCamera
+    const originalTop = camera.top
+    vi.mocked(harness.controls.saveState).mockImplementationOnce(() => { throw new Error('controls commit failed') })
+
+    const secondFile = modelFile('second.glb')
+    await expect(engine.loadModel([secondFile], secondFile)).rejects.toThrow('controls commit failed')
+    harness.resize()
+
+    expect(camera.top).toBe(originalTop)
   })
 
   it('keeps none-profile compatibility sharing while preserving profile context cache splits', async () => {
@@ -2267,5 +2447,22 @@ describe('ViewerEngine', () => {
     })
     expect(capture).toHaveBeenCalledTimes(1)
     engine.dispose()
+  })
+
+  it('gives an injected capture owner access to the camera active at capture time', async () => {
+    const blob = new Blob(['portrait'], { type: 'image/webp' })
+    let activeCamera: (() => Camera) | undefined
+    const harness = createHarness({
+      createCapture: (_renderer, _scene, camera) => {
+        activeCamera = camera as unknown as () => Camera
+        return { capture: vi.fn(async () => ({ mimeType: 'image/webp' as const, blob, width: 1, height: 1 })) }
+      },
+    })
+    const engine = new ViewerEngine(harness.host, {}, harness.dependencies)
+    engine.updateCamera({ projection: 'orthographic', near: 0.01, far: 1000, fov: 45, zoom: 1 })
+
+    await engine.capturePortrait()
+
+    expect(activeCamera?.()).toBeInstanceOf(OrthographicCamera)
   })
 })

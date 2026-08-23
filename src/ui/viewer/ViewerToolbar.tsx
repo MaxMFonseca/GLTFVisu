@@ -1,6 +1,7 @@
 import { useWorkspace } from '../../application/WorkspaceController'
 import { hasLoadedModel } from '../../application/workspaceState'
 import { EnvironmentPopover } from './EnvironmentPopover'
+import { CameraPopover } from './CameraPopover'
 
 export function ViewerToolbar() {
   const { state, commands } = useWorkspace()
@@ -40,6 +41,7 @@ export function ViewerToolbar() {
         environmentCatalog={state.environmentCatalog}
         commands={commands}
       />
+      <CameraPopover commands={commands} />
     </div>
   )
 }
