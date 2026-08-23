@@ -1,6 +1,9 @@
 .shader-editor-panel {
   display: grid;
   gap: var(--space-3);
+  max-width: 100%;
+  min-width: 0;
+  width: 100%;
 }
 
 .builtin-controls-panel {
@@ -70,7 +73,10 @@
 
 .shader-source-editor {
   border: 1px solid var(--color-neutral-300);
+  max-width: 100%;
   min-height: 18rem;
+  min-width: 0;
+  width: 100%;
 }
 
 .shader-editor-fallback {
