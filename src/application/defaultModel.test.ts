@@ -1,6 +1,17 @@
 import { describe, expect, it, vi } from 'vitest'
 import { fetchDefaultModel, fetchDefaultModelBlob } from './defaultModel'
 
+function readBlob(blob: Blob): Promise<string> {
+  if (typeof blob.text === 'function') return blob.text()
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(reader.error)
+    reader.onload = () => resolve(String(reader.result))
+    reader.readAsText(blob)
+  })
+}
+
 describe('default model adapter', () => {
   it('fetches the configured URL and constructs a binary glTF file', async () => {
     const fetcher = vi.fn(async () => new Blob(['glb'], { type: 'model/gltf-binary' }))
@@ -39,7 +50,7 @@ describe('default model adapter', () => {
 
     const blob = await fetchDefaultModelBlob('/assets/fox.glb', fetcher)
 
-    expect(await blob.text()).toBe('glb')
+    expect(await readBlob(blob)).toBe('glb')
     expect(blob.type).toBe('model/gltf-binary')
     expect(fetcher).toHaveBeenCalledWith('/assets/fox.glb')
   })
