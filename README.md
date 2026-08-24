@@ -4,6 +4,10 @@ GLTF Shader Visualizer is a browser-based workspace for loading local GLB or GLT
 
 All model files, shader drafts, parameter values, and captured portraits stay in the browser. The app does not upload them to a server.
 
+![GLTF Shader Visualizer workspace showing the animated Fox model, shader library, texture controls, and GLSL editor](.github/assets/workspace-overview.png)
+
+_Edit glTF materials and GLSL shaders while previewing the result against animated models and HDR environments._
+
 ## Requirements
 
 - Node.js 20.19+ or 22.12+
